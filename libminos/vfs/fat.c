@@ -11,7 +11,7 @@
 #include <minos/kmalloc.h>
 #include <minos/compiler.h>
 
-#include <libminos/fs.h>
+#include <libminos/vfs.h>
 #include <libminos/blkdev.h>
 
 #define FAT12				0

@@ -7,7 +7,7 @@
 #include <minos/list.h>
 #include <minos/kmalloc.h>
 
-#include <libminos/fs.h>
+#include <libminos/vfs.h>
 #include <libminos/blkdev.h>
 
 #define MBR_SIG_SIZE 2

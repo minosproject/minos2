@@ -9,7 +9,8 @@
 #include <minos/compiler.h>
 
 #include <libminos/blkdev.h>
-#include <libminos/fs.h>
+#include <libminos/vfs.h>
+#include "fs.h"
 
 hidden extern int parse_mbr(struct blkdev *blkdev);
 hidden extern struct filesystem *lookup_filesystem(unsigned char type);

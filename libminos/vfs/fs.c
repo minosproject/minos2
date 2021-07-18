@@ -8,8 +8,9 @@
 #include <minos/debug.h>
 #include <minos/kmalloc.h>
 
-#include <libminos/fs.h>
+#include <libminos/vfs.h>
 #include <libminos/blkdev.h>
+#include "fs.h"
 
 #define MAX_FS	32
 

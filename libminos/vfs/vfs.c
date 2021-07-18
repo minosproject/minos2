@@ -11,8 +11,9 @@
 #include <minos/kmalloc.h>
 #include <minos/compiler.h>
 
-#include <libminos/fs.h>
+#include <libminos/vfs.h>
 #include <libminos/blkdev.h>
+#include "fs.h"
 
 int vfs_open(struct partition *part, char *path, handle_t fd,
 		size_t sbuf_size, int mode)

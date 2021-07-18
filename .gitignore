@@ -5,6 +5,8 @@ cscope.out
 cscope.po.out
 linkmap.txt
 include/config/config.h
+ramdisk.sh
+ramdisk2.sh
 .*
 *.bin
 *.o

@@ -1,0 +1,42 @@
+#define __NR_poll_wait 0
+#define __NR_kobject_open 2
+#define __NR_kobject_create 3
+#define __NR_kobject_destroy 4
+#define __NR_kobject_recv 5
+#define __NR_kobject_send 6
+#define __NR_kobject_reply 7
+#define __NR_kobject_connect 8
+#define __NR_kobject_close 9
+#define __NR_kobject_ctl 10
+#define __NR_kobject_mmap 11
+#define __NR_kobject_munmap 12
+#define __NR_kobject_listen 13
+#define __NR_grant 14
+#define __NR_futex 15
+#define __NR_yield 16
+#define __NR_map 17
+#define __NR_unmap 18
+
+#define __NR_mmap 37
+#define __NR_close 40
+#define __NR_exit 38
+#define __NR_exit_group 39
+#define __NR_fcntl 40
+#define __NR_ioctl 21
+#define __NR_openat 22
+
+#define __NR_sched_setparam 23
+#define __NR_set_robust_list 24
+#define __NR_sched_setscheduler 25
+#define __NR_sched_yield 26
+#define __NR_tkill 27
+#define __NR_futex_time64 28
+#define __NR_rt_sigprocmask 29
+#define __NR_clone 30
+#define __NR_munmap 31
+#define __NR_gettid 32
+
+#define __NR_sched_getparam 33
+#define __NR_get_robust_list 34
+#define __NR_set_tid_address 35
+#define __NR_sched_getscheduler 36

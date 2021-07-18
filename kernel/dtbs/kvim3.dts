@@ -1,0 +1,379 @@
+/dts-v1/;
+
+/ {
+	interrupt-parent = < 0x01 >;
+	#address-cells = < 0x02 >;
+	#size-cells = < 0x02 >;
+	compatible = "khadas,vim3";
+	model = "Khadas VIM3";
+
+	chosen {
+		minos,stdout = "aml_meson";
+		bootargs = "bootwait=3 tty=vm0";
+	};
+
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = < 0x02 >;
+		#size-cells = < 0x02 >;
+		ranges;
+
+		interrupt-controller@ffc01000 {
+			compatible = "arm,gic-400";
+			reg = < 0x00 0xffc01000 0x00 0x1000 0x00 0xffc02000 0x00 0x2000 0x00 0xffc04000 0x00 0x2000 0x00 0xffc06000 0x00 0x2000 >;
+			interrupt-controller;
+			interrupts = < 0x01 0x09 0xff04 >;
+			#interrupt-cells = < 0x03 >;
+			#address-cells = < 0x00 >;
+			phandle = < 0x01 >;
+		};
+	};
+
+	vms {
+		vm0 {
+			device_type = "virtual_machine";
+			vmid = <0>;
+			vm_name = "android";
+			type = "linux";
+			vm_32bit;
+			native_wfi;
+			no_of_resource;
+			vcpus = <4>;
+			entry = <0x0 0x00108000>;
+			setup_data = <0x0 0x1ffe6000>;
+			vcpu_affinity = <0 1 2 3>;
+			memory = <0x0 0x00000000 0x0 0x80000000>;
+			cmdline = "init=/init console=hvc0 no_console_suspend earlycon=earlycon=dbcon,io,0x0 ramoops.pstore_en=1 ramoops.record_size=0x8000 ramoops.console_size=0x4000 otg_device=1 reboot_mode_android=normal logo=viu2_osd0,loaded,0x3d800000 fb_width=1920 fb_height=1080 vout2=panel,enable vout=1080p60hz,enable panel_type=lcd_1 lcd_ctrl=0x00000083 hdmitx=,444,8bit hdmimode=1080p60hz frac_rate_policy=1 hdmi_read_edid=1 cvbsmode=576cvbs osd_reverse=0 video_reverse=0 irq_check_en=0 androidboot.selinux=permissive androidboot.firstboot=0 jtag=disable wol_enable=0 spi_state=0 fusb302_state=1 hwver=VIM3.V12 factory_mac=c8:63:14:70:47:ac lcd_exist=1 androidboot.hardware=amlogic androidboot.serialno=c863147047ac mac=c8:63:14:70:47:ac androidboot.mac=c8:63:14:70:47:ac ro rootwait skip_initramfs androidboot.dtbo_idx=0 --cmdline root=/dev/mmcblk0p18 buildvariant=userdebug";
+
+			vm0_bdi {
+				#address-cells = <0x1>;
+				#size-cells = <0x1>;
+
+				vtimer_irq = <27>;
+
+				iomem = <0x0 0xff600000 0x0 0xff600000 0x0 0x45000>, /* 0xff620000 ----> 0xff645000 */
+					<0x0 0xff650000 0x0 0xff650000 0x0 0x8000>, /* 0xff650000 ----> 0xff658000 */
+					<0x0 0xff646000 0x0 0xff646000 0x0 0x7000>, /* 0xff646000 ----> 0xff64d000 */
+					<0x0 0xff900000 0x0 0xff900000 0x0 0x51000>, /* 0xff900000 ----> 0xff951000 */
+					<0x0 0xff800000 0x0 0xff800000 0x0 0x10000>, /* 0xff800000 ----> 0xff810000 */
+					<0x0 0xffd00000 0x0 0xffd00000 0x0 0x100000>, /* 0xffd00000 ----> 0xffe00000 */
+					<0x0 0xff000000 0x0 0xff000000 0x0 0x440000>, /* 0xff000000 ----> 0xff440000 */
+					<0x0 0xfc000000 0x0 0xfc000000 0x0 0x600000>, /* 0xfc000000 ----> 0xfc600000 */
+					<0x0 0xff500000 0x0 0xff500000 0x0 0x100000>, /* 0xff500000 ----> 0xff600000 */
+					<0x0 0xffe01000 0x0 0xffe01000 0x0 0x7f000>, /* 0xffe01000 ----> 0xffe80000 */
+					<0x0 0xfffe7000 0x0 0xfffe7000 0x0 0x1000>; /* 0xfffe7000 ----> 0xfffe8000 */
+
+				virqs = <0x21 0x21>, /* 33 locker */
+					<0x48 0x48>, /* 72 deinterlace */
+					<0x4e 0x4e>, /* 78 deinterlace */
+					<0x78 0x78>, /* 120 phy-csi@ff650000 */
+					<0x77 0x77>, /* 119 phy-csi@ff650000 */
+					<0x6a 0x6a>, /* 106 phy-csi@ff650000 */
+					<0x68 0x68>, /* 104 phy-csi@ff650000 */
+					<0x4a 0x4a>, /* 74 phy-csi@ff650000 */
+					<0x49 0x49>, /* 73 phy-csi@ff650000 */
+					<0xd3 0xd3>, /* 211 isp-adapter@ff650000 */
+					<0xae 0xae>, /* 174 isp@ff140000 */
+					<0x31 0x31>, /* 49 isp-sc@ff655400 */
+					<0x53 0x53>, /* 83 dmc_monitor */
+					<0x54 0x54>, /* 84 ddr_bandwidth */
+					<0x42 0x42>, /* 66 nfc@0 */
+					<0xdd 0xdd>, /* 221 sdio@ffe03000 */
+					<0xde 0xde>, /* 222 sd@ffe05000 */
+					<0xdf 0xdf>, /* 223 emmc@ffe07000 */
+					<0xe6 0xe6>, /* 230 meson-irblaster */
+					<0x58 0x58>, /* 88 meson-fb */
+					<0x79 0x79>, /* 121 rdma */
+					<0xdb 0xdb>, /* 219 hevc_enc */
+					<0x4d 0x4d>, /* 77 vdec */
+					<0x4c 0x4c>, /* 76 vdec */
+					<0x4b 0x4b>, /* 75 vdec */
+					<0x40 0x40>, /* 64 vdec */
+					<0x37 0x37>, /* 55 vdec */
+					<0xb0 0xb0>, /* 176 gdc */
+					<0x23 0x23>, /* 35 meson-amvideom */
+					<0xb2 0xb2>, /* 178 ge2d */
+					<0x75 0x75>, /* 117 vdin1 */
+					<0x73 0x73>, /* 115 vdin0 */
+					<0xe7 0xe7>, /* 231 aocec */
+					<0xeb 0xeb>, /* 235 aocec */
+					<0xb3 0xb3>, /* 179 galcore */
+					<0x59 0x59>, /* 89 amhdmitx */
+					<0xfd 0xfd>, /* 253 pcieA@fc000000 */
+					<0x7d 0x7d>, /* 125 serial@ffd22000 */
+					<0x6b 0x6b>, /* 107 serial@ffd23000 */
+					<0x3a 0x3a>, /* 58 serial@ffd24000 */
+					<0xe4 0xe4>, /* 228 rc@0xff808040 */
+					<0xbb 0xbb>, /* 187 pwrdet */
+					<0xb7 0xb7>, /* 183 spdif */
+					<0xba 0xba>, /* 186 ddr_manager */
+					<0xb9 0xb9>, /* 185 ddr_manager */
+					<0xb8 0xb8>, /* 184 ddr_manager */
+					<0xb6 0xb6>, /* 182 ddr_manager */
+					<0xb5 0xb5>, /* 181 ddr_manager */
+					<0xb4 0xb4>, /* 180 ddr_manager */
+					<0xe5 0xe5>, /* 229 serial@4000 */
+					<0xe1 0xe1>, /* 225 serial@3000 */
+					<0xe2 0xe2>, /* 226 i2c_slave@6000 */
+					<0xe9 0xe9>, /* 233 i2c@5000 */
+					<0xe3 0xe3>, /* 227 i2c@5000 */
+					<0x7a 0x7a>, /* 122 spi@15000 */
+					<0x71 0x71>, /* 113 spi@13000 */
+					<0x7f 0x7f>, /* 127 i2c@1c000 */
+					<0x47 0x47>, /* 71 i2c@1c000 */
+					<0x7e 0x7e>, /* 126 i2c@1d000 */
+					<0xf7 0xf7>, /* 247 i2c@1d000 */
+					<0x7c 0x7c>, /* 124 i2c@1e000 */
+					<0xf6 0xf6>, /* 246 i2c@1e000 */
+					<0x7b 0x7b>, /* 123 i2c@1f000 */
+					<0x35 0x35>, /* 53 i2c@1f000 */
+					<0x44 0x44>, /* 68 d_tsensor@ff800228 */
+					<0x43 0x43>, /* 67 p_tsensor@ff634594 */
+					<0xe8 0xe8>, /* 232 saradc */
+					<0x3f 0x3f>, /* 63 dwc2_a@ff400000 */
+					<0x30 0x30>, /* 48 usb3phy@ffe09080 */
+					<0x3e 0x3e>, /* 62 dwc3@ff500000 */
+					<0x28 0x28>, /* 40 ethernet@ff3f0000 */
+					<0xf2 0xf2>, /* 242 mhu@c883c400 */
+					<0xf1 0xf1>, /* 241 mhu@c883c400 */
+					<0xcb 0xcb>, /* 203 arm_pmu */
+					<0xa9 0xa9>, /* 169 arm_pmu */
+					<0x5c 0x5c>, /* 92 timer_bc */
+					<0xc2 0xc2>, /* 194 bifrost */
+					<0xc1 0xc1>, /* 193 bifrost */
+					<0xc0 0xc0>; /* 192 bifrost */
+
+				virq_chip_vm0 {
+					compatible = "arm,gicv2";
+					#address-cells = <0x1>;
+					#size-cells = <0x1>;
+					reg = <0xffc01000 0x1000>,
+						<0xffc02000 0x2000>,
+						<0xffc04000 0x2000>,
+						<0xffc06000 0x2000>;
+				};
+
+				vm_console_vm0 {
+					virtual_device;
+					vc-dynamic-res;
+					compatible = "minos,vm_console";
+				};
+			};
+		};
+
+		vm1 {
+			device_type = "virtual_machine";
+			vmid = <1>;
+			vm_name = "vim3_pro_vm1";
+			type = "linux";
+			native_wfi;
+			vcpus = <1>;
+			entry = <0x0 0x80080000>;
+			setup_data = <0x0 0x83e00000>;
+			vcpu_affinity = <4 0 0 0>;
+			memory = <0x0 0x80000000 0x0 0x8000000>;
+			cmdline = "console=hvc0 earlycon=earlycon=dbcon,io,0x0 loglevel=8 consolelog=9";
+
+			vm1_bdi {
+				vm_console_vm1 {
+					virtual_device;
+					vc-dynamic-res;
+					compatible = "minos,vm_console";
+				};
+			};
+		};
+
+		vm2 {
+			device_type = "virtual_machine";
+			vmid = <2>;
+			vm_name = "fvp_zephyr_vm2";
+			type = "zephyr";
+			vcpus = <1>;
+			entry = <0x0 0x880003b8>;
+			setup_data = <0x0 0x0>;
+			vcpu_affinity = <5>;
+			native_wfi;
+			memory = <0x0 0x88000000 0x0 0x00200000>;
+
+			vm2_bdi {
+				#address-cells = <0x1>;
+				#size-cells = <0x1>;
+
+				vtimer_irq = <27>;
+
+				virq_chip_vm2 {
+					compatible = "arm,gicv2";
+					#address-cells = <0x1>;
+					#size-cells = <0x1>;
+					reg = <0x2f000000 0x10000>,
+						<0x2c000000 0x2000>,
+						<0x2c010000 0x2000>,
+						<0x2c02f000 0x2000>;
+				};
+
+				vmbox_controller@20000000 {
+					compatible = "minos,vmbox-controller";
+					reg = <0x20000000 0x1000>;
+					interrupts = <0 10 4>;
+				};
+
+				vm_console_vm2 {
+					virtual_device;
+					compatible = "minos,vm_console";
+					reg = <0x20001000 0x2000>;
+					interrupts = <0 0 4>;
+				};
+			};
+		};
+	};
+
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = < 0x01 0x0d 0xff08 0x01 0x0e 0xff08 0x01 0x0b 0xff08 0x01 0x0a 0xff08 >;
+		arm,no-tick-in-suspend;
+	};
+
+	cpus {
+		#address-cells = < 0x02 >;
+		#size-cells = < 0x00 >;
+
+		cpu-map {
+
+			cluster0 {
+
+				core0 {
+					cpu = < 0x0a >;
+				};
+
+				core1 {
+					cpu = < 0x0b >;
+				};
+			};
+
+			cluster1 {
+
+				core0 {
+					cpu = < 0x0c >;
+				};
+
+				core1 {
+					cpu = < 0x0d >;
+				};
+
+				core2 {
+					cpu = < 0x0e >;
+				};
+
+				core3 {
+					cpu = < 0x0f >;
+				};
+			};
+		};
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = < 0x00 0x00 >;
+			enable-method = "psci";
+			capacity-dmips-mhz = < 0x250 >;
+			next-level-cache = < 0x46 >;
+			#cooling-cells = < 0x02 >;
+			cpu-supply = < 0x47 >;
+			operating-points-v2 = < 0x48 >;
+			clocks = < 0x02 0xbb >;
+			clock-latency = < 0xc350 >;
+			phandle = < 0x0a >;
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = < 0x00 0x01 >;
+			enable-method = "psci";
+			capacity-dmips-mhz = < 0x250 >;
+			next-level-cache = < 0x46 >;
+			#cooling-cells = < 0x02 >;
+			cpu-supply = < 0x47 >;
+			operating-points-v2 = < 0x48 >;
+			clocks = < 0x02 0xbb >;
+			clock-latency = < 0xc350 >;
+			phandle = < 0x0b >;
+		};
+
+		cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73";
+			reg = < 0x00 0x100 >;
+			enable-method = "psci";
+			capacity-dmips-mhz = < 0x400 >;
+			next-level-cache = < 0x46 >;
+			#cooling-cells = < 0x02 >;
+			cpu-supply = < 0x49 >;
+			operating-points-v2 = < 0x4a >;
+			clocks = < 0x02 0xe0 >;
+			clock-latency = < 0xc350 >;
+			phandle = < 0x0c >;
+		};
+
+		cpu@101 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73";
+			reg = < 0x00 0x101 >;
+			enable-method = "psci";
+			capacity-dmips-mhz = < 0x400 >;
+			next-level-cache = < 0x46 >;
+			#cooling-cells = < 0x02 >;
+			cpu-supply = < 0x49 >;
+			operating-points-v2 = < 0x4a >;
+			clocks = < 0x02 0xe0 >;
+			clock-latency = < 0xc350 >;
+			phandle = < 0x0d >;
+		};
+
+		cpu@102 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73";
+			reg = < 0x00 0x102 >;
+			enable-method = "psci";
+			capacity-dmips-mhz = < 0x400 >;
+			next-level-cache = < 0x46 >;
+			#cooling-cells = < 0x02 >;
+			cpu-supply = < 0x49 >;
+			operating-points-v2 = < 0x4a >;
+			clocks = < 0x02 0xe0 >;
+			clock-latency = < 0xc350 >;
+			phandle = < 0x0e >;
+		};
+
+		cpu@103 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73";
+			reg = < 0x00 0x103 >;
+			enable-method = "psci";
+			capacity-dmips-mhz = < 0x400 >;
+			next-level-cache = < 0x46 >;
+			#cooling-cells = < 0x02 >;
+			cpu-supply = < 0x49 >;
+			operating-points-v2 = < 0x4a >;
+			clocks = < 0x02 0xe0 >;
+			clock-latency = < 0xc350 >;
+			phandle = < 0x0f >;
+		};
+
+		l2-cache0 {
+			compatible = "cache";
+			phandle = < 0x46 >;
+		};
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = < 0x00 0x00 0x00 0xed800000 >;
+	};
+};

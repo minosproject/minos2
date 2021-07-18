@@ -1,0 +1,92 @@
+/dts-v1/;
+
+/ {
+	model = "Marvell Armada 3720 Community Board";
+	compatible = "marvell,armada-3720-community", "marvell,armada3720", "marvell,armada3710";
+	interrupt-parent = <0x1>;
+	#address-cells = <0x2>;
+	#size-cells = <0x2>;
+
+	vms {
+		vm0 {
+			device_type = "virtual_machine";
+			vmid = <0>;
+			vm_name = "espressobin_linux";
+			type = "linux";
+			vcpus = <1>;
+			native_wfi;
+			entry = <0x0 0x280000>;
+			vcpu_affinity = <0>;
+			setup_data = <0x0 0xfe00000>;
+			memory = <0x0 0x0 0x0 0x10000000>;
+			cmdline = "console=ttyMV0,115200 earlycon=ar3700_uart,0xd0012000 root=PARTUUID=89708921-01 rw rootwait net.ifnames=0 biosdevname=0";
+		};
+	};
+
+	cpus {
+		#address-cells = <0x1>;
+		#size-cells = <0x0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0>;
+			clocks = <0x2 0x0>;
+			operating-points-v2 = <0x3>;
+			enable-method = "psci";
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x1>;
+			cks = <0x2 0x0>;
+			operating-points-v2 = <0x3>;
+			enable-method = "psci";
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <0x1 0xd 0x304 0x1 0xe 0x304 0x1 0xb 0x304 0x1 0xa 0x304>;
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <0x2>;
+		#size-cells = <0x2>;
+		ranges;
+
+		internal-regs {
+			#address-cells = <0x1>;
+			#size-cells = <0x1>;
+			compatible = "simple-bus";
+			ranges = <0x0 0x0 0xd0000000 0x2000000>;
+			dma-coherent;
+
+			interrupt-controller@1d00000 {
+				compatible = "arm,gic-v3";
+				#interrupt-cells = <0x3>;
+				interrupt-controller;
+				interrupts = <0x1 0x9 0xf04>;
+				reg = <0x1d00000 0x10000 0x1d40000 0x40000>;
+				linux,phandle = <0x1>;
+				phandle = <0x1>;
+			};
+		};
+	};
+
+	chosen {
+		minos,stdout = "mvebu";
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x0 0x0 0x0 0x40000000>;
+	};
+};

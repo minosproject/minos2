@@ -1,0 +1,203 @@
+/dts-v1/;
+
+/ {
+	compatible = "raspberrypi,4-model-b", "brcm,bcm2838", "brcm,bcm2837";
+	model = "Raspberry Pi 4 Model B";
+	interrupt-parent = <0x1>;
+	#address-cells = <0x2>;
+	#size-cells = <0x1>;
+
+	aliases {
+		serial0 = "/soc/serial@7e201000";
+		serial1 = "/soc/serial@7e215040";
+	};
+
+	chosen {
+		minos,stdout = "bcm283x_mu";
+		extra-memory = <0x40000000 0xbc000000>;
+		bootargs = "bootwait=3 tty=vm0 cpu_sched_class_mask=0x0";
+	};
+
+	vms {
+		vm0 {
+			device_type = "virtual_machine";
+			vmid = <0>;
+			vm_name = "rpi4_linux_host";
+			type = "linux";
+			vm_32bit;
+			native_wfi;
+			vcpus = <2>;
+			entry = <0x0 0x00008000>;
+			setup_data = <0x0 0x03e00000>;
+			vcpu_affinity = <0 1 0 0>;
+			memory = <0x0 0x00000000 0x0 0x30000000 0x0 0x40000000 0x0 0x7c000000>;
+			cmdline = "coherent_pool=1M 8250.nr_uarts=1 earlycon=dbcon,io,0x0 loglevel=9 cma=64M cma=256M video=HDMI-A-1:720x576M@50,margin_left=0,margin_right=0,margin_top=0,margin_bottom=0 smsc95xx.macaddr=DC:A6:32:1C:65:A1 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000 dwc_otg.fiq_fix_enable=0 console=tty1 console=hvc0 root=/dev/mmcblk0p2 rw rootfstype=ext4 rootwait rootflags=noload net.ifnames=0 loglevel=9";
+			vm0_bdi {
+				vm_console_vm0 {
+					virtual_device;
+					vc-dynamic-res;
+					compatible = "minos,vm_console";
+				};
+			};
+		};
+
+		vm1 {
+			device_type = "virtual_machine";
+			vmid = <1>;
+			vm_name = "rpi4_vm1";
+			type = "linux";
+			vm_32bit;
+			native_wfi;
+			vcpus = <1>;
+			entry = <0x0 0x30008000>;
+			setup_data = <0x0 0x33e00000>;
+			vcpu_affinity = <2 0 0 0>;
+			memory = <0x0 0x30000000 0x0 0x7200000>;
+
+			vm1_bdi {
+				vm_console_vm1 {
+					virtual_device;
+					vc-dynamic-res;
+					compatible = "minos,vm_console";
+				};
+			};
+		};
+
+		vm2 {
+			device_type = "virtual_machine";
+			vmid = <2>;
+			vm_name = "fvp_zephyr_vm2";
+			type = "zephyr";
+			vcpus = <1>;
+			entry = <0x0 0x372003b8>;
+			setup_data = <0x0 0x0>;
+			vcpu_affinity = <3>;
+			native_wfi;
+			memory = <0x0 0x37200000 0x0 0x00200000>;
+
+			vm2_bdi {
+				#address-cells = <0x1>;
+				#size-cells = <0x1>;
+
+				vtimer_irq = <27>;
+
+				virq_chip_vm2 {
+					compatible = "arm,gicv2";
+					#address-cells = <0x1>;
+					#size-cells = <0x1>;
+					reg = <0x2f000000 0x10000>,
+						<0x2c000000 0x2000>,
+						<0x2c010000 0x2000>,
+						<0x2c02f000 0x2000>;
+				};
+
+				vmbox_controller@20000000 {
+					compatible = "minos,vmbox-controller";
+					reg = <0x20000000 0x1000>;
+					interrupts = <0 10 4>;
+				};
+
+				vm_console_vm2 {
+					virtual_device;
+					compatible = "minos,vm_console";
+					reg = <0x20001000 0x2000>;
+					interrupts = <0 0 4>;
+				};
+			};
+		};
+
+		vmboxs {
+			vmbox_hvc@0 {
+				compatible = "minos,vmbox";
+				vmbox-type = "hvc";
+				vmbox-owner = <0x1 0x0>;
+				vmbox-shmem-size = <8192>;
+				vmbox-id = <0x3420 0xffff>;
+				platform-device;
+			};
+
+			vmbox_veth@1 {
+				compatible = "minos,veth";
+				vmbox-type = "veth";
+				vmbox-owner = <0x0 0x1>;
+				vmbox-id = <0x3430 0xffff>;
+				vmbox-vqs = <2>;
+				vmbox-vrings = <16>;
+				vmbox-vring-size = <2048>;
+			};
+
+			vmbox_hvc@2 {
+				compatible = "minos,vmbox";
+				vmbox-type = "hvc";
+				vmbox-owner = <0x2 0x0>;
+				vmbox-shmem-size = <8192>;
+				vmbox-id = <0x3420 0xffff>;
+			};
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges = <0x7e000000 0x0 0xfe000000 0x1800000 0x7c000000 0x0 0xfc000000 0x2000000 0x40000000 0x0 0xff800000 0x800000>;
+		dma-ranges = <0xc0000000 0x0 0x0 0x3c000000>;
+
+		gic400@40041000 {
+			interrupt-controller;
+			#interrupt-cells = <0x3>;
+			compatible = "arm,gic-400";
+			reg = <0x40041000 0x1000 0x40042000 0x2000 0x40044000 0x2000 0x40046000 0x2000>;
+			phandle = <0x1>;
+		};
+	};
+
+	timer {
+		compatible = "arm,armv7-timer";
+		interrupts = <0x1 0xd 0xf08 0x1 0xe 0xf08 0x1 0xb 0xf08 0x1 0xa 0xf08>;
+		arm,cpu-registers-not-fw-configured;
+		always-on;
+	};
+
+	cpus {
+		#address-cells = <0x1>;
+		#size-cells = <0x0>;
+		enable-method = "brcm,bcm2836-smp";
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a72";
+			reg = <0x0>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0xd8>;
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a72";
+			reg = <0x1>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0xe0>;
+		};
+
+		cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a72";
+			reg = <0x2>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0xe8>;
+		};
+
+		cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a72";
+			reg = <0x3>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0xf0>;
+		};
+	};
+
+	memory {
+		device_type = "memory";
+	};
+};

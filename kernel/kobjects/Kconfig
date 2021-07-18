@@ -1,0 +1,15 @@
+menu "Minos Kobjects configuration"
+
+config IPC_ENDPOINT
+	bool "support IPC by endpoint"
+	default y
+	help
+	  support the endpoint IPC
+
+config IPC_PORT
+	bool "support IPC by port"
+	default y
+	help
+	  support the port IPC
+
+endmenu

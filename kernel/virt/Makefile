@@ -1,0 +1,16 @@
+obj-y				+= resource.o
+obj-y				+= hypercall.o
+obj-y				+= os/
+obj-y				+= vdev.o
+obj-y				+= virq.o
+obj-y				+= vm.o
+obj-y				+= vmcs.o
+obj-y				+= vmm.o
+obj-y				+= vmbox/
+obj-y				+= virq_chips/
+obj-$(CONFIG_VIRTIO_MMIO)	+= virtio_mmio.o
+obj-$(CONFIG_VRTC_PL031)	+= vrtc.o
+obj-$(CONFIG_VWDT_SP805)	+= vwdt.o
+obj-y				+= varm_timer.o
+obj-y				+= debug_console.o
+obj-y				+= vmodule.o

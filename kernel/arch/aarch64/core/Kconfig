@@ -1,0 +1,50 @@
+menu "Minos aarch64 Arch Feature"
+
+config NR_CPUS_CLUSTER0
+	int "cpu number in cluster0"
+	default 4
+	help
+	  cpu count in SOC cluster0, this
+	  will help to caculate the cpuid
+
+config NR_CPUS_CLUSTER1
+	int "cpu number in cluster1"
+	default 0
+	help
+	  cpu count in SOC cluster1, this
+	  will help to caculate the cpuid
+
+config PLATFORM_ADDRESS_RANGE
+	int
+	default 40
+	help
+	  the virtual memory range of the system range
+	  is 0x0 - 2^PLATFORM_ADDRESS_RANGE
+
+config EXCEPTION_STACK_SIZE
+	hex "the stack size of the exception vector"
+	default 0x2000
+	help
+	  the stack size of the exception vector
+
+config ARM_ATOMIC_LSE
+	bool "use lse atomic instruction"
+	default n
+	help
+	  this require at leaset armv8.1 soc
+
+config ARM_ADDRESS_TAGGING
+	bool
+	default (VIRT && ARM_VHE) || (!VIRT)
+
+config PTOV_MASK
+	hex
+	default 0xffffff8000000000 if ARM_ADDRESS_TAGGING
+	default 0x0
+
+config VTOP_MASK
+	hex
+	default 0x0000007fffffffff if ARM_ADDRESS_TAGGING
+	default 0x0
+
+endmenu

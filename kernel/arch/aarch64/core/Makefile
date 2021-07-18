@@ -1,0 +1,16 @@
+obj-y += aarch64_IRQ.o
+obj-y += aarch64.o
+obj-y += aarch64_sync.o
+obj-y += arch.o
+obj-y += arm_arch_timer.o
+obj-y += boot.o
+obj-y += cache.o
+obj-y += cpu.o
+obj-y += entry.o
+obj-y += mem_map.o
+obj-y += vector.o
+obj-y += cpu_feature.o
+obj-y += stage1.o
+obj-y += stage2.o
+obj-y += fpsimd.o
+obj-y += asm_syscall.o

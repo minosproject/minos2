@@ -1,0 +1,10 @@
+menu "Device Drivers"
+
+source "drivers/irq-chips/Kconfig"
+source "drivers/serial/Kconfig"
+
+config DEVICE_TREE
+	bool "device tree libfdt support"
+	default y
+
+endmenu

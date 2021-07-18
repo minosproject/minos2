@@ -1,0 +1,14 @@
+*.o
+*.lo
+*.a
+*.so
+*.so.1
+config.mak
+lib/musl-gcc.specs
+/obj/
+tags
+cscope.in.out
+cscope.out
+cscope.po.out
+linkmap.txt
+*.patch

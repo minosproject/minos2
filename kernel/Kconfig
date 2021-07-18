@@ -1,0 +1,12 @@
+# Kconfig - main configuration options for Minos
+#
+# Copyright (c) 2019 Min Le <lemin9538@gmail.com>
+#
+#
+mainmenu "Minos $ARCH Configuration"
+
+config SRCARCH
+	string
+	option env="SRCARCH"
+
+source "arch/$(SRCARCH)/Kconfig"

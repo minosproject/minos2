@@ -26,4 +26,9 @@ typedef signed char		__s8;
 #define __va(va)	((unsigned long)(va))
 #endif
 
+/*
+ * 512G for user space process
+ */
+#define USER_PROCESS_ADDR_LIMIT		(1UL << 39)
+
 #endif

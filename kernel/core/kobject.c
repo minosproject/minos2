@@ -38,7 +38,7 @@ static void kobject_release(struct kobject *kobj)
 
 /*
  * get -> put case
- * kobject_create  -> kobject_destroy
+ * kobject_create  -> kobject_close
  * kobject_connect -> kobject_close
  * get_kobject     -> put_kobject
  */
@@ -186,117 +186,44 @@ struct kobject *kobject_create(char *name, int type, right_t right,
 	return kobj;
 }
 
-int kobject_destroy(struct kobject *kobj, right_t right)
+int kobject_listen(struct kobject *kdst, struct kobject *ksrc,
+		handle_t hsrc, int event, unsigned long data)
 {
-	int ret = 0;
-
-	/*
-	 * kobject_destroy will delete the kobject from the process's
-	 * forcely no matter whether there some process is connected
-	 * it, after it detached from the process, no process can
-	 * open or connected it, then it can wait all the process
-	 * which opened it to close it and release it resource.
-	 *
-	 * the kobject_put here is corresponds to kobject_create
-	 *
-	 * destroy will not truly release all the resource of this kobject
-	 * when the reference is 0, then kobject_put will the release
-	 * callback to release the resource of this kobject.
-	 */
-	if ((current_pid == kobj->owner) && (kobj->parent.next != NULL)) {
-		kobject_delete(kobj);
-		kobject_put(kobj);
-	} else {
-		ret = -EPERM;
-	}
-
-	return ret;
-}
-
-int kobject_listen(struct kobject *kobj, handle_t handle,
-		right_t right, int event)
-{
-	struct poll_struct *ps = &kobj->poll_struct;
+	struct poll_struct *ps = &ksrc->poll_struct;
+	int ev_type = 1 << event;
 	int fail;
 
-	event &= POLL_EV_MASK;
-
-	/*
-	 * only the process who have the READ right or the process
-	 * is the owner of this kobject can listen for this kobject.
-	 */
-	if (!(right & KOBJ_RIGHT_READ) && (event & POLL_EV_IN))
+	if ((ksrc->owner != current_pid) && (ev_type & POLL_EV_TYPE_KERNEL))
 		return -EPERM;
 
-	if ((kobj->owner != current_pid) && (event & POLL_EV_OWNER))
-		return -EPERM;
-
-	if (event & POLL_EV_READER) {
-		fail = test_and_set_bit(POLL_READER_BIT, &ps->poll_event);
+	if (event == POLL_EV_IN) {
+		fail = test_and_set_bit(POLL_EV_TYPE_IN, &ps->poll_event);
 		if (!fail) {
-			ps->tid_reader = current_tid;
-			ps->handle_reader = handle;
-		} else {
-			if (current_tid != ps->tid_reader)
-				return -EACCES;
+			ps->reader = kdst;
+			ps->handle_reader = hsrc;
+			ps->data_reader = data;
 		}
-	} else {
-		fail = test_and_set_bit(POLL_OWNER_BIT, &ps->poll_event);
+	} else if (event == POLL_EV_KERNEL) {
+		fail = test_and_set_bit(POLL_EV_TYPE_KERNEL, &ps->poll_event);
 		if (!fail) {
-			ps->tid_owner = current_tid;
-			ps->handle_owner = handle;
-		} else {
-			if (current_tid != ps->tid_reader)
-				return -EACCES;
+			ps->owner = kdst;
+			ps->handle_owner = hsrc;
+			ps->data_owner = data;
 		}
 	}
 
-	ps->poll_event |= event;
-	if (!kobj->ops || !kobj->ops->listen)
+	if (!ksrc->ops || !ksrc->ops->listen)
 		return 0;
 
-	return kobj->ops->listen(kobj, handle, event);
+	return ksrc->ops->listen(ksrc, event);
 }
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)
 {
-	struct poll_struct *ps = &kobj->poll_struct;
-	int ret = 0;
-
 	if (!kobj->ops || !kobj->ops->open)
-		goto out;
+		return 0;
 
-	ret = kobj->ops->open(kobj, handle, right);
-	if (ret)
-		return ret;
-out:
-	if (!(right & KOBJ_STATE_OPENED)) {
-		right |= KOBJ_STATE_OPENED;
-		setup_handle(handle, kobj, right);
-	}
-
-	ps = &kobj->poll_struct;
-	if (ps->poll_event & POLL_EV_OPEN) {
-		ret = poll_event_send(ps->tid_owner,
-				POLL_EV_OPEN, ps->handle_owner);
-		if (ret)
-			pr_warn("sending open event failed\n");
-	}
-
-	return ret;
-}
-
-int __kobject_connect(struct kobject *kobj, handle_t handle, right_t right)
-{
-	int ret = 0;
-
-	if (kobj->ops && kobj->ops->connect) {
-		ret = kobj->ops->connect(kobj, handle, right);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
+	return kobj->ops->open(kobj, handle, right);
 }
 
 int kobject_connect(char *name, right_t right)
@@ -315,10 +242,11 @@ int kobject_connect(char *name, right_t right)
 		goto out;
 	}
 
-	if (current_pid == kobj->owner)
-		return 0;
-
-	if (!kobj->ops || !kobj->ops->connect) {
+	/*
+	 * the owner of this kobject can not connect it.
+	 */
+	if ((current_pid == kobj->owner) ||
+			!kobj->ops || !kobj->ops->connect) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -329,11 +257,6 @@ int kobject_connect(char *name, right_t right)
 	 */
 	if (realname != NULL) {
 		ret = -EINVAL;
-		goto out;
-	}
-
-	if (current_pid == kobj->owner) {
-		ret = -EPERM;
 		goto out;
 	}
 
@@ -360,14 +283,13 @@ int kobject_connect(char *name, right_t right)
 		goto out;
 	}
 
-	ret = __kobject_connect(kobj, handle, right);
+	ret = kobj->ops->connect(kobj, handle, right);
 	if (ret) {
 		release_handle(handle);
 		ret = -EIO;
 	}
 
 	setup_handle(handle, kobj, right);
-
 out:
 	if (ret)
 		kobject_put(kobj);
@@ -377,25 +299,33 @@ out:
 
 int kobject_close(struct kobject *kobj, right_t right)
 {
-	struct poll_struct *ps = &kobj->poll_struct;
 	int ret = 0;
 
 	if (current_pid == kobj->owner)
 		return -EPERM;
 
 	if (!kobj->ops || !kobj->ops->close)
-		return -EPERM;
+		ret = kobj->ops->close(kobj, right);
 
-	ret = kobj->ops->close(kobj, right);
+	/*
+	 * kobject_close will delete the kobject from the process's
+	 * forcely no matter whether there some process is connected
+	 * it, after it detached from the process, no process can
+	 * open or connected it, then it can wait all the process
+	 * which opened it to close it and release it resource.
+	 *
+	 * the kobject_put here is corresponds to kobject_create
+	 *
+	 * close will not truly release all the resource of this kobject
+	 * when the reference is 0, then kobject_put will the release
+	 * callback to release the resource of this kobject.
+	 *
+	 * first need to check whether this kobject is connected to
+	 * the process, the kernel irq will not belong to any process.
+	 */
+	if ((current_pid == kobj->owner) && (kobj->parent.next != NULL))
+		kobject_delete(kobj);
 	kobject_put(kobj);
-
-	ps = &kobj->poll_struct;
-	if (ps->poll_event & POLL_EV_CLOSE) {
-		ret = poll_event_send(ps->tid_owner,
-				POLL_EV_CLOSE, ps->handle_owner);
-		if (ret)
-			pr_warn("sending close event failed\n");
-	}
 
 	return ret;
 }
@@ -408,7 +338,8 @@ ssize_t kobject_recv(struct kobject *kobj,
 	if (!kobj->ops || !kobj->ops->recv)
 		return -EACCES;
 
-	return kobj->ops->recv(kobj, data, data_size, extra, extra_size, timeout);
+	return kobj->ops->recv(kobj, data, data_size, extra,
+			extra_size, timeout);
 }
 
 ssize_t kobject_send(struct kobject *kobj,
@@ -419,7 +350,8 @@ ssize_t kobject_send(struct kobject *kobj,
 	if (!kobj->ops || !kobj->ops->send)
 		return -EPERM;
 
-	return kobj->ops->send(kobj, data, data_size, extra, extra_size, timeout);
+	return kobj->ops->send(kobj, data, data_size, extra,
+			extra_size, timeout);
 }
 
 int kobject_reply(struct kobject *kobj, right_t right,
@@ -454,11 +386,6 @@ long kobject_ctl(struct kobject *kobj, right_t right,
 		return -EPERM;
 
 	return kobj->ops->ctl(kobj, req, data);
-}
-
-int kobject_check_right(struct kobject *kobj, right_t right, right_t request)
-{
-	return ((right & request) == request);
 }
 
 handle_t sys_grant(handle_t proc_handle, handle_t handle,
@@ -528,11 +455,13 @@ static int kobject_subsystem_init(void)
 
 	section_for_each_item(__kobject_desc_start, __kobject_desc_end, desc) {
 		if (desc->type >= KOBJ_TYPE_MAX) {
-			pr_err("Unsupported kobject type [%d] name [%s]\n", desc->type, desc->name);
+			pr_err("Unsupported kobject type [%d] name [%s]\n",
+					desc->type, desc->name);
 			continue;
 		}
 
-		pr_notice("Register kobject type [%d] name [%s]\n", desc->type, desc->name);
+		pr_notice("Register kobject type [%d] name [%s]\n",
+				desc->type, desc->name);
 		register_kobject_type(desc->ops, desc->type);
 	}
 

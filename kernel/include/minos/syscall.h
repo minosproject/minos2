@@ -13,8 +13,6 @@ extern int sys_kobject_open(handle_t handle);
 extern handle_t sys_kobject_create(char __user *name, int type,
 		int right, right_t right_req, unsigned long data);
 
-extern int sys_kobject_destroy(handle_t handle);
-
 extern ssize_t sys_kobject_recv(int handle, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout);
 
@@ -35,7 +33,8 @@ extern int sys_map(handle_t proc_handle, handle_t pma_handle,
 extern handle_t sys_grant(handle_t proc, handle_t handle,
 		right_t right, int release);
 
-extern long sys_kobject_listen(handle_t handle, int event);
+extern long sys_kobject_listen(handle_t to, handle_t from,
+		int event, unsigned long data);
 
 extern int sys_kobject_munmap(handle_t handle);
 

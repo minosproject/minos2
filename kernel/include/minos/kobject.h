@@ -4,7 +4,6 @@
 #include <minos/types.h>
 #include <minos/compiler.h>
 #include <config/config.h>
-#include <minos/poll.h>
 
 #define KOBJ_RIGHT_NONE		0x0000		// do not have any right.
 #define KOBJ_RIGHT_READ		0x0001		// can read this kobject, usually for IPC between two process.
@@ -25,8 +24,6 @@
 #define KOBJ_RIGHT_RWX		(KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
 #define KOBJ_RIGHT_ROOT		0xffff		// super right, only root sevice can have it.
 
-#define KOBJ_STATE_OPENED	(1UL << 31)
-
 enum {
 	KOBJ_TYPE_NONE,
 	KOBJ_TYPE_PROCESS,	// process, can be only created by root service
@@ -40,16 +37,26 @@ enum {
 	KOBJ_TYPE_IRQ,		// irq for user-space driver
 	KOBJ_TYPE_VIRQ,		// virq for vcpu process in user-space.
 	KOBJ_TYPE_STDIO,	// dedicated for system debuging
+	KOBJ_TYPE_POLL_HUB,	// hub for events need to send.
 	KOBJ_TYPE_MAX
 };
 
-#define KOBJ_FLAGS_INVISABLE	(1 << 1)	// kobject can be connected
-#define KOBJ_FLAGS_NEED_REPLY	(1 << 5)	// kobject need a reply after recv.
+#define KOBJ_FLAGS_INVISABLE	(1 << 0)	// kobject can be connected
 
 struct task;
 struct process;
 struct ipc_msg;
 struct kobject_ops;
+
+struct poll_struct {
+	unsigned long poll_event;
+	struct kobject *reader;
+	struct kobject *owner;
+	handle_t handle_reader;
+	handle_t handle_owner;
+	unsigned long data_reader;
+	unsigned long data_owner;
+};
 
 /*
  * Kernel object is a object than can provide some ability
@@ -76,7 +83,6 @@ struct kobject {
 		struct list_head child;
 		struct list_head parent;
 	};
-
 	const char *name;
 };
 
@@ -95,7 +101,7 @@ struct kobject_ops {
 
 	int (*open)(struct kobject *kobj, handle_t handle, right_t right);
 
-	int (*listen)(struct kobject *kobj, handle_t handle, int event);
+	int (*listen)(struct kobject *ksrc, int event);
 
 	int (*connect)(struct kobject *kobj, handle_t handle, right_t right);
 
@@ -147,10 +153,8 @@ int kobject_connect(char *name, right_t right);
 struct kobject *kobject_create(char *name, int type, right_t right,
 		right_t right_req, unsigned long data);
 
-int kobject_destroy(struct kobject *kobj, right_t right);
-
-int kobject_listen(struct kobject *kobj, handle_t handle,
-		right_t right, int event);
+int kobject_listen(struct kobject *kdst, struct kobject *ksrc,
+		handle_t hsrc, int event, unsigned long data);
 
 ssize_t kobject_recv(struct kobject *kobj,
 		void __user *data, size_t data_size,
@@ -177,8 +181,6 @@ int get_kobject_from_namespace(char *name, struct kobject **kobj, char **path);
 struct kobject *get_kobject_by_name(struct kobject *root, const char *name);
 
 void register_namespace(struct process *proc);
-
-int kobject_check_right(struct kobject *kobj, right_t right, right_t request);
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right);
 

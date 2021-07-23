@@ -23,6 +23,7 @@
 #include <minos/console.h>
 #include <minos/kobject.h>
 #include <minos/uaccess.h>
+#include <minos/poll.h>
 
 void sys_sched_yield(void)
 {
@@ -49,48 +50,57 @@ long sys_kobject_close(handle_t handle)
 	right_t right;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
 
 	/*
 	 * release the handle first, then other thread in
-	 * this process can not see this kobject now. if
-	 * one thread in this process
+	 * this process can not see this kobject now. if one
+	 * thread in this process called this successfully
+	 * other thread can not get ok from release_handle.
 	 */
-	release_handle(handle);
-
+	ret = release_handle(handle);
+	if (ret)
+		goto out;
 	ret = kobject_close(kobj, right);
-
+out:
 	put_kobject(kobj);
 
 	return ret;
 }
 
-long sys_kobject_listen(handle_t handle, int event)
+long sys_kobject_listen(handle_t to, handle_t from,
+		int event, unsigned long data)
 {
-	struct kobject *kobj;
-	right_t right;
+	struct kobject *kobj_to, *kobj_from;
+	right_t right_to, right_from;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
+	if (event >= POLL_EV_MAX)
+		return -EINVAL;
 
-	ret = get_kobject(handle, &kobj, &right);
+	ret = get_kobject(to, &kobj_to, &right_to);
 	if (ret)
 		return ret;
 
-	if (!(right & KOBJ_STATE_OPENED)) {
-		ret = -EBADF;
+	ret = get_kobject(from, &kobj_from, &right_from);
+	if (ret) {
+		put_kobject(kobj_to);
+		return ret;
+	}
+
+	if ((kobj_to->type != KOBJ_TYPE_POLL_HUB) ||
+			!(right_from & KOBJ_RIGHT_LISTEN) ||
+			!(right_from & KOBJ_RIGHT_READ)) {
+		ret = -EPERM;
 		goto out;
 	}
 
-	ret = kobject_listen(kobj, handle, right, event);
+	ret = kobject_listen(kobj_to, kobj_from, from, event, data);
 out:
-	put_kobject(kobj);
+	put_kobject(kobj_to);
+	put_kobject(kobj_from);
 	return ret;
 }
 
@@ -120,7 +130,7 @@ handle_t sys_kobject_create(char __user *name, int type, right_t right,
 	/*
 	 * visable for all the threads in this process.
 	 */
-	handle = alloc_handle(kobj, right_req | KOBJ_STATE_OPENED);
+	handle = alloc_handle(kobj, right_req);
 	if (handle <= 0) {
 		kobject_put(kobj);
 		return -ENOSPC;
@@ -141,41 +151,11 @@ int sys_kobject_open(handle_t handle)
 	right_t right;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
 
 	ret = kobject_open(kobj, handle, right);
-	put_kobject(kobj);
-
-	return ret;
-}
-
-long sys_kobject_destroy(handle_t handle)
-{
-	struct kobject *kobj;
-	right_t right;
-	int ret;
-
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
-	ret = get_kobject(handle, &kobj, &right);
-	if (ret)
-		return ret;
-
-	/*
-	 * consider race condition to be done.
-	 */
-	if (right & KOBJ_STATE_OPENED)
-		goto out;
-
-	ret = kobject_destroy(kobj, right);
-
-out:
 	put_kobject(kobj);
 
 	return ret;
@@ -188,17 +168,9 @@ ssize_t sys_kobject_recv(handle_t handle, void __user *data, size_t data_size,
 	right_t right;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
-
-	if (!(right & KOBJ_STATE_OPENED)) {
-		ret = -EBADF;
-		goto out;
-	}
 
 	if (!(right & KOBJ_RIGHT_READ)) {
 		ret = -EPERM;
@@ -218,17 +190,9 @@ ssize_t sys_kobject_send(handle_t handle, void __user *data, size_t data_size,
 	right_t right;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
-
-	if (!(right & KOBJ_STATE_OPENED)) {
-		ret = -EBADF;
-		goto out;
-	}
 
 	if (!(right & KOBJ_RIGHT_WRITE)) {
 		ret = -EPERM;
@@ -247,20 +211,11 @@ long sys_kobject_reply(handle_t handle, unsigned long token, int err_code)
 	right_t right;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
 
-	if (!(right & KOBJ_STATE_OPENED)) {
-		ret = -EBADF;
-		goto out;
-	}
-
 	ret = kobject_reply(kobj, right, token, err_code);
-out:
 	put_kobject(kobj);
 
 	return ret;
@@ -272,17 +227,9 @@ long sys_kobject_ctl(handle_t handle, int req, unsigned long data)
 	right_t right;
 	unsigned long ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
-
-	if (!(right & KOBJ_STATE_OPENED)) {
-		ret = -EBADF;
-		goto out;
-	}
 
 	if (!(right & KOBJ_RIGHT_CTL)) {
 		ret = -EPERM;
@@ -303,15 +250,9 @@ void *sys_kobject_mmap(handle_t handle)
 	int ret;
 	void *out = (void *)-1;
 
-	if (WRONG_HANDLE(handle))
-		return (void *)-1;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return (void *)-1;
-
-	if (!(right & KOBJ_STATE_OPENED))
-		goto out;
 
 	if (!(right & KOBJ_RIGHT_MMAP))
 		goto out;
@@ -328,17 +269,9 @@ int sys_kobject_munmap(handle_t handle)
 	right_t right;
 	int ret;
 
-	if (WRONG_HANDLE(handle))
-		return -ENOENT;
-
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
 		return ret;
-
-	if (!(right & KOBJ_STATE_OPENED)) {
-		ret = -EBADF;
-		goto out;
-	}
 
 	if (!(right & KOBJ_RIGHT_MMAP)) {
 		ret = -EPERM;

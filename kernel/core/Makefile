@@ -42,4 +42,3 @@ obj-y += timer.o
 obj-y += vspace.o
 obj-y += uaccess.o
 obj-y += futex.o
-obj-y += poll.o

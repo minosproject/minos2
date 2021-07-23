@@ -130,7 +130,7 @@ static void *stage1_get_free_page(unsigned long flags)
 	if (flags & VM_HOST)
 		return alloc_kpages(1);
 	else
-		return get_free_page(GFP_USER);
+		return get_free_page(GFP_KERNEL);
 }
 
 static unsigned long stage1_xxx_addr_end(unsigned long start, unsigned long end, size_t map_size)
@@ -369,7 +369,6 @@ static int stage1_unmap_pud_range(struct vspace *vs,
 	unsigned long next;
 	pud_t *pud;
 	pmd_t *pmdp;
-	struct page *page;
 
 	pud = stage1_pud_offset((pud_t *)vs->pgdp, end);
 	do {
@@ -383,17 +382,6 @@ static int stage1_unmap_pud_range(struct vspace *vs,
 	} while (pud++, addr = next, addr != end);
 
 	flush_tlb_asid_all(vs->asid);
-
-	/*
-	 * free the pages which is private for this process.
-	 */
-	page = vs->release_pages;
-	vs->release_pages = NULL;
-
-	while (page) {
-		__free_pages(page);
-		page = page->next;
-	}
 
 	return 0;
 }
@@ -611,13 +599,17 @@ int arch_host_map(struct vspace *vs, unsigned long start, unsigned long end,
 
 int arch_host_unmap(struct vspace *vs, unsigned long start, unsigned long end)
 {
-	int ret;
+	int ret, inuse;
 
 	ASSERT((start < S1_VIRT_MAX) && (end < S1_VIRT_MAX));
 
 	spin_lock(&vs->lock);
-	vs->release_pages = NULL;
+
+	inuse = atomic_read(&vs->inuse);
 	ret = stage1_unmap_pud_range(vs, start, end, 0);
+	if (inuse == 0)
+		release_vspace_pages(vs);
+
 	spin_unlock(&vs->lock);
 
 	return ret;

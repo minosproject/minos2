@@ -80,31 +80,30 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	 */
 	irq_chip->irq_mask(irq);
 
-	raw_spin_lock(&idesc->lock);
-
-	set_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
-
-	if (idesc->owner != 0) {
-		task = get_task_by_tid(idesc->owner);
-		if ((task->stat == TASK_STAT_WAIT_EVENT) &&
-				(task->wait_event == TASK_EVENT_IRQ))
-			wakeup = 1;
-	}
-
-	raw_spin_unlock(&idesc->lock);
-
 	/*
 	 * whether this irq has been listened.
 	 */
-	if (event_is_polled(&kobj->poll_struct, POLL_EV_IN)) {
+	if (event_is_polled(&kobj->poll_struct, POLL_EV_TYPE_IN)) {
 		ASSERT(idesc->poll_event != NULL);
-		poll_event_send_static(poll_event_reader(ps),
-				idesc->poll_event);
+		poll_event_send_static(ps->reader, idesc->poll_event);
 		return 0;
 	}
 
-	if (wakeup)
+	set_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
+
+	raw_spin_lock(&idesc->lock);
+	if (idesc->owner != 0) {
+		task = get_task_by_tid(idesc->owner);
+		if (task && (task->stat == TASK_STAT_WAIT_EVENT) &&
+				(task->wait_event == TASK_EVENT_IRQ))
+			wakeup = 1;
+		idesc->owner = 0;
+	}
+
+	if (task && wakeup)
 		wake_up(task, 0);
+
+	raw_spin_unlock(&idesc->lock);
 
 	return 0;
 }

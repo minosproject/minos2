@@ -57,28 +57,27 @@ static int alloc_tid(void)
 static int request_tid(int tid)
 {
 	BUG_ON((tid <= 0) || (tid >= OS_NR_TASKS), "no such tid %d\n", tid);
-
-	if (test_and_set_bit(tid, tid_map))
-		return 0;
-
-	return 1;
+	return !test_and_set_bit(tid, tid_map);
 }
 
 static void release_tid(int tid)
 {
-	BUG_ON((tid <= 0) || (tid >= OS_NR_TASKS),
-			"can not release task tid %d\n", tid);
-
+	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
 	os_task_table[tid] = NULL;
 	clear_bit(tid, tid_map);
 }
 
 struct task *get_task_by_tid(tid_t tid)
 {
-	if ((tid >= OS_NR_TASKS) || (tid < 0))
-		return NULL;
+	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
+	return  os_task_table[tid];
+}
 
-	return os_task_table[tid];
+void clear_task_by_tid(tid_t tid)
+{
+	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
+	os_task_table[tid] = NULL;
+	wmb();
 }
 
 static void task_timeout_handler(unsigned long data)
@@ -131,9 +130,6 @@ static void task_init(struct task *task, char *name,
 		task->stat = TASK_STAT_RUNNING;
 		task->cpu = cpu;
 	}
-
-	init_list(&task->poll_event_list);
-	spin_lock_init(&task->poll_lock);
 
 	/*
 	 * driver task can not be preempt once it ran
@@ -406,16 +402,6 @@ void os_for_all_task(void (*hdl)(struct task *task))
 		hdl(task);
 	}
 }
-
-#if 0
-int kill(struct task *task, int signal)
-{
-	set_bit(signal, &task->signal_pending);
-	wake_up_abort(task);
-
-	return 0;
-}
-#endif
 
 /*
  * for preempt_disable and preempt_enable need

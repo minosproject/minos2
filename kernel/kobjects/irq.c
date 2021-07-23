@@ -16,7 +16,6 @@
 
 #include <minos/minos.h>
 #include <minos/kobject.h>
-#include <minos/endpoint.h>
 #include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
@@ -54,19 +53,19 @@ static ssize_t irq_kobj_read(struct kobject *kobj, void __user *data,
 		return 0;
 
 	spin_lock_irqsave(&idesc->lock, flags);
-	if (idesc->owner) {
-		ret = -EAGAIN;
-		goto out;
-	}
 
 	if (test_and_clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags))
 		goto out;
 
-	if (timeout == 0) {
+	/*
+	 * somebody already poll on this irq
+	 */
+	if (idesc->owner || timeout == 0) {
 		ret = -EAGAIN;
 		goto out;
 	}
 
+	idesc->owner = current_tid;
 	__event_task_wait((unsigned long)idesc, TASK_EVENT_IRQ, timeout);
 	wait = 1;
 out:
@@ -75,7 +74,13 @@ out:
 	if (wait)
 		ret = wait_event();
 
-	clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
+	if (ret == -EABORT) {
+		spin_lock_irqsave(&idesc->lock, flags);
+		idesc->owner = 0;
+		spin_unlock_irqrestore(&idesc->lock, flags);
+	} else if (ret == 0) {
+		clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
+	}
 
 	return ret;
 }
@@ -94,10 +99,16 @@ static ssize_t irq_kobj_write(struct kobject *kobj, void __user *data,
 	return 0;
 }
 
+static int irq_kobj_close(struct kobject *kobj, right_t right)
+{
+	return 0;
+}
+
 static struct kobject_ops irq_kobj_ops = {
 	.open	= irq_kobj_open,
 	.recv	= irq_kobj_read,
 	.send	= irq_kobj_write,
+	.close	= irq_kobj_close,
 };
 
 static struct kobject *irq_kobject_create(char *str, right_t right,

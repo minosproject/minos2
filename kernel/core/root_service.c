@@ -458,17 +458,6 @@ static int setup_root_service_ustack(struct process *proc)
 	return 0;
 }
 
-static void virtio_test(void)
-{
-	uint32_t *addr = io_remap(0x1c130000, PAGE_SIZE);
-	int i;
-
-	for (i = 0; i < PAGE_SIZE / 4; i++) {
-		pr_notice("addr 0x%x value is 0x%x\n", addr, ioread32(addr));
-		addr++;
-	}
-}
-
 /*
  * root service will create the first user space
  * process, then response for the memory management
@@ -514,8 +503,6 @@ int load_root_service(void)
 	}
 
 	pr_notice("Root service load successfully prepare to run...\n");
-
-	// virtio_test();
 
 	return wake_up_process(proc);
 

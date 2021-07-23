@@ -15,12 +15,16 @@
  */
 
 #include <minos/minos.h>
+#include <minos/vspace.h>
 
 int copy_string_from_user(char *dst, char __user *src, int max)
 {
 	int offset = (unsigned long)src - PAGE_ALIGN(src);
 	int copy_size, left = max, copied = 0;
+	struct vspace *vs = &current->proc->vspace;
 	char *ksrc;
+
+	inc_vspace_usage(vs);
 
 	while (left) {
 		copy_size = PAGE_SIZE - offset;
@@ -28,8 +32,10 @@ int copy_string_from_user(char *dst, char __user *src, int max)
 
 		ksrc = (void *)arch_translate_va_to_pa(&current->proc->vspace,
 				(unsigned long)src);
-		if ((phy_addr_t)ksrc == INVALID_ADDR)
-			return -EFAULT;
+		if ((phy_addr_t)ksrc == INVALID_ADDR) {
+			copied = -EFAULT;
+			goto out;
+		}
 
 		ksrc = (char *)ptov(ksrc);
 		while (copy_size > 0) {
@@ -50,6 +56,9 @@ int copy_string_from_user(char *dst, char __user *src, int max)
 		dst += copy_size;
 	}
 
+out:
+	dec_vspace_usage(vs);
+
 	return copied;
 }
 
@@ -60,13 +69,17 @@ int __copy_from_user(void *dst, struct vspace *vsrc, void __user *src, size_t si
 	size_t cnt = size;
 	void *ksrc;
 
+	inc_vspace_usage(vsrc);
+
 	while (size > 0) {
 		copy_size = PAGE_SIZE - offset;
 		copy_size = copy_size > size ? size : copy_size;
 
 		ksrc = (void *)arch_translate_va_to_pa(vsrc, (unsigned long)src);
-		if ((phy_addr_t)ksrc == INVALID_ADDR)
-			return -EFAULT;
+		if ((phy_addr_t)ksrc == INVALID_ADDR) {
+			cnt = -EFAULT;
+			goto out;
+		}
 
 		ksrc = (char *)ptov(ksrc);
 		memcpy(dst, ksrc, copy_size);
@@ -75,6 +88,9 @@ int __copy_from_user(void *dst, struct vspace *vsrc, void __user *src, size_t si
 		src += copy_size;
 		dst += copy_size;
 	}
+
+out:
+	dec_vspace_usage(vsrc);
 
 	return cnt;
 }
@@ -86,13 +102,17 @@ int __copy_to_user(struct vspace *vdst, void __user *dst, void *src, size_t size
 	size_t cnt = size;
 	void *kdst;
 
+	inc_vspace_usage(vdst);
+
 	while (size > 0) {
 		copy_size = PAGE_SIZE - offset;
 		copy_size = copy_size > size ? size : copy_size;
 
 		kdst = (void *)arch_translate_va_to_pa(vdst, (unsigned long)dst);
-		if ((phy_addr_t)kdst == INVALID_ADDR)
-			return -EFAULT;
+		if ((phy_addr_t)kdst == INVALID_ADDR) {
+			cnt = -EFAULT;
+			goto out;
+		}
 
 		memcpy(kdst, src, copy_size);
 		offset = 0;
@@ -100,6 +120,9 @@ int __copy_to_user(struct vspace *vdst, void __user *dst, void *src, size_t size
 		src += copy_size;
 		dst += copy_size;
 	}
+
+out:
+	dec_vspace_usage(vdst);
 
 	return cnt;
 }
@@ -122,13 +145,17 @@ int copy_user_to_user(struct vspace *vdst, void __user *dst,
 	size_t cnt = size;
 	void *kdst;
 
+	inc_vspace_usage(vdst);
+
 	while (size > 0) {
 		copy_size = PAGE_SIZE - dst_offset;
 		copy_size = copy_size > size ? size : copy_size;
 
 		kdst = (void *)arch_translate_va_to_pa(vdst, (unsigned long)dst);
-		if ((phy_addr_t)kdst == INVALID_ADDR)
-			return -EFAULT;
+		if ((phy_addr_t)kdst == INVALID_ADDR) {
+			cnt = -EFAULT;
+			goto out;
+		}
 
 		ret = __copy_from_user(kdst, vsrc, src, copy_size);
 		if (ret)
@@ -138,6 +165,9 @@ int copy_user_to_user(struct vspace *vdst, void __user *dst,
 		src += copy_size;
 		dst += copy_size;
 	}
+
+out:
+	dec_vspace_usage(vdst);
 
 	return cnt;
 }

@@ -9,7 +9,7 @@
 #define HUGE_PAGE_SHIFT		21
 #define IS_HUGE_ALIGN(x)	(!((unsigned long)(x) & (HUGE_PAGE_SIZE - 1)))
 
-#define PROCESS_TOP_HALF_BASE	(1UL << 38)
+#define PROCESS_TOP_HALF_BASE	(USER_PROCESS_ADDR_LIMIT >> 1)
 #define VMA_SHARED_BASE		PROCESS_TOP_HALF_BASE
 
 #define pa2sva(phy)		((phy) + VMA_SHARED_BASE)
@@ -46,6 +46,13 @@ struct vspace {
 	pgd_t *pgdp;
 	spinlock_t lock;
 	uint16_t asid;
+
+	/*
+	 * indicate that the vspace is used in kernel, means
+	 * kernel is acess the userspace pagees, so do not release
+	 * the pages if unmap to avoid kernel hang or data breach.
+	 */
+	atomic_t inuse;
 	struct page *release_pages;
 };
 
@@ -81,6 +88,8 @@ void *uva_to_kva(struct vspace *vs, unsigned long va,
 
 int handle_page_fault(unsigned long virt, int write, unsigned long flags);
 
-int access_ok(struct task *task, void *addr, size_t size, unsigned long flags);
+void inc_vspace_usage(struct vspace *vs);
+void dec_vspace_usage(struct vspace *vs);
+void release_vspace_pages(struct vspace *vs);
 
 #endif

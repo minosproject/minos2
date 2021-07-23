@@ -32,15 +32,6 @@
 
 static DEFINE_SPIN_LOCK(pid_lock);
 static DECLARE_BITMAP(pid_map, CONFIG_NR_PROC);
-static struct process *os_processes[CONFIG_NR_PROC];
-
-struct process *get_process_by_pid(int pid)
-{
-	if (pid >= CONFIG_NR_PROC)
-		return NULL;
-
-	return os_processes[pid];
-}
 
 static int alloc_pid(void)
 {
@@ -66,10 +57,7 @@ static int alloc_pid(void)
 
 static void release_pid(int pid)
 {
-	if (pid > OS_NR_PROC)
-		return;
-
-	os_processes[pid] = NULL;
+	ASSERT(!(pid > OS_NR_PROC));
 	clear_bit(pid, pid_map);
 }
 
@@ -97,6 +85,9 @@ struct task *create_task_for_process(struct process *proc, char *name,
 {
 	struct task *task;
 
+	if (proc->exit)
+		return NULL;
+
 	task = create_task(name, (task_func_t)func, user_sp,
 			prio, aff, flags, proc);
 	if (!task)
@@ -123,6 +114,7 @@ struct process *create_process(char *name, task_func_t func,
 	if (!proc)
 		goto proc_alloc_fail;
 
+	proc->pid = pid;
 	ret = init_proc_handles(proc);
 	if (ret)
 		goto handle_init_fail;
@@ -130,7 +122,6 @@ struct process *create_process(char *name, task_func_t func,
 	ret = vspace_init(&proc->vspace);
 	if (ret)
 		goto vspace_init_fail;
-	proc->pid = pid;
 
 	/*
 	 * create a root task for this process
@@ -147,7 +138,6 @@ struct process *create_process(char *name, task_func_t func,
 	kobject_init(&proc->kobj, proc->pid, KOBJ_TYPE_PROCESS,
 			KOBJ_FLAGS_INVISABLE, KOBJ_RIGHT_NONE,
 			(unsigned long)proc);
-
 	kobject_init(&task->kobj, pid, KOBJ_TYPE_THREAD,
 			KOBJ_FLAGS_INVISABLE, 0, (unsigned long)task);
 	task->kobj.name = task->name;
@@ -156,6 +146,8 @@ struct process *create_process(char *name, task_func_t func,
 	proc->tail = task;
 	proc->task_cnt = 1;
 	task->pid = proc->pid;
+	spin_lock_init(&proc->request_lock);
+	init_list(&proc->request_list);
 
 	/*
 	 * add the thread to the process's kobject list.

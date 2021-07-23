@@ -2,6 +2,7 @@
 #define __MINOS_ACCESS_H__
 
 #include <minos/compiler.h>
+#include <asm/uaccess.h>
 
 struct vspace;
 

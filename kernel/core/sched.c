@@ -477,11 +477,12 @@ int __wake_up(struct task *task, int pend_state, void *data)
 	unsigned long flags;
 	uint32_t timeout;
 
-	if (task == NULL)
-		return -ENOENT;
+	ASSERT(task != NULL);
+	if (task == current)
+		return 0;
 
+	preempt_disable();
 	spin_lock_irqsave(&task->s_lock, flags);
-
 	/*
 	 * task already waked up, if the stat is set to
 	 * TASK_STAT_WAIT_EVENT, it means that the task will
@@ -526,6 +527,7 @@ int __wake_up(struct task *task, int pend_state, void *data)
 	 * find a best cpu to run this task.
 	 */
 	task_ready(task, 0);
+	preempt_enable();
 
 	return 0;
 }

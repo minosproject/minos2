@@ -45,11 +45,6 @@ static void __sys_kobject_close(gp_regs *regs)
 	regs->x0 = sys_kobject_close((handle_t)regs->x0);
 }
 
-static void __sys_kobject_destroy(gp_regs *regs)
-{
-	regs->x0 = sys_kobject_destroy((handle_t)regs->x0);
-}
-
 static void __sys_kobject_create(gp_regs *regs)
 {
 	regs->x0 = sys_kobject_create(
@@ -110,7 +105,9 @@ static void __sys_kobject_munmap(gp_regs *regs)
 static void __sys_kobject_listen(gp_regs *regs)
 {
 	regs->x0 = sys_kobject_listen((handle_t)regs->x0,
-			(int)regs->x1);
+			(handle_t)regs->x1,
+			(int)regs->x2,
+			(unsigned long)regs->x3);
 }
 
 static void __sys_kobject_open(gp_regs *regs)
@@ -157,20 +154,11 @@ static void __sys_grant(gp_regs *regs)
 			(int)regs->x3);
 }
 
-static void __sys_poll_wait(gp_regs *regs)
-{
-	regs->x0 = sys_poll_wait((struct poll_event __user *)regs->x0,
-			(int)regs->x1, (uint32_t)regs->x2);
-}
-
 static syscall_handler_t __syscall_table[] = {
 	[0 ... __NR_syscalls] 		= aarch64_syscall_unsupport,
 
-	[__NR_poll_wait]		= __sys_poll_wait,
-
 	[__NR_kobject_open]		= __sys_kobject_open,
 	[__NR_kobject_create]		= __sys_kobject_create,
-	[__NR_kobject_destroy]		= __sys_kobject_destroy,
 	[__NR_kobject_reply]		= __sys_kobject_reply,
 	[__NR_kobject_send]		= __sys_kobject_send,
 	[__NR_kobject_recv]		= __sys_kobject_recv,

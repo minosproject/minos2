@@ -66,6 +66,7 @@
 #define TASK_EVENT_STARTUP	0x400
 #define TASK_EVENT_FUTEX	0x800
 #define TASK_EVENT_IRQ		0x1000
+#define TASK_EVENT_ROOT_SERVICE 0x2000
 
 #define TASK_STAT_PEND_OK       0u  /* Pending status OK, not pending, or pending complete */
 #define TASK_STAT_PEND_TO       1u  /* Pending timed out */
@@ -79,6 +80,7 @@
 #define TASK_TIMEOUT_TRIGGER	0x2
 
 #define TASK_REQ_FLUSH_TLB	(1 << 0)
+#define TASK_REQ_EXIT		(1 << 1)
 
 typedef int (*task_func_t)(void *data);
 
@@ -132,8 +134,6 @@ struct task {
 	 * below data used for userspace ipc and event.
 	 */
 	gp_regs *user_gp_regs;
-	struct list_head poll_event_list;
-	spinlock_t poll_lock;
 
 	int wait_type;			// which event is task waitting for.
 	void *msg;			// used for mbox to pass data

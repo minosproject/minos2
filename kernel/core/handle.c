@@ -258,10 +258,7 @@ void deinit_proc_handles(struct process *proc)
 int init_proc_handles(struct process *proc)
 {
 	extern struct kobject stdio_kobj;
-	struct handle_desc *hd;
-	struct handle_table_desc *htd;
 	handle_t handle;
-	int i;
 
 	spin_lock_init(&proc->kobj_lock);
 	proc->handle_desc_table = new_handle_desc_table(0);
@@ -285,14 +282,6 @@ int init_proc_handles(struct process *proc)
 	ASSERT(handle == 2);
 	handle = __alloc_handle(proc, &stdio_kobj, KOBJ_RIGHT_WRITE);
 	ASSERT(handle == 3);
-
-	/*
-	 * set the stdio and process kobject as open state.
-	 */
-	for (i = 0; i < 4; i++) {
-		lookup_handle_desc(proc, i, &hd, &htd);
-		hd->right |= KOBJ_STATE_OPENED;
-	}
 
 	return 0;
 }

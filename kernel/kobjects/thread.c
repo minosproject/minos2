@@ -35,17 +35,19 @@ static struct kobject *thread_create(char *str, right_t right,
 	struct task *task;
 	int ret;
 
-	ret = copy_from_user(&args, (void *)data, sizeof(struct thread_create_arg));
+	ret = copy_from_user(&args, (void *)data,
+			sizeof(struct thread_create_arg));
 	if (ret <= 0)
 		return ERROR_PTR(ENOMEM);
 
-	task = create_task_for_process(current_proc, str,
-			args.func, args.user_sp, args.prio, args.aff, args.flags);
+	task = create_task_for_process(current_proc, str, args.func,
+			args.user_sp, args.prio, args.aff, args.flags);
 	if (!task)
 		return ERROR_PTR(ENOMEM);
 
 	kobject_init(&task->kobj, current_pid, KOBJ_TYPE_THREAD,
-			KOBJ_FLAGS_INVISABLE, KOBJ_RIGHT_NONE, (unsigned long)task);
+			KOBJ_FLAGS_INVISABLE, KOBJ_RIGHT_NONE,
+			(unsigned long)task);
 
 	return &task->kobj;
 }

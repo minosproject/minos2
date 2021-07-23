@@ -66,6 +66,7 @@ void os_for_all_task(void (*hdl)(struct task *task));
 int kill(struct task *task, int signal);
 
 struct task *get_task_by_tid(tid_t tid);
+void clear_task_by_tid(tid_t tid);
 
 struct task *create_task(char *name, task_func_t func,
 		void *user_sp, int prio, int aff,

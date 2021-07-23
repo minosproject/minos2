@@ -20,12 +20,15 @@
 #include <minos/mm.h>
 #include <minos/vspace.h>
 #include <minos/sched.h>
+#include <minos/poll.h>
+#include <minos/task.h>
 
 enum {
 	KOBJ_PROCESS_GET_PID = 0x100,
 	KOBJ_PROCESS_SETUP_SP,
 	KOBJ_PROCESS_WAKEUP,
 	KOBJ_PROCESS_VA2PA,
+	KOBJ_PROCESS_EXIT,
 };
 
 struct process_create_arg {
@@ -36,12 +39,43 @@ struct process_create_arg {
 	unsigned long flags;
 };
 
+struct process_proto {
+	unsigned long handle;
+	void *data;
+	long data_size;
+	void *extra;
+	long extra_size;
+	unsigned long timeout;
+};
+
+#define PROCESS_PROTO(task)	\
+	(struct process_proto *)task_syscall_regs(task)
+
 static ssize_t process_send(struct kobject *kobj,
 		void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size,
 		uint32_t timeout)
 {
-	return 0;
+	struct process *proc = (struct process *)kobj->data;
+	struct poll_struct *ps = &kobj->poll_struct;
+
+	/*
+	 * ROOT service will always listened to the process's
+	 * request.
+	 */
+	ASSERT(proc != current_proc);
+	wmb();
+
+	spin_lock(&proc->request_lock);
+	list_add_tail(&proc->request_list, &current->kobj.list);
+	__event_task_wait(0, TASK_EVENT_ROOT_SERVICE, 0);
+	spin_unlock(&proc->request_lock);
+
+	poll_event_send_with_data(ps->reader, POLL_EV_IN,
+			ps->handle_reader, &ps->data_reader,
+			sizeof(unsigned long));
+
+	return wait_event();
 }
 
 static ssize_t process_recv(struct kobject *kobj,
@@ -49,12 +83,175 @@ static ssize_t process_recv(struct kobject *kobj,
 		void __user *extra, size_t extra_size,
 		uint32_t timeout)
 {
+	struct process *proc = (struct process *)kobj->data;
+	struct kobject *thread = NULL;
+	struct task *task;
+	struct process_proto *proto;
+	int ret = 0;
+
+	spin_lock(&proc->request_lock);
+	if (is_list_empty(&proc->request_list)) {
+		ret = -EAGAIN;
+		goto out;
+	}
+
+	thread = list_first_entry(&proc->request_list,
+			struct kobject, list);
+	list_del(&thread->list);
+out:
+	spin_unlock(&proc->request_lock);
+
+	if (!thread)
+		return ret;
+
+	task = (struct task *)thread->data;
+	proto = PROCESS_PROTO(task);
+	if ((proto->data_size != data_size) ||
+			(proto->extra_size > extra_size)) {
+		wake_up(task, -EINVAL);
+		return -EAGAIN;
+	}
+
+	ret = copy_user_to_user(&current_proc->vspace, data,
+			&task->proc->vspace, proto->data, data_size);
+	if (ret <= 0) {
+		wake_up(task, -EFAULT);
+		return -EAGAIN;
+	}
+
+	if (proto->extra == 0)
+		return 0;
+
+	ret = copy_user_to_user(&current_proc->vspace, extra,
+			&task->proc->vspace, proto->extra, extra_size);
+	if (ret <= 0) {
+		wake_up(task, -EFAULT);
+		return -EAGAIN;
+	}
+
+	proc->request_current = task;
+
 	return 0;
+}
+
+static int process_reply(struct kobject *kobj, right_t right,
+		long token, long errno)
+{
+	struct process *proc = (struct process *)kobj->data;
+
+	if (proc->request_current == NULL)
+		return -ENOENT;
+
+	wake_up(proc->request_current, errno);
+	proc->request_current = NULL;
+
+	return 0;
+}
+
+static void wait_all_task_stop(struct process *proc)
+{
+	struct task *task;
+	int done;
+
+	/*
+	 * any better ways to know whether this thread has been
+	 * operate by other thread ?, the case will happed in
+	 * process IPC, such as endpoint, irq etc.
+	 */
+	for (;;) {
+		done = 0;
+		for_all_task_in_process(proc, task) {
+			if (task == current)
+				continue;
+			done |= (task->stat != TASK_STAT_STOPPED);
+		}
+
+		if (!done)
+			break;
+
+		sched();
+	}
 }
 
 static void process_release(struct kobject *kobj)
 {
+	struct process *proc = (struct process *)kobj->data;
 
+	/*
+	 * wait again, the calling task need to ensure is
+	 * alreay exited.
+	 */
+	wait_all_task_stop(proc);
+
+	/*
+	 * now can release the all process's resource now.
+	 * the important things is to close all the kobject
+	 * this thread has been opened. TBD
+	 */
+}
+
+static int send_process_exit_event(struct process *proc)
+{
+	struct poll_struct *ps = &proc->kobj.poll_struct;
+
+	ASSERT((ps->poll_event & POLL_EV_TYPE_KERNEL) != 0);
+
+	return poll_event_send_with_data(ps->owner, POLL_EV_KERNEL,
+			ps->handle_owner, (void *)&ps->data_owner,
+			sizeof(unsigned long));
+}
+
+static void task_exit_helper(void *data)
+{
+
+}
+
+static int process_exit(struct process *proc)
+{
+	struct task *task = current;
+	struct task *tmp;
+
+	ASSERT(task->pid != proc->pid);
+	proc->exit = 1;
+
+	for_all_task_in_process(proc, tmp) {
+		/*
+		 * other task can not get the instance of this
+		 * task, but the task who already get the instance
+		 * of this task can sending data to it currently.
+		 */
+		clear_task_by_tid(task->tid);
+
+		task->request |= TASK_REQ_EXIT;
+		if (tmp == task)
+			continue;
+
+		/*
+		 * make all the running taskes enter into kernel, so
+		 * when return to user, it can detected the task need
+		 * to exit.
+		 */
+		if (tmp->ti.flags & __TIF_IN_USER)
+			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
+		else if ((task->stat == TASK_STAT_WAIT_EVENT) &&
+				(task->wait_type != TASK_EVENT_ROOT_SERVICE))
+			wake_up(tmp, -EABORT);
+	}
+
+	/*
+	 * wait all task in this process going to stop stat
+	 */
+	wait_all_task_stop(proc);
+
+	/*
+	 * send a kernel event to the root service to indicate that
+	 * this process will exit() soon, before sending the message
+	 * to the root service, mask this task do_not_preempt(). since
+	 * this task will stopped soon.
+	 */
+	do_not_preempt();
+
+	return send_process_exit_event(proc);
 }
 
 static long process_ctl(struct kobject *kobj, int req, unsigned long data)
@@ -81,6 +278,19 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 		if (addr == INVALID_ADDR)
 			addr = -1;
 		return addr;
+	case KOBJ_PROCESS_EXIT:
+		/*
+		 * task will be sched out when in return to user.
+		 * if the REQUEST_EXIT bit is seted in task->request
+		 */
+		if (process_exit(proc)) {
+			pr_err("process-%d %s exit fail\n",
+					proc->pid, proc->name);
+			return -EABORT;
+		} else {
+			return 0;
+		}
+		break;
 	default:
 		pr_err("%s unsupport ctl reqeust %d\n", __func__, req);
 		break;
@@ -92,6 +302,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 static struct kobject_ops proc_kobj_ops = {
 	.send		= process_send,
 	.recv		= process_recv,
+	.reply		= process_reply,
 	.release	= process_release,
 	.ctl		= process_ctl,
 };
@@ -142,7 +353,8 @@ static struct kobject *process_create(char *str, right_t right,
 		return NULL;
 
 	proc = create_process(str, (task_func_t)args.entry,
-			(void *)args.stack, args.aff, args.prio, args.flags);
+			(void *)args.stack, args.aff,
+			args.prio, args.flags);
 	if (!proc)
 		return ERROR_PTR(ENOMEM);
 

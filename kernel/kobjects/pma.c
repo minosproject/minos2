@@ -16,7 +16,6 @@
 
 #include <minos/minos.h>
 #include <minos/kobject.h>
-#include <minos/endpoint.h>
 #include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
@@ -165,7 +164,6 @@ static int pma_unmap(struct kobject *kobj, struct process *proc)
 		}
 	}
 	spin_unlock(&p->lock);
-
 	if (!out)
 		return -ENOENT;
 

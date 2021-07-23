@@ -7,6 +7,7 @@
 #define TIF_32BIT		1
 #define TIF_DONOT_PREEMPT	2
 #define TIF_TICK_EXHAUST	3
+#define TIF_IN_USER		4
 #define TIF_HARDIRQ_MASK	8
 #define TIF_SOFTIRQ_MASK	9
 
@@ -14,6 +15,7 @@
 #define __TIF_32BIT		(UL(1) << TIF_32BIT)
 #define __TIF_DONOT_PREEMPT	(UL(1) << TIF_DONOT_PREEMPT)
 #define __TIF_TICK_EXHAUST	(UL(1) << TIF_TICK_EXHAUST)
+#define __TIF_IN_USER		(UL(1) << TIF_IN_USER)
 #define __TIF_HARDIRQ_MASK	(UL(1) << TIF_HARDIRQ_MASK)
 #define __TIF_SOFTIRQ_MASK	(UL(1) << TIF_SOFTIRQ_MASK)
 

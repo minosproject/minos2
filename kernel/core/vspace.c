@@ -144,12 +144,6 @@ void vspace_deinit(struct vspace *vs)
 		free_asid(vs->asid);
 }
 
-
-int access_ok(struct task *task, void *addr, size_t size, unsigned long flags)
-{
-	return 1;
-}
-
 int map_process_memory(struct process *proc,
 		       unsigned long vaddr,
 		       size_t size,
@@ -239,6 +233,46 @@ int handle_page_fault(unsigned long virt, int write, unsigned long flags)
 
 	return 0;
 
+}
+
+void release_vspace_pages(struct vspace *vs)
+{
+	struct page *page = vs->release_pages;
+
+	while (page) {
+		__free_pages(page);
+		page = page->next;
+	}
+
+	vs->release_pages = NULL;
+}
+
+void inc_vspace_usage(struct vspace *vs)
+{
+	atomic_inc(&vs->inuse);
+}
+
+void dec_vspace_usage(struct vspace *vs)
+{
+	int value;
+
+	value = atomic_dec_return(&vs->inuse);
+	ASSERT(value >=0);
+	if (value != 0)
+		return;
+
+	/*
+	 * it is safe to release the pages here ? need double
+	 * check.
+	 */
+	spin_lock(&vs->lock);
+	if (atomic_read(&vs->inuse) != 0) {
+		spin_unlock(&vs->lock);
+		return;
+	}
+
+	release_vspace_pages(vs);
+	spin_unlock(&vs->lock);
 }
 
 int kernel_vspace_init(void)

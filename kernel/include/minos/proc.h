@@ -20,6 +20,8 @@ struct process {
 	struct kobject kobj;
 	spinlock_t lock;
 
+	int exit;
+
 	struct vspace vspace;
 
 	/*
@@ -31,6 +33,10 @@ struct process {
 	 */
 	struct handle_desc *handle_desc_table;
 	spinlock_t kobj_lock;
+
+	struct list_head request_list;
+	spinlock_t request_lock;
+	struct task *request_current;
 
 	char name[PROCESS_NAME_SIZE];
 };
@@ -44,7 +50,5 @@ struct process *create_process(char *name, task_func_t func,
 struct task *create_task_for_process(struct process *proc, char *name,
 		unsigned long func, void *usp, int prio,
 		int aff, unsigned long flags);
-
-struct process *get_process_by_pid(int pid);
 
 #endif

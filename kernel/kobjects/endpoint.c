@@ -16,10 +16,49 @@
 
 #include <minos/minos.h>
 #include <minos/kobject.h>
-#include <minos/endpoint.h>
 #include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
+#include <minos/poll.h>
+
+#define EP_READER		0
+#define EP_WRITER		1
+#define EP_NULL			2
+
+#define EP_STAT_CLOSED		0
+#define EP_STAT_OPENED		1
+
+#define EP_NAME_SIZE		16
+#define EP_RIGHT_MASK		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE | KOBJ_RIGHT_NONBLOCK)
+#define EP_MAX_HANDLES		10
+#define EP_MAX_HANDLES_SIZE	(EP_MAX_HANDLES * sizeof(handle_t))
+
+#define EP_MODE_MUTIL_WRITER	1
+
+struct endpoint {
+	struct task *recv_task;			// which task is receiveing data from this endpoint.
+	int status[2];				// status for the reader and writer.
+	int mode;
+
+	struct kobject kobj;			// kobj for this endpoint.
+	atomic_t connected;
+
+	spinlock_t lock;			// spinlock to prevent below member.
+	struct list_head pending_list;		// pending write task will list here.
+	struct list_head processing_list;	// the task which has aready processing and waiting reply.
+
+	char name[EP_NAME_SIZE];		// the name of this endpoint.
+};
+
+struct endpoint_proto {
+	unsigned long return_code;
+	unsigned long data_addr;
+	unsigned long data_size;
+	unsigned long handle_addr;
+	unsigned long handle_size;
+	unsigned long flags;
+	unsigned long timeout;
+};
 
 #define kobject_to_endpoint(kobj)	\
 	(struct endpoint *)((kobj)->data)
@@ -27,69 +66,53 @@
 #define task_endpoint_proto(task)	\
 	(struct endpoint_proto *)task_syscall_regs(task)
 
-static int endpoint_open(struct kobject *kobj, handle_t handle, right_t right)
+#define EP_DIR(right)	\
+	(right & KOBJ_RIGHT_READ) ? EP_READER : EP_WRITER
+
+static int endpoint_open(struct kobject *kobj,
+			handle_t handle, right_t right)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
-	int dir;
 
-	/*
-	 * one process can not have both RW right for an endpoint 
-	 */
-	switch (right & KOBJ_RIGHT_RW) {
-	case KOBJ_RIGHT_READ:
-		dir = EP_READER;
-		break;
-	case KOBJ_RIGHT_WRITE:
-		dir = EP_WRITER;
-		break;
-	default:
-		return -EPERM;
-	}
-
-	spin_lock(&ep->lock);
-
-	/*
-	 * the endpoint has already been opened
-	 */
-	if (ep->handles[dir]) {
-		spin_unlock(&ep->lock);
-		return -EACCES;
-	}
-
-	ep->owner[dir] = current->proc->pid;
-	ep->handles[dir] = handle;
-	ep->status[dir] = EP_STAT_OPENED;
-	spin_unlock(&ep->lock);
+	ep->status[EP_DIR(right)] = EP_STAT_OPENED;
 
 	return 0;
+}
+
+static void wake_all_ep_writer(struct endpoint *ep, int errno)
+{
+	struct kobject *kobj, *tmp;
+
+	list_for_each_entry_safe(kobj, tmp, &ep->pending_list, list) {
+		wake_up((struct task *)kobj->data, errno);
+		list_del(&kobj->list);
+	}
+
+	list_for_each_entry_safe(kobj, tmp, &ep->processing_list, list) {
+		wake_up((struct task *)kobj->data, errno);
+		list_del(&kobj->list);
+	}
 }
 
 static int endpoint_close(struct kobject *kobj, right_t right)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
-	int dir;
+	int dir = EP_DIR(right);
 
-	switch (right & KOBJ_RIGHT_RW) {
-	case KOBJ_RIGHT_READ:
-		dir = EP_READER;
-		break;
-	case KOBJ_RIGHT_WRITE:
-		dir = EP_WRITER;
-		break;
-	default:
-		return -EPERM;
+	if (ep->mode != EP_MODE_MUTIL_WRITER)
+		ep->status[dir] = EP_STAT_CLOSED;
+
+	if (dir == EP_READER) {
+		spin_lock(&ep->lock);
+		wake_all_ep_writer(ep, -EIO);
+		spin_unlock(&ep->lock);
 	}
-
-	spin_lock(&ep->lock);
-	ep->owner[dir] = 0;
-	ep->handles[dir] = HANDLE_NULL;
-	ep->status[dir] = EP_STAT_CLOSED;
-	spin_unlock(&ep->lock);
 
 	return 0;
 }
 
-static int endpoint_copy_handles(struct task *task, void __user *udst, void __user *usrc, size_t size)
+static int endpoint_copy_handles(struct task *task, void __user *udst,
+		void __user *usrc, size_t size)
 {
 	handle_t ksrc[EP_MAX_HANDLES];
 	handle_t kdst[EP_MAX_HANDLES];
@@ -98,9 +121,12 @@ static int endpoint_copy_handles(struct task *task, void __user *udst, void __us
 	right_t right;
 	int ret, i;
 
+	if (size == 0)
+		return 0;
+
 	ret = __copy_from_user(ksrc, &task->proc->vspace, usrc, size);
 	if (ret)
-		return ret;
+		return -EFAULT;
 
 	memset(kdst, 0, sizeof(kdst));
 
@@ -152,12 +178,13 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 	struct endpoint_proto *src;
 	struct kobject *pending = NULL;
 	struct task *writer;
-	long ret = 0;
+	ssize_t ret = 0;
 
-	while (1) {
+	for (;;) {
 		spin_lock(&ep->lock);
 
-		if (ep->status[EP_WRITER] == EP_STAT_CLOSED) {
+		if ((ep->status[EP_READER] == EP_STAT_CLOSED) ||
+			(ep->status[EP_WRITER] == EP_STAT_CLOSED)) {
 			spin_unlock(&ep->lock);
 			return -EIO;
 		}
@@ -168,13 +195,19 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 		 * if wait_event fail, then return error, before return
 		 * need set the recv_task to NULL.
 		 */
-		if (ep->recv_task && (ep->recv_task != current)) {
+		if ((ep->recv_task != NULL) && (ep->recv_task != current)) {
 			spin_unlock(&ep->lock);
 			return -EBUSY;
 		}
 
+		/*
+		 * clear the recv_task in endpoint, later this value will
+		 * be set again if need sleep.
+		 */
 		ep->recv_task = NULL;
-		if (ret) {
+		if (ret != 0) {
+			if (ret == -EABORT)
+				wake_all_ep_writer(ep, -EIO);
 			spin_unlock(&ep->lock);
 			return ret;
 		}
@@ -184,11 +217,11 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 			list_del(&pending->list);
 		} else {
 			/*
-			 * if the kobject has been binded to dedicated task, just
+			 * if the kobject has been listed by dedicated task, just
 			 * return -EAGAIN, do not sleep to block other event to
 			 * pass to the task. otherwise wait the event come.
 			 */
-			if (kobj->poll_struct.poll_event & POLL_READER_BIT) {
+			if ((kobj->poll_struct.poll_event & POLL_EV_TYPE_IN) || (timeout == 0)) {
 				spin_unlock(&ep->lock);
 				return -EAGAIN;
 			} else {
@@ -196,10 +229,11 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 				__event_task_wait((unsigned long)ep, TASK_EVENT_ENDPOINT, timeout);
 			}
 		}
-		spin_unlock(&ep->lock);
 
 		if (pending != NULL)
 			break;
+		else
+			spin_unlock(&ep->lock);
 
 		ret = wait_event();
 	}
@@ -211,8 +245,7 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 	 */
 	writer = (struct task *)pending->data;
 	src = task_endpoint_proto(writer);
-
-	ASSERT(writer->wait_event != (unsigned long)ep);
+	ASSERT(writer->wait_event == (unsigned long)ep);
 
 	/*
 	 * the endpoint size is not correct, or the handle cnt does
@@ -221,39 +254,39 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 	if ((data_size != src->data_size) || (extra_size != src->handle_size) ||
 			(extra_size > EP_MAX_HANDLES_SIZE)) {
 		wake_up(writer, -EINVAL);
-		return -EAGAIN;
+		ret = -EAGAIN;
+		goto out;
 	}
 
 	/*
 	 * copy the data from writer to the reader, then copy the
 	 * handles from writer to the reader.
 	 */
-	if (copy_user_to_user(&current->proc->vspace, data, &writer->proc->vspace,
-				(void __user *)src->data_addr, data_size)) {
+	ret = copy_user_to_user(&current->proc->vspace, data,
+			&writer->proc->vspace,
+			(void __user *)src->data_addr, data_size);
+	if (ret <= 0) {
 		wake_up(writer, -EFAULT);
-		return -EAGAIN;
+		ret = -EAGAIN;
+		goto out;
 	}
 
-	if (endpoint_copy_handles(writer, extra, (void __user *)src->handle_addr, extra_size)) {	
+	ret = endpoint_copy_handles(writer, extra,
+			(void *)src->handle_addr, extra_size);
+	if (ret) {
 		wake_up(writer, -EFAULT);	
-		return -EAGAIN;
+		ret = -EFAULT;
+		goto out;
 	}
 
-	/*
-	 * every thing is down, return to the reader, and add
-	 * the waiter to the process list. will return the
-	 * transaction id to the reader, so the reader can
-	 * reply to the writer. wakeup the writer.
-	 */
-	if (kobj->flags & KOBJ_FLAGS_NEED_REPLY) {
-		spin_lock(&ep->lock);
-		list_add_tail(&ep->processing_list, &pending->list);
-		spin_unlock(&ep->lock);
-	} else {
-		wake_up(writer, 0);
-	}
+	wake_up(writer, 0);
+	list_add_tail(&ep->processing_list, &pending->list);
+	ret = (long)writer->wait_event;
 
-	return (long)writer->wait_event;
+out:
+	spin_unlock(&ep->lock);
+
+	return ret;
 }
 
 static long generate_token(struct endpoint *ep)
@@ -267,25 +300,24 @@ static ssize_t endpoint_send(struct kobject *kobj,
 		uint32_t timeout)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
-	struct task *task = current;
 	struct poll_struct *ps = &kobj->poll_struct;
+	struct task *task;
 	int ret;
 
 	spin_lock(&ep->lock);
 
-	if (ep->status[EP_READER] == EP_STAT_CLOSED) {
+	if ((ep->status[EP_READER] == EP_STAT_CLOSED) ||
+			(ep->status[EP_WRITER] == EP_STAT_CLOSED)) {
 		spin_unlock(&ep->lock);
 		return -EIO;
 	}
-
-	list_add_tail(&ep->pending_list, &current->kobj.list);
 
 	/*
 	 * setup the information which the task need wait
 	 * for.
 	 */
+	list_add_tail(&ep->pending_list, &current->kobj.list);
 	__event_task_wait(generate_token(ep), TASK_EVENT_KOBJ_REPLY, timeout);
-
 	task = ep->recv_task;
 	spin_unlock(&ep->lock);
 
@@ -294,17 +326,17 @@ static ssize_t endpoint_send(struct kobject *kobj,
 	 * wake up this task.
 	 */
 	if (ps->poll_event & POLL_EV_IN)
-		poll_event_send(ps->tid_reader, POLL_EV_IN, ps->handle_reader);
+		poll_event_send(ps->reader, POLL_EV_IN, ps->handle_reader);
 	else if (task)
 		wake_up(task, 0);
 
 	ret = wait_event();
-	if (ret == 0)
-		return 0;
+	if ((ret == 0) || (ret != -EABORT))
+		return ret;
 
 	/*
-	 * something wrong, need delete this request from the pending
-	 * list.
+	 * the writer has been teminated, need delete this request
+	 * from the pending list or processing list.
 	 */
 	spin_lock(&ep->lock);
 	if (current->kobj.list.next != NULL)
@@ -317,18 +349,14 @@ static ssize_t endpoint_send(struct kobject *kobj,
 static int endpoint_reply(struct kobject *kobj,
 		right_t right, long token, long errno)
 {
+	struct endpoint *ep = kobject_to_endpoint(kobj);
 	struct kobject *wk, *tmp;
 	struct task *task = NULL;
-	struct endpoint *ep;
-
-	if (!(kobj->flags & KOBJ_FLAGS_NEED_REPLY))
-		return 0;
 
 	/*
 	 * find the task who are waitting the reply token, and wake
 	 * up it with the error code.
 	 */
-	ep = kobject_to_endpoint(kobj);
 	spin_lock(&ep->lock);
 
 	list_for_each_entry_safe(wk, tmp, &ep->processing_list, list) {
@@ -339,23 +367,31 @@ static int endpoint_reply(struct kobject *kobj,
 		}
 	}
 
+	if (task)
+		wake_up(task, errno);
+
 	spin_unlock(&ep->lock);
+
 	if (!task)
 		return -ENOENT;
-
-	wake_up(task, errno);
 
 	return 0;
 }
 
 static void endpoint_release(struct kobject *kobj)
 {
-	struct endpoint *ep = kobject_to_endpoint(kobj);
-	free(ep);
+	free(kobject_to_endpoint(kobj));
 }
 
 static int endpoint_connect(struct kobject *kobj, handle_t handle, right_t right)
 {
+	struct endpoint *ep = kobject_to_endpoint(kobj);
+
+	if (ep->mode != EP_MODE_MUTIL_WRITER) {
+		if (atomic_cmpxchg(&ep->connected, 0, 1))
+			return -EACCES;
+	}
+
 	return endpoint_open(kobj, handle, right);
 }
 
@@ -373,6 +409,9 @@ static struct kobject *endpoint_create(char *str, right_t right,
 		right_t right_req, unsigned long data)
 {
 	struct endpoint *ep;
+
+	if ((data != 0) && (data != EP_MODE_MUTIL_WRITER))
+		return ERROR_PTR(EPERM);
 
 	/*
 	 * the owner only can have read right or write right

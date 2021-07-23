@@ -293,10 +293,22 @@ static struct page *alloc_pages_from_section(int pages, int align, int flags)
 
 struct page *__alloc_pages(int pages, int align, int flags)
 {
+	struct page *page;
+	void *addr;
+
 	if ((pages <= 0) || (align == 0))
 		return NULL;
 
-	return alloc_pages_from_section(pages, align, flags);
+	page = alloc_pages_from_section(pages, align, flags);
+	if (!page)
+		return NULL;
+
+	if (flags & GFP_USER) {
+		addr = (void *)page_va(page);
+		memset(addr, 0, pages << PAGE_SHIFT);
+	}
+
+	return page;
 }
 
 void *__get_free_pages(int pages, int align, int flags)

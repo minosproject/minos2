@@ -83,9 +83,9 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	/*
 	 * whether this irq has been listened.
 	 */
-	if (event_is_polled(&kobj->poll_struct, POLL_EV_TYPE_IN)) {
+	if (event_is_polled(&kobj->poll_struct, POLLIN)) {
 		ASSERT(idesc->poll_event != NULL);
-		poll_event_send_static(ps->reader, idesc->poll_event);
+		poll_event_send_static(ps, idesc->poll_event);
 		return 0;
 	}
 

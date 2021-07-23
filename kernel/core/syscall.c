@@ -70,40 +70,6 @@ out:
 	return ret;
 }
 
-long sys_kobject_listen(handle_t to, handle_t from,
-		int event, unsigned long data)
-{
-	struct kobject *kobj_to, *kobj_from;
-	right_t right_to, right_from;
-	int ret;
-
-	if (event >= POLL_EV_MAX)
-		return -EINVAL;
-
-	ret = get_kobject(to, &kobj_to, &right_to);
-	if (ret)
-		return ret;
-
-	ret = get_kobject(from, &kobj_from, &right_from);
-	if (ret) {
-		put_kobject(kobj_to);
-		return ret;
-	}
-
-	if ((kobj_to->type != KOBJ_TYPE_POLL_HUB) ||
-			!(right_from & KOBJ_RIGHT_LISTEN) ||
-			!(right_from & KOBJ_RIGHT_READ)) {
-		ret = -EPERM;
-		goto out;
-	}
-
-	ret = kobject_listen(kobj_to, kobj_from, from, event, data);
-out:
-	put_kobject(kobj_to);
-	put_kobject(kobj_from);
-	return ret;
-}
-
 handle_t sys_kobject_create(char __user *name, int type, right_t right,
 		right_t right_req, unsigned long data)
 {

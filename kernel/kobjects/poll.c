@@ -26,6 +26,8 @@
 #include <minos/vspace.h>
 #include <minos/uaccess.h>
 
+#define POLL_HUB_RIGHT (KOBJ_RIGHT_RO | KOBJ_RIGHT_CTL)
+
 #define to_poll_hub(kobj)	\
 	(struct poll_hub *)kobj->data
 
@@ -41,10 +43,9 @@ struct poll_event *alloc_poll_event(void)
 	return &p->event;
 }
 
-int poll_event_send_static(struct kobject *kobj,
-			struct poll_event_kernel *evk)
+int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk)
 {
-	struct poll_hub *peh = to_poll_hub(kobj);
+	struct poll_hub *peh = to_poll_hub(ps->poller);
 	struct task *task;
 	unsigned long flags;
 
@@ -65,28 +66,31 @@ int poll_event_send_static(struct kobject *kobj,
 	return 0;
 }
 
-int poll_event_send_with_data(struct kobject *kobj, int ev,
-		handle_t handle, void *data, int len)
+int poll_event_send_with_data(struct poll_struct *ps, int event, int type,
+		uint64_t data0, uint64_t data1, uint64_t data2)
 {
 	struct poll_event_kernel *p;
+	struct poll_event *pe;
 
 	p = (struct poll_event_kernel *)alloc_poll_event();
 	if (!p)
 		return -ENOMEM;
 
-	p->event.event = ev;
-	p->event.handle = handle;
-	p->release = 1;
+	pe = &p->event;
+	pe->events = event;
+	pe->data.ptr = ps->data;
+	pe->data.fd = ps->handle_poller;
+	pe->data.type = type;
+	pe->data.data0 = data0;
+	pe->data.data0 = data1;
+	pe->data.data0 = data2;
 
-	if (data && (len > 0) && (len < POLL_EVENT_DATA_SIZE))
-		memcpy(p->event.data, data, len);
-
-	return poll_event_send_static(kobj, p);
+	return poll_event_send_static(ps, p);
 }
 
-int poll_event_send(struct kobject *kobj, int ev, handle_t handle)
+int poll_event_send(struct poll_struct *ps, int event, int type)
 {
-	return poll_event_send_with_data(kobj, ev, handle, NULL, 0);
+	return poll_event_send_with_data(ps, event, type, 0, 0, 0);
 }
 
 static int copy_poll_event_to_user(struct poll_event __user *events,
@@ -204,10 +208,77 @@ static int poll_hub_close(struct kobject *kobj, right_t right)
 	return 0;
 }
 
+static int __poll_hub_ctl(struct kobject *kdst, struct kobject *ksrc,
+		int op, struct poll_event *uevent)
+{
+	struct poll_struct *ps = &ksrc->poll_struct;
+
+	/*
+	 * only suppoert POLLIN now
+	 */
+	if (!(uevent->events & POLLIN))
+		return -ENOSYS;
+
+	spin_lock(&ps->lock);
+	switch (op) {
+	case KOBJ_POLL_OP_MOD:
+	case KOBJ_POLL_OP_ADD:
+		ps->poll_event = uevent->events;
+		ps->poller = kdst;
+		ps->handle_poller = uevent->data.fd;
+		ps->data = uevent->data.ptr;
+		kobject_listen(ksrc, uevent->events, 1);
+		break;
+	case KOBJ_POLL_OP_DEL:
+		ps->poll_event &= ~(uevent->events);
+		if (ps->poll_event) {
+			ps->poller = NULL;
+			ps->handle_poller = -1;
+			ps->data = NULL;
+		}
+		kobject_listen(ksrc, uevent->events, 0);
+		break;
+	default:
+		pr_err("unsupport poll ctl op %d\n", op);
+		break;
+	}
+	spin_unlock(&ps->lock);
+
+	return 0;
+}
+
+static long poll_hub_ctl(struct kobject *kobj, int op, unsigned long data)
+{
+	struct poll_event uevent;
+	struct kobject *kobj_poll;
+	right_t right;
+	int ret;
+
+	ret = copy_from_user(&uevent, (void __user *)data,
+			sizeof(struct poll_event));
+	if (ret <= 0)
+		return ret;
+
+	ret = get_kobject_from_process(current_proc, uevent.data.fd, &kobj_poll, &right);
+	if (ret)
+		return -ENOENT;
+
+	if (!(right & KOBJ_RIGHT_POLL)) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	ret = __poll_hub_ctl(kobj, kobj_poll, op, &uevent);
+out:
+	put_kobject(kobj_poll);
+	return ret;
+}
+
 static struct kobject_ops poll_hub_ops = {
 	.recv		= poll_hub_read,
 	.release	= poll_hub_release,
 	.close		= poll_hub_close,
+	.ctl		= poll_hub_ctl,
 };
 
 static struct kobject *poll_hub_create(char *str, right_t right,
@@ -215,7 +286,7 @@ static struct kobject *poll_hub_create(char *str, right_t right,
 {
 	struct poll_hub *peh;
 
-	if ((right & KOBJ_RIGHT_RWX) != KOBJ_RIGHT_RO)
+	if ((right & POLL_HUB_RIGHT) != POLL_HUB_RIGHT)
 		return ERROR_PTR(EPERM);
 
 	if (right != right_req)

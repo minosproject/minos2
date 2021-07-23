@@ -11,18 +11,17 @@
 #define __NR_kobject_ctl 7
 #define __NR_kobject_mmap 8
 #define __NR_kobject_munmap 9
-#define __NR_kobject_listen 10
 
-#define __NR_grant 11
+#define __NR_grant 10
 
-#define __NR_futex 12
-#define __NR_yield 13
+#define __NR_futex 11
+#define __NR_yield 12
 
-#define __NR_map 14
-#define __NR_unmap 15
+#define __NR_map 13
+#define __NR_unmap 14
 
 #undef __NR_syscalls
-#define __NR_syscalls 16
+#define __NR_syscalls 15
 
 struct syscall_regs {
 	unsigned long regs[8];

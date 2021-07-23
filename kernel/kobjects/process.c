@@ -60,20 +60,17 @@ static ssize_t process_send(struct kobject *kobj,
 	struct poll_struct *ps = &kobj->poll_struct;
 
 	/*
-	 * ROOT service will always listened to the process's
+	 * ROOT service will always poll to the process's
 	 * request.
 	 */
 	ASSERT(proc != current_proc);
-	wmb();
 
 	spin_lock(&proc->request_lock);
 	list_add_tail(&proc->request_list, &current->kobj.list);
 	__event_task_wait(0, TASK_EVENT_ROOT_SERVICE, 0);
 	spin_unlock(&proc->request_lock);
 
-	poll_event_send_with_data(ps->reader, POLL_EV_IN,
-			ps->handle_reader, &ps->data_reader,
-			sizeof(unsigned long));
+	poll_event_send(ps, POLLIN, POLLIN_WRITE);
 
 	return wait_event();
 }
@@ -194,11 +191,7 @@ static int send_process_exit_event(struct process *proc)
 {
 	struct poll_struct *ps = &proc->kobj.poll_struct;
 
-	ASSERT((ps->poll_event & POLL_EV_TYPE_KERNEL) != 0);
-
-	return poll_event_send_with_data(ps->owner, POLL_EV_KERNEL,
-			ps->handle_owner, (void *)&ps->data_owner,
-			sizeof(unsigned long));
+	return poll_event_send(ps, POLLIN, POLLIN_EXIT);
 }
 
 static void task_exit_helper(void *data)

@@ -15,7 +15,7 @@
 #define KOBJ_RIGHT_CTL		0x0040		// can control the releated kobject
 #define KOBJ_RIGHT_HEAP_SELFCTL	0x0080		// the process will allocation memory itself, for system process.
 #define KOBJ_RIGHT_GRANT	0x0100		// this kobject can be changed owner.
-#define KOBJ_RIGHT_LISTEN	0x0200		// this kobject cab be listened
+#define KOBJ_RIGHT_POLL		0x0200		// this kobject cab be polled.
 
 #define KOBJ_RIGHT_MASK		0x03ff
 
@@ -50,12 +50,17 @@ struct kobject_ops;
 
 struct poll_struct {
 	unsigned long poll_event;
-	struct kobject *reader;
-	struct kobject *owner;
-	handle_t handle_reader;
-	handle_t handle_owner;
-	unsigned long data_reader;
-	unsigned long data_owner;
+	struct kobject *poller;
+	handle_t handle_poller;
+	void *data;
+	spinlock_t lock;
+};
+
+enum {
+	KOBJ_POLL_HUB_OP_BASE = 0x2000,
+	KOBJ_POLL_OP_ADD,
+	KOBJ_POLL_OP_DEL,
+	KOBJ_POLL_OP_MOD,
 };
 
 /*
@@ -101,7 +106,7 @@ struct kobject_ops {
 
 	int (*open)(struct kobject *kobj, handle_t handle, right_t right);
 
-	int (*listen)(struct kobject *ksrc, int event);
+	int (*listen)(struct kobject *ksrc, int event, int enable);
 
 	int (*connect)(struct kobject *kobj, handle_t handle, right_t right);
 
@@ -153,8 +158,7 @@ int kobject_connect(char *name, right_t right);
 struct kobject *kobject_create(char *name, int type, right_t right,
 		right_t right_req, unsigned long data);
 
-int kobject_listen(struct kobject *kdst, struct kobject *ksrc,
-		handle_t hsrc, int event, unsigned long data);
+int kobject_listen(struct kobject *ksrc, int event, int enable);
 
 ssize_t kobject_recv(struct kobject *kobj,
 		void __user *data, size_t data_size,

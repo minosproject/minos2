@@ -221,7 +221,7 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 			 * return -EAGAIN, do not sleep to block other event to
 			 * pass to the task. otherwise wait the event come.
 			 */
-			if ((kobj->poll_struct.poll_event & POLL_EV_TYPE_IN) || (timeout == 0)) {
+			if ((kobj->poll_struct.poll_event & POLLIN) || (timeout == 0)) {
 				spin_unlock(&ep->lock);
 				return -EAGAIN;
 			} else {
@@ -325,8 +325,8 @@ static ssize_t endpoint_send(struct kobject *kobj,
 	 * if there is some task waitting for the data, need to
 	 * wake up this task.
 	 */
-	if (ps->poll_event & POLL_EV_IN)
-		poll_event_send(ps->reader, POLL_EV_IN, ps->handle_reader);
+	if (ps->poll_event & POLLIN)
+		poll_event_send(ps, POLLIN, POLLIN_WRITE);
 	else if (task)
 		wake_up(task, 0);
 

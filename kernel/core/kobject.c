@@ -157,6 +157,7 @@ void kobject_init(struct kobject *kobj, pid_t owner, int type,
 	kobj->list.pre = NULL;
 	kobj->list.next = NULL;
 	init_list(&kobj->child);
+	spin_lock_init(&kobj->poll_struct.lock);
 
 	/*
 	 * the initial value of ref is 1, so kobject_create do not
@@ -186,36 +187,12 @@ struct kobject *kobject_create(char *name, int type, right_t right,
 	return kobj;
 }
 
-int kobject_listen(struct kobject *kdst, struct kobject *ksrc,
-		handle_t hsrc, int event, unsigned long data)
+int kobject_listen(struct kobject *ksrc, int event, int enable)
 {
-	struct poll_struct *ps = &ksrc->poll_struct;
-	int ev_type = 1 << event;
-	int fail;
-
-	if ((ksrc->owner != current_pid) && (ev_type & POLL_EV_TYPE_KERNEL))
-		return -EPERM;
-
-	if (event == POLL_EV_IN) {
-		fail = test_and_set_bit(POLL_EV_TYPE_IN, &ps->poll_event);
-		if (!fail) {
-			ps->reader = kdst;
-			ps->handle_reader = hsrc;
-			ps->data_reader = data;
-		}
-	} else if (event == POLL_EV_KERNEL) {
-		fail = test_and_set_bit(POLL_EV_TYPE_KERNEL, &ps->poll_event);
-		if (!fail) {
-			ps->owner = kdst;
-			ps->handle_owner = hsrc;
-			ps->data_owner = data;
-		}
-	}
-
 	if (!ksrc->ops || !ksrc->ops->listen)
 		return 0;
 
-	return ksrc->ops->listen(ksrc, event);
+	return ksrc->ops->listen(ksrc, event, enable);
 }
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)

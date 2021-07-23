@@ -33,9 +33,6 @@ extern int sys_map(handle_t proc_handle, handle_t pma_handle,
 extern handle_t sys_grant(handle_t proc, handle_t handle,
 		right_t right, int release);
 
-extern long sys_kobject_listen(handle_t to, handle_t from,
-		int event, unsigned long data);
-
 extern int sys_kobject_munmap(handle_t handle);
 
 extern void *sys_kobject_mmap(handle_t handle);

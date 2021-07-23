@@ -102,14 +102,6 @@ static void __sys_kobject_munmap(gp_regs *regs)
 	regs->x0 = sys_kobject_munmap((handle_t)regs->x0);
 }
 
-static void __sys_kobject_listen(gp_regs *regs)
-{
-	regs->x0 = sys_kobject_listen((handle_t)regs->x0,
-			(handle_t)regs->x1,
-			(int)regs->x2,
-			(unsigned long)regs->x3);
-}
-
 static void __sys_kobject_open(gp_regs *regs)
 {
 	regs->x0 = sys_kobject_open((handle_t)regs->x0);
@@ -167,7 +159,6 @@ static syscall_handler_t __syscall_table[] = {
 	[__NR_kobject_ctl]		= __sys_kobject_ctl,
 	[__NR_kobject_mmap]		= __sys_kobject_mmap,
 	[__NR_kobject_munmap]		= __sys_kobject_munmap,
-	[__NR_kobject_listen]		= __sys_kobject_listen,
 
 	[__NR_grant]			= __sys_grant,
 

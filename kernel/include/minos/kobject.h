@@ -106,7 +106,7 @@ struct kobject_ops {
 
 	int (*open)(struct kobject *kobj, handle_t handle, right_t right);
 
-	int (*listen)(struct kobject *ksrc, int event, int enable);
+	int (*poll)(struct kobject *ksrc, int event, int enable);
 
 	int (*connect)(struct kobject *kobj, handle_t handle, right_t right);
 
@@ -158,7 +158,7 @@ int kobject_connect(char *name, right_t right);
 struct kobject *kobject_create(char *name, int type, right_t right,
 		right_t right_req, unsigned long data);
 
-int kobject_listen(struct kobject *ksrc, int event, int enable);
+int kobject_poll(struct kobject *ksrc, int event, int enable);
 
 ssize_t kobject_recv(struct kobject *kobj,
 		void __user *data, size_t data_size,

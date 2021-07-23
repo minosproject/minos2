@@ -35,11 +35,12 @@ static int irq_kobj_open(struct kobject *kobj, handle_t handle, right_t rigt)
 	return request_user_irq(idesc->hno, idesc->flags, kobj);
 }
 
-static int irq_kobj_listen(struct kobject *kobj, int event, int enable)
+static int irq_kobj_poll(struct kobject *kobj, int event, int enable)
 {
 	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
 
-	idesc->poll_event->event.data.fd = kobj->poll_struct.handle_poller;
+	idesc->poll_event->event.data.fd =
+		enable ? kobj->poll_struct.handle_poller : -1;
 
 	return 0;
 }
@@ -117,7 +118,7 @@ static struct kobject_ops irq_kobj_ops = {
 	.open	= irq_kobj_open,
 	.recv	= irq_kobj_read,
 	.send	= irq_kobj_write,
-	.listen = irq_kobj_listen,
+	.poll	= irq_kobj_poll,
 	.close	= irq_kobj_close,
 };
 

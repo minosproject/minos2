@@ -227,7 +227,7 @@ static int __poll_hub_ctl(struct kobject *kdst, struct kobject *ksrc,
 		ps->poller = kdst;
 		ps->handle_poller = uevent->data.fd;
 		ps->data = uevent->data.ptr;
-		kobject_listen(ksrc, uevent->events, 1);
+		kobject_poll(ksrc, uevent->events, 1);
 		break;
 	case KOBJ_POLL_OP_DEL:
 		ps->poll_event &= ~(uevent->events);
@@ -236,7 +236,7 @@ static int __poll_hub_ctl(struct kobject *kdst, struct kobject *ksrc,
 			ps->handle_poller = -1;
 			ps->data = NULL;
 		}
-		kobject_listen(ksrc, uevent->events, 0);
+		kobject_poll(ksrc, uevent->events, 0);
 		break;
 	default:
 		pr_err("unsupport poll ctl op %d\n", op);

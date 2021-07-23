@@ -187,12 +187,12 @@ struct kobject *kobject_create(char *name, int type, right_t right,
 	return kobj;
 }
 
-int kobject_listen(struct kobject *ksrc, int event, int enable)
+int kobject_poll(struct kobject *ksrc, int event, int enable)
 {
-	if (!ksrc->ops || !ksrc->ops->listen)
+	if (!ksrc->ops || !ksrc->ops->poll)
 		return 0;
 
-	return ksrc->ops->listen(ksrc, event, enable);
+	return ksrc->ops->poll(ksrc, event, enable);
 }
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)

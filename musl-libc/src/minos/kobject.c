@@ -13,16 +13,11 @@ int kobject_close(int handle)
 	return syscall(SYS_kobject_open, handle);
 }
 
-long kobject_listen(int dst, int src, int event, unsigned long data)
-{
-	return syscall(SYS_kobject_listen, dst, src, event, data);
-}
-
 int kobject_create(char *name, int type, int right,
-		unsigned long flags, unsigned long data)
+		int right_req, unsigned long data)
 {
 	return syscall(SYS_kobject_create, name, type,
-			right, flags, data);
+			right, right_req, data);
 }
 
 ssize_t kobject_read(int handle, void *data, size_t data_size,

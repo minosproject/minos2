@@ -8,23 +8,23 @@ extern "C" {
 #include <sys/types.h>
 #include <stdint.h>
 
-#define KOBJ_RIGHT_NONE		0x0000		// do not have any right.
-#define KOBJ_RIGHT_READ		0x0001		// can read this kobject, usually for IPC between two process.
-#define KOBJ_RIGHT_WRITE	0x0002		// can write this kobject, usually for IPC between two process.
-#define KOBJ_RIGHT_EXEC		0x0004		// can be exectued.
-#define KOBJ_RIGHT_SHARED	0x0008		// can be shared, for example PMA
-#define KOBJ_RIGHT_MMAP		0x0010		// can be mmaped to current process's memory space
-#define KOBJ_RIGHT_NONBLOCK	0x0020		// read and write is non-blocked
-#define KOBJ_RIGHT_CTL		0x0040		// can control the releated kobject
-#define KOBJ_RIGHT_HEAP_SELFCTL	0x0080		// the process will allocation memory itself, for system process.
-#define KOBJ_RIGHT_GRANT	0x0100		// this kobject can be changed owner.
-#define KOBJ_RIGHT_LISTEN	0x0200		// this kobject cab be listened
+#define KOBJ_RIGHT_NONE 0x0000
+#define KOBJ_RIGHT_READ 0x0001
+#define KOBJ_RIGHT_WRITE 0x0002
+#define KOBJ_RIGHT_EXEC 0x0004
+#define KOBJ_RIGHT_SHARED 0x0008
+#define KOBJ_RIGHT_MMAP 0x0010
+#define KOBJ_RIGHT_NONBLOCK 0x0020
+#define KOBJ_RIGHT_CTL 0x0040
+#define KOBJ_RIGHT_HEAP_SELFCTL 0x0080
+#define KOBJ_RIGHT_GRANT 0x0100
+#define KOBJ_RIGHT_POLL 0x0200
 
-#define KOBJ_RIGHT_MASK		0x03ff
+#define KOBJ_RIGHT_MASK 0x03ff
 
-#define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
-#define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)
-#define KOBJ_RIGHT_RWX		(KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
+#define KOBJ_RIGHT_RW (KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
+#define KOBJ_RIGHT_RO (KOBJ_RIGHT_READ)
+#define KOBJ_RIGHT_RWX (KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
 
 enum {
 	KOBJ_TYPE_NONE,
@@ -47,7 +47,7 @@ enum {
  * for process control
  */
 enum {
-	KOBJ_PROCESS_GET_PID = 0x100,
+	KOBJ_PROCESS_GET_PID = 0x1000,
 	KOBJ_PROCESS_SETUP_SP,
 	KOBJ_PROCESS_WAKEUP,
 	KOBJ_PROCESS_VA2PA,
@@ -91,17 +91,24 @@ struct thread_create_arg {
 };
 
 /*
+ * for poll_hub kobject
+ */
+enum {
+	KOBJ_POLL_HUB_OP_BASE = 0x2000,
+	KOBJ_POLL_OP_ADD,
+	KOBJ_POLL_OP_DEL,
+	KOBJ_POLL_OP_MOD,
+};
+
+/*
  * kobject related API.
  */
 int kobject_connect(char *path, int right);
 
 int kobject_close(int handle);
 
-int kobject_listen(int to, int from, int event,
-		unsigned long data);
-
 int kobject_create(char *name, int type, int right,
-		unsigned long flags, unsigned long data);
+		int right_req, unsigned long data);
 
 ssize_t kobject_read(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);

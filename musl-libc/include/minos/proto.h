@@ -2,13 +2,14 @@
 #define __MINOS_PROTO_H__
 
 enum {
-	PROCESS_ACTION_MMAP = 0xed00,
+	PROCESS_ACTION_MMAP = 0,
 	PROCESS_ACTION_EXEC,
 	PROCESS_ACTION_IAM_OK,
-}
+	PROCESS_ACTION_MAX,
+};
 
 struct process_proto {
-	uint16_t action;
+	int action;
 	union {
 		struct {
 			void *addr;

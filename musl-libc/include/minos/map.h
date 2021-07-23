@@ -7,9 +7,9 @@ extern "C" {
 
 #include <stdint.h>
 
-int map(handle_t proc, handle_t pma, unsigned long base,
-		size_t size, right_t right);
-int unmap(handle_t proc, handle_t pma, unsigned long base, size_t size);
+int map(int proc, int pma, unsigned long base, size_t size, int right);
+
+int unmap(int proc, int pma, unsigned long base, size_t size);
 
 #ifdef __cplusplus
 }

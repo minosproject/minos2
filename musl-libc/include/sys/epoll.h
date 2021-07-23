@@ -38,6 +38,12 @@ enum EPOLL_EVENTS { __EPOLL_DUMMY };
 #define EPOLL_CTL_DEL 2
 #define EPOLL_CTL_MOD 3
 
+#define EPOLLIN_WRITE 0x0
+#define EPOLLIN_NOTIFY 0x1
+#define EPOLLIN_PAGE_FAULT 0x2	// page fault
+#define EPOLLIN_EXIT 0x3
+#define EPOLLIN_IRQ 0x4
+
 typedef struct epoll_data {
 	void *ptr;
 	int fd;

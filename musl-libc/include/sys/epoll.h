@@ -38,11 +38,13 @@ enum EPOLL_EVENTS { __EPOLL_DUMMY };
 #define EPOLL_CTL_DEL 2
 #define EPOLL_CTL_MOD 3
 
-typedef union epoll_data {
+typedef struct epoll_data {
 	void *ptr;
 	int fd;
-	uint32_t u32;
-	uint64_t u64;
+	int type;
+	uint64_t data0;
+	uint64_t data1;
+	uint64_t data2;
 } epoll_data_t;
 
 struct epoll_event {
@@ -53,7 +55,6 @@ struct epoll_event {
 __attribute__ ((__packed__))
 #endif
 ;
-
 
 int epoll_create(int);
 int epoll_create1(int);

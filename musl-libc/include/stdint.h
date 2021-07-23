@@ -114,7 +114,4 @@ typedef uint64_t uint_least64_t;
 #define UINTMAX_C(c) c ## ULL
 #endif
 
-typedef int handle_t;
-typedef unsigned int right_t;
-
 #endif

@@ -11,11 +11,11 @@
 
 struct poll_event {
 	int event;
-	handle_t handle;
+	int handle;
 	unsigned char data[POLL_EVENT_DATA_SIZE];
 };
 
-int poll_wait(handle_t handke, struct poll_event *events,
+int poll_wait(int handke, struct poll_event *events,
 		int max_event, uint32_t timeout);
 
 #endif

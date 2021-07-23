@@ -93,33 +93,33 @@ struct thread_create_arg {
 /*
  * kobject related API.
  */
-int kobject_connect(char *path, right_t right);
+int kobject_connect(char *path, int right);
 
-int kobject_close(handle_t handle);
+int kobject_close(int handle);
 
-int kobject_listen(handle_t to, handle_t from,
-		int event, unsigned long data);
+int kobject_listen(int to, int from, int event,
+		unsigned long data);
 
-handle_t kobject_create(char *name, int type, int right,
+int kobject_create(char *name, int type, int right,
 		unsigned long flags, unsigned long data);
 
-ssize_t kobject_read(handle_t handle, void *data, size_t data_size,
+ssize_t kobject_read(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);
 
-ssize_t kobject_write(handle_t handle, void *data, size_t data_size,
+ssize_t kobject_write(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);
 
-int kobject_reply(handle_t handle, long token, int err_code);
+int kobject_reply(int handle, long token, int err_code);
 
-void *kobject_mmap(handle_t handle);
+void *kobject_mmap(int handle);
 
-int kobject_unmap(handle_t handle);
+int kobject_unmap(int handle);
 
-long kobject_ctl(handle_t handle, int action, unsigned long data);
+long kobject_ctl(int handle, int action, unsigned long data);
 
-int kobject_open(handle_t handle);
+int kobject_open(int handle);
 
-handle_t grant(handle_t proc, handle_t handle, right_t right, int release);
+int grant(int proc, int handle, int right, int release);
 
 #ifdef __cplusplus
 }

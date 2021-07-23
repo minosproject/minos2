@@ -9,7 +9,7 @@
 #include <minos/poll.h>
 #include <minos/kobject.h>
 
-int poll_wait(handle_t handle, struct poll_event *events,
+int poll_wait(int handle, struct poll_event *events,
 		int max_event, uint32_t timeout)
 {
 	ssize_t size;

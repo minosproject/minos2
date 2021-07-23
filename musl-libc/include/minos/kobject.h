@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <sys/types.h>
 #include <stdint.h>
 
 #define KOBJ_RIGHT_NONE		0x0000		// do not have any right.
@@ -17,6 +18,9 @@ extern "C" {
 #define KOBJ_RIGHT_CTL		0x0040		// can control the releated kobject
 #define KOBJ_RIGHT_HEAP_SELFCTL	0x0080		// the process will allocation memory itself, for system process.
 #define KOBJ_RIGHT_GRANT	0x0100		// this kobject can be changed owner.
+#define KOBJ_RIGHT_LISTEN	0x0200		// this kobject cab be listened
+
+#define KOBJ_RIGHT_MASK		0x03ff
 
 #define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
 #define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)
@@ -35,6 +39,7 @@ enum {
 	KOBJ_TYPE_IRQ,
 	KOBJ_TYPE_VIRQ,
 	KOBJ_TYPE_STDIO,
+	KOBJ_TYPE_POLL_HUB,
 	KOBJ_TYPE_MAX
 };
 
@@ -46,6 +51,7 @@ enum {
 	KOBJ_PROCESS_SETUP_SP,
 	KOBJ_PROCESS_WAKEUP,
 	KOBJ_PROCESS_VA2PA,
+	KOBJ_PROCESS_EXIT,
 };
 
 struct process_create_arg {
@@ -88,13 +94,14 @@ struct thread_create_arg {
  * kobject related API.
  */
 int kobject_connect(char *path, right_t right);
+
 int kobject_close(handle_t handle);
-int kobject_listen(handle_t handle, int event);
+
+int kobject_listen(handle_t to, handle_t from,
+		int event, unsigned long data);
 
 handle_t kobject_create(char *name, int type, int right,
 		unsigned long flags, unsigned long data);
-
-int kobject_destroy(handle_t handle);
 
 ssize_t kobject_read(handle_t handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);

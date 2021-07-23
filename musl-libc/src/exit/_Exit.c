@@ -1,8 +1,9 @@
 #include <stdlib.h>
 #include "syscall.h"
 
+#include <minos/kobject.h>
+
 _Noreturn void _Exit(int ec)
 {
-	__syscall(SYS_exit_group, ec);
-	for (;;) __syscall(SYS_exit, ec);
+	while (1) kobject_ctl(0, KOBJ_PROCESS_EXIT, (unsigned long)ec);
 }

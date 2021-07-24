@@ -119,7 +119,7 @@ long kobject_read(int handle, void *data, size_t data_size,
 long kobject_write(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);
 
-int kobject_reply(int handle, long token, int err_code);
+int kobject_reply(int handle, long token, long err_code, int fd, int right);
 
 void *kobject_mmap(int handle);
 

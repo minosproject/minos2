@@ -53,9 +53,12 @@ long kobject_write(int handle, void *data, size_t data_size,
 
 }
 
-int kobject_reply(int handle, long token, int err_code)
+int kobject_reply(int handle, long token, long err_code, int fd, int right)
 {
-	return syscall(SYS_kobject_reply, token, err_code);
+	if ((err_code == 0) && (fd <= 0))
+		return -EINVAL;
+
+	return syscall(SYS_kobject_reply, token, err_code, fd, right);
 }
 
 void *kobject_mmap(int handle)

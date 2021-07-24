@@ -103,17 +103,20 @@ enum {
 /*
  * kobject related API.
  */
+int kobject_open(int handle);
+
 int kobject_connect(char *path, int right);
 
 int kobject_close(int handle);
 
-int kobject_create(char *name, int type, int right,
-		int right_req, unsigned long data);
+int kobject_create(char *name, int type, int right, int right_req,
+		unsigned long data);
 
-ssize_t kobject_read(int handle, void *data, size_t data_size,
-		void *extra, size_t extra_size, uint32_t timeout);
+long kobject_read(int handle, void *data, size_t data_size,
+		size_t *actual_data, void *extra, size_t extra_size,
+		size_t actual_extra, uint32_t timeout);
 
-ssize_t kobject_write(int handle, void *data, size_t data_size,
+long kobject_write(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);
 
 int kobject_reply(int handle, long token, int err_code);
@@ -123,8 +126,6 @@ void *kobject_mmap(int handle);
 int kobject_unmap(int handle);
 
 long kobject_ctl(int handle, int action, unsigned long data);
-
-int kobject_open(int handle);
 
 int grant(int proc, int handle, int right, int release);
 

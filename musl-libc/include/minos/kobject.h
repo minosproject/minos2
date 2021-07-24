@@ -114,7 +114,7 @@ int kobject_create(char *name, int type, int right, int right_req,
 
 long kobject_read(int handle, void *data, size_t data_size,
 		size_t *actual_data, void *extra, size_t extra_size,
-		size_t actual_extra, uint32_t timeout);
+		size_t *actual_extra, uint32_t timeout);
 
 long kobject_write(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);

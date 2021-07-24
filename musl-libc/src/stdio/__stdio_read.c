@@ -1,26 +1,48 @@
 #include "stdio_impl.h"
 #include <sys/uio.h>
+#include <string.h>
+
+#include <minos/proto.h>
+#include <minos/kobject.h>
 
 size_t __stdio_read(FILE *f, unsigned char *buf, size_t len)
 {
-#if 0
-	struct iovec iov[2] = {
-		{ .iov_base = buf, .iov_len = len - !!f->buf_size },
-		{ .iov_base = f->buf, .iov_len = f->buf_size }
-	};
-	ssize_t cnt;
+	/*
+	 * read BUF_SIZE from the file, then copy to the buffer
+	 */
+	struct proto proto;
+	size_t copy, rem, total = 0;
+	long cnt;
 
-	cnt = iov[0].iov_len ? syscall(SYS_readv, f->fd, iov, 2)
-		: syscall(SYS_read, f->fd, iov[1].iov_base, iov[1].iov_len);
-	if (cnt <= 0) {
-		f->flags |= cnt ? F_ERR : F_EOF;
-		return 0;
+	memset(&proto, 0, sizeof(struct proto));
+	proto.proto_id = PROTO_READ;
+	proto.read.len = f->buf_size;
+
+	do {
+		cnt = kobject_write(f->fd, &proto,
+				sizeof(struct proto), NULL, 0, -1);
+		if (cnt <= 0) {
+			/*
+			 * mark as end of file if needed.
+			 */
+			f->flags |= cnt ? F_ERR : F_EOF;
+			if ((f->flags & F_EOF) && total < len)
+				buf[total] = EOF;
+			return 0;
+		}
+
+		copy = cnt > len ? len : cnt;
+		memcpy(buf, f->buf, copy);
+		buf += copy;
+		len -= copy;
+		total += copy;
+		rem = cnt - copy;
+	} while (len > 0);
+
+	if (rem != 0) {
+		f->rpos = f->buf + rem;
+		f->rend = f->buf + cnt;
 	}
-	if (cnt <= iov[0].iov_len) return cnt;
-	cnt -= iov[0].iov_len;
-	f->rpos = f->buf;
-	f->rend = f->buf + cnt;
-	if (f->buf_size) buf[len-1] = *f->rpos++;
-#endif
-	return len;
+
+	return total;
 }

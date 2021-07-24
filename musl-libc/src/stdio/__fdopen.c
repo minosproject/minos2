@@ -6,6 +6,9 @@
 #include <string.h>
 #include "libc.h"
 
+#include <minos/kobject.h>
+#include <minos/proto.h>
+
 FILE *__fdopen(int fd, const char *mode)
 {
 	FILE *f;
@@ -18,7 +21,7 @@ FILE *__fdopen(int fd, const char *mode)
 	}
 
 	/* Allocate FILE+buffer or fail */
-	if (!(f=malloc(sizeof *f + UNGET + BUFSIZ))) return 0;
+	if (!(f=libc_malloc(sizeof *f + UNGET))) return 0;
 
 	/* Zero-fill only the struct, not the buffer */
 	memset(f, 0, sizeof *f);
@@ -31,20 +34,31 @@ FILE *__fdopen(int fd, const char *mode)
 
 	/* Set append mode on fd if opened for append */
 	if (*mode == 'a') {
+#if 0
 		int flags = __syscall(SYS_fcntl, fd, F_GETFL);
 		if (!(flags & O_APPEND))
 			__syscall(SYS_fcntl, fd, F_SETFL, flags | O_APPEND);
+#endif
 		f->flags |= F_APP;
 	}
 
+	f->buf = kobject_mmap(fd);
+	if (f->buf == (void *)-1) {
+		libc_free(f);
+		return 0;
+	}
+
 	f->fd = fd;
-	f->buf = (unsigned char *)f + sizeof *f + UNGET;
 	f->buf_size = BUFSIZ;
 
 	/* Activate line buffered mode for terminals */
 	f->lbf = EOF;
+
+#if 0
+	/* Is this file is a tty device ? */
 	if (!(f->flags & F_NOWR) && !__syscall(SYS_ioctl, fd, TIOCGWINSZ, &wsz))
 		f->lbf = '\n';
+#endif
 
 	/* Initialize op ptrs. No problem if some are unneeded. */
 	f->read = __stdio_read;

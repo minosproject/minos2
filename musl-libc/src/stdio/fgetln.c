@@ -2,10 +2,18 @@
 #include "stdio_impl.h"
 #include <string.h>
 
+#include "libc.h"
+
 char *fgetln(FILE *f, size_t *plen)
 {
 	char *ret = 0, *z;
 	ssize_t l;
+
+	if (libc.use_kmalloc) {
+		fprintf(stderr, "fgetln unsupport in kmalloc mode\n");
+		return NULL;
+	}
+
 	FLOCK(f);
 	ungetc(getc_unlocked(f), f);
 	if (f->rend && (z=memchr(f->rpos, '\n', f->rend - f->rpos))) {

@@ -12,6 +12,7 @@
 int epoll_wait(int epfd, struct epoll_event *events,
                       int maxevents, int timeout)
 {
+	size_t e, d;
 	ssize_t size;
 
 	/*
@@ -21,7 +22,7 @@ int epoll_wait(int epfd, struct epoll_event *events,
 		return -EINVAL;
 
 	size = maxevents * sizeof(struct epoll_event);
-	size = kobject_read(epfd, events, size, NULL, 0, timeout);
+	size = kobject_read(epfd, events, size, &d, NULL, 0, &e, timeout);
 	if (size < 0)
 		return size;
 	else if (size == 0)

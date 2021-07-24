@@ -1,14 +1,9 @@
 #include "stdio_impl.h"
 #include "aio_impl.h"
 
-static int dummy(int fd)
-{
-	return fd;
-}
-
-weak_alias(dummy, __aio_close);
+#include <minos/kobject.h>
 
 int __stdio_close(FILE *f)
 {
-	return syscall(SYS_close, __aio_close(f->fd));
+	return kobject_close(f->fd);
 }

@@ -307,7 +307,7 @@ void *malloc(size_t n)
 	int ctr;
 
 	if (libc.use_kmalloc) {
-		fprintf(stderr, "please use tmalloc instead\n");
+		fprintf(stderr, "please use kmalloc instead\n");
 		return NULL;
 	}
 

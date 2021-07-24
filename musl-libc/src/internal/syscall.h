@@ -23,6 +23,8 @@
 typedef long syscall_arg_t;
 #endif
 
+hidden int __sys_open(const char *restrict filename, int flags, int mode);
+
 hidden long __syscall_ret(unsigned long),
 	__syscall_cp(syscall_arg_t, syscall_arg_t, syscall_arg_t, syscall_arg_t,
 	             syscall_arg_t, syscall_arg_t, syscall_arg_t);
@@ -373,23 +375,7 @@ static inline long __alt_socketcall(int sys, int sock, int cp, long a, long b, l
 #define SIOCGSTAMPNS_OLD 0x8907
 #endif
 
-#ifdef SYS_open
-#define __sys_open2(x,pn,fl) __syscall2(SYS_open, pn, (fl)|O_LARGEFILE)
-#define __sys_open3(x,pn,fl,mo) __syscall3(SYS_open, pn, (fl)|O_LARGEFILE, mo)
-#define __sys_open_cp2(x,pn,fl) __syscall_cp2(SYS_open, pn, (fl)|O_LARGEFILE)
-#define __sys_open_cp3(x,pn,fl,mo) __syscall_cp3(SYS_open, pn, (fl)|O_LARGEFILE, mo)
-#else
-#define __sys_open2(x,pn,fl) __syscall3(SYS_openat, AT_FDCWD, pn, (fl)|O_LARGEFILE)
-#define __sys_open3(x,pn,fl,mo) __syscall4(SYS_openat, AT_FDCWD, pn, (fl)|O_LARGEFILE, mo)
-#define __sys_open_cp2(x,pn,fl) __syscall_cp3(SYS_openat, AT_FDCWD, pn, (fl)|O_LARGEFILE)
-#define __sys_open_cp3(x,pn,fl,mo) __syscall_cp4(SYS_openat, AT_FDCWD, pn, (fl)|O_LARGEFILE, mo)
-#endif
-
-#define __sys_open(...) __SYSCALL_DISP(__sys_open,,__VA_ARGS__)
-#define sys_open(...) __syscall_ret(__sys_open(__VA_ARGS__))
-
-#define __sys_open_cp(...) __SYSCALL_DISP(__sys_open_cp,,__VA_ARGS__)
-#define sys_open_cp(...) __syscall_ret(__sys_open_cp(__VA_ARGS__))
+#define sys_open(pn, fl) __sys_open(pn, (fl) | O_LARGEFILE, 0);
 
 hidden void __procfdname(char __buf[static 15+3*sizeof(int)], unsigned);
 

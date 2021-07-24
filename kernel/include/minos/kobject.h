@@ -94,13 +94,14 @@ struct kobject {
 #define KOBJ_PLACEHOLDER	(struct kobject *)(-1)
 
 struct kobject_ops {
-	ssize_t (*send)(struct kobject *kobj, void __user *data,
+	long (*send)(struct kobject *kobj, void __user *data,
 			size_t data_size, void __user *extra,
 			size_t extra_size, uint32_t timeout);
 
-	ssize_t (*recv)(struct kobject *kobj, void __user *data,
-			size_t data_size, void __user *extra,
-			size_t extra_size, uint32_t timeout);
+	long (*recv)(struct kobject *kobj, void __user *data,
+			size_t data_size, size_t *actual_data,
+			void __user *extra, size_t extra_size,
+			size_t *actual_extra, uint32_t timeout);
 
 	void (*release)(struct kobject *kobj);
 
@@ -160,15 +161,14 @@ struct kobject *kobject_create(char *name, int type, right_t right,
 
 int kobject_poll(struct kobject *ksrc, int event, int enable);
 
-ssize_t kobject_recv(struct kobject *kobj,
-		void __user *data, size_t data_size,
+long kobject_recv(struct kobject *kobj, void __user *data,
+		size_t data_size, size_t *actual_data,
 		void __user *extra, size_t extra_size,
-		uint32_t timeout);
+		size_t *actual_extra, uint32_t timeout);
 
-ssize_t kobject_send(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout);
+long kobject_send(struct kobject *kobj, void __user *data,
+		size_t data_size, void __user *extra,
+		size_t extra_size, uint32_t timeout);
 
 int kobject_reply(struct kobject *kobj, right_t right,
 			unsigned long token, long err_code);

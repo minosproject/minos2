@@ -45,9 +45,9 @@ static int irq_kobj_poll(struct kobject *kobj, int event, int enable)
 	return 0;
 }
 
-static ssize_t irq_kobj_read(struct kobject *kobj, void __user *data,
-		size_t data_size, void __user *extra,
-		size_t extra_size, uint32_t timeout)
+static long irq_kobj_read(struct kobject *kobj, void __user *data,
+		size_t data_size, size_t *actual_data, void __user *extra,
+		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
 	unsigned long flags;
@@ -95,7 +95,7 @@ out:
 	return ret;
 }
 
-static ssize_t irq_kobj_write(struct kobject *kobj, void __user *data,
+static long irq_kobj_write(struct kobject *kobj, void __user *data,
 		size_t data_size, void __user *extra,
 		size_t extra_size, uint32_t timeout)
 {

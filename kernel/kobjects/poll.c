@@ -182,10 +182,9 @@ out:
 	return -EAGAIN;
 }
 
-static ssize_t poll_hub_read(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout)
+static long poll_hub_read(struct kobject *kobj, void __user *data, size_t data_size,
+		size_t *actual_data, void __user *extra, size_t extra_size,
+		size_t *actual_extra, uint32_t timeout)
 {
 	struct poll_hub *peh = to_poll_hub(kobj);
 	int cnt;
@@ -195,7 +194,9 @@ static ssize_t poll_hub_read(struct kobject *kobj,
 	if (cnt <= 0)
 		return cnt;
 
-	return cnt * sizeof(struct poll_event);
+	*actual_data = cnt * sizeof(struct poll_event);
+
+	return 0;
 }
 
 static void poll_hub_release(struct kobject *kobj)

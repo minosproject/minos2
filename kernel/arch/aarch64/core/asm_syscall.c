@@ -57,13 +57,19 @@ static void __sys_kobject_create(gp_regs *regs)
 
 static void __sys_kobject_recv(gp_regs *regs)
 {
+	size_t data = 0, extra = 0;
+
 	regs->x0 = sys_kobject_recv(
 			(int)regs->x0,
 			(void __user *)regs->x1,
 			(size_t)regs->x2,
+			&data,
 			(void __user *)regs->x3,
 			(size_t)regs->x4,
+			&extra,
 			(uint32_t)regs->x5);
+	regs->x1 = data;
+	regs->x2 = extra;
 }
 
 static void __sys_kobject_send(gp_regs *regs)

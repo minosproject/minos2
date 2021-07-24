@@ -307,28 +307,24 @@ int kobject_close(struct kobject *kobj, right_t right)
 	return ret;
 }
 
-ssize_t kobject_recv(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout)
+long kobject_recv(struct kobject *kobj, void __user *data, size_t data_size,
+		size_t *actual_data, void __user *extra, size_t extra_size,
+		size_t *actual_extra, uint32_t timeout)
 {
 	if (!kobj->ops || !kobj->ops->recv)
 		return -EACCES;
 
-	return kobj->ops->recv(kobj, data, data_size, extra,
-			extra_size, timeout);
+	return kobj->ops->recv(kobj, data, data_size, actual_data,
+			extra, extra_size, actual_extra, timeout);
 }
 
-ssize_t kobject_send(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout)
+long kobject_send(struct kobject *kobj, void __user *data, size_t data_size,
+		void __user *extra, size_t extra_size, uint32_t timeout)
 {
 	if (!kobj->ops || !kobj->ops->send)
-		return -EPERM;
+		return -EACCES;
 
-	return kobj->ops->send(kobj, data, data_size, extra,
-			extra_size, timeout);
+	return kobj->ops->send(kobj, data, data_size, extra, extra_size, timeout);
 }
 
 int kobject_reply(struct kobject *kobj, right_t right,

@@ -51,7 +51,7 @@ struct process_proto {
 #define PROCESS_PROTO(task)	\
 	(struct process_proto *)task_syscall_regs(task)
 
-static ssize_t process_send(struct kobject *kobj,
+static long process_send(struct kobject *kobj,
 		void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size,
 		uint32_t timeout)
@@ -75,10 +75,9 @@ static ssize_t process_send(struct kobject *kobj,
 	return wait_event();
 }
 
-static ssize_t process_recv(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout)
+static long process_recv(struct kobject *kobj, void __user *data,
+		size_t data_size, size_t *actual_data, void __user *extra,
+		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	struct process *proc = (struct process *)kobj->data;
 	struct kobject *thread = NULL;
@@ -116,7 +115,8 @@ out:
 		return -EAGAIN;
 	}
 
-	if (proto->extra == 0)
+	*actual_data = proto->data_size;
+	if (proto->extra == NULL || proto->extra_size == 0)
 		return 0;
 
 	ret = copy_user_to_user(&current_proc->vspace, extra,
@@ -126,13 +126,13 @@ out:
 		return -EAGAIN;
 	}
 
+	*actual_extra = proto->extra_size;
 	proc->request_current = task;
 
 	return 0;
 }
 
-static int process_reply(struct kobject *kobj, right_t right,
-		long token, long errno)
+static int process_reply(struct kobject *kobj, right_t right, long token, long errno)
 {
 	struct process *proc = (struct process *)kobj->data;
 

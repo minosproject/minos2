@@ -169,10 +169,9 @@ out:
 	return -EMFILE;
 }
 
-static ssize_t endpoint_recv(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout)
+static long endpoint_recv(struct kobject *kobj, void __user *data,
+		size_t data_size, size_t *actual_data, void __user *extra,
+		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	struct endpoint_proto *src;
@@ -279,9 +278,11 @@ static ssize_t endpoint_recv(struct kobject *kobj,
 		goto out;
 	}
 
-	wake_up(writer, 0);
 	list_add_tail(&ep->processing_list, &pending->list);
+	wake_up(writer, 0);
 	ret = (long)writer->wait_event;
+	*actual_data = data_size;
+	*actual_extra = extra_size;
 
 out:
 	spin_unlock(&ep->lock);
@@ -294,10 +295,8 @@ static long generate_token(struct endpoint *ep)
 	return 0;
 }
 
-static ssize_t endpoint_send(struct kobject *kobj,
-		void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size,
-		uint32_t timeout)
+static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_size,
+		void __user *extra, size_t extra_size, uint32_t timeout)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	struct poll_struct *ps = &kobj->poll_struct;

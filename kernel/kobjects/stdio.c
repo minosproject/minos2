@@ -27,7 +27,7 @@ struct kobject stdio_kobj;
 static mutex_t stdio_lock;
 static char stdio_buf[STDIO_BUF_SIZE];
 
-static ssize_t stdio_send(struct kobject *kobj, void __user *data,
+static long stdio_send(struct kobject *kobj, void __user *data,
 		size_t data_size, void __user *extra,
 		size_t extra_size, uint32_t timeout)
 {
@@ -59,9 +59,9 @@ out:
 	return ret;
 }
 
-static ssize_t stdio_recv(struct kobject *kobj, void __user *data,
-		size_t data_size, void __user *extra,
-		size_t extra_size, uint32_t timeout)
+static long stdio_recv(struct kobject *kobj, void __user *data,
+		size_t data_size, size_t *actual_data, void __user *extra,
+		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	// TBD
 	return 0;

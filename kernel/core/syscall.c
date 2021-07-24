@@ -127,8 +127,9 @@ int sys_kobject_open(handle_t handle)
 	return ret;
 }
 
-ssize_t sys_kobject_recv(handle_t handle, void __user *data, size_t data_size,
-		void __user *extra, size_t extra_size, uint32_t timeout)
+long sys_kobject_recv(handle_t handle, void __user *data, size_t data_size,
+		size_t *actual_data, void __user *extra, size_t extra_size,
+		size_t *actual_extra, uint32_t timeout)
 {
 	struct kobject *kobj;
 	right_t right;
@@ -143,13 +144,14 @@ ssize_t sys_kobject_recv(handle_t handle, void __user *data, size_t data_size,
 		goto out;
 	}
 
-	ret = kobject_recv(kobj, data, data_size, extra, extra_size, timeout);
+	ret = kobject_recv(kobj, data, data_size, actual_data, extra,
+			extra_size, actual_extra, timeout);
 out:
 	put_kobject(kobj);
 	return ret;
 }
 
-ssize_t sys_kobject_send(handle_t handle, void __user *data, size_t data_size,
+long sys_kobject_send(handle_t handle, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout)
 {
 	struct kobject *kobj;

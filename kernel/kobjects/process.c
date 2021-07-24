@@ -132,12 +132,17 @@ out:
 	return 0;
 }
 
-static int process_reply(struct kobject *kobj, right_t right, long token, long errno)
+static int process_reply(struct kobject *kobj, right_t right, long token,
+		long errno, handle_t fd, right_t fd_right)
 {
 	struct process *proc = (struct process *)kobj->data;
+	struct task *target = proc->request_current;
 
-	if (proc->request_current == NULL)
+	if (target == NULL)
 		return -ENOENT;
+
+	if (fd > 0)
+		errno = kobject_send_handle(proc, target->proc, fd, fd_right);
 
 	wake_up(proc->request_current, errno);
 	proc->request_current = NULL;

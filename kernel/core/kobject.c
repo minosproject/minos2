@@ -327,13 +327,13 @@ long kobject_send(struct kobject *kobj, void __user *data, size_t data_size,
 	return kobj->ops->send(kobj, data, data_size, extra, extra_size, timeout);
 }
 
-int kobject_reply(struct kobject *kobj, right_t right,
-			unsigned long token, long err_code)
+int kobject_reply(struct kobject *kobj, right_t right, unsigned long token,
+		long err_code, handle_t fd, right_t fd_right)
 {
 	if (!kobj->ops || !kobj->ops->reply)
 		return -EPERM;
 
-	return kobj->ops->reply(kobj, right, token, err_code);
+	return kobj->ops->reply(kobj, right, token, err_code, fd, fd_right);
 }
 
 int kobject_munmap(struct kobject *kobj, right_t right)
@@ -359,6 +359,34 @@ long kobject_ctl(struct kobject *kobj, right_t right,
 		return -EPERM;
 
 	return kobj->ops->ctl(kobj, req, data);
+}
+
+handle_t kobject_send_handle(struct process *psrc, struct process *pdst,
+		handle_t handle, right_t right_send)
+{
+	struct kobject *kobj;
+	right_t right;
+	int ret;
+
+	ret = get_kobject_from_process(psrc, handle, &kobj, &right);
+	if (ret)
+		return ret;
+
+	if (!(right & KOBJ_RIGHT_GRANT) || (kobj->owner != current_pid)) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	if ((right_send & KOBJ_RIGHT_RW) == (right & KOBJ_RIGHT_RW)) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	right_send &= KOBJ_RIGHT_RW;
+	ret =  __alloc_handle(pdst, kobj, right_send);
+out:
+	put_kobject(kobj);
+	return ret;
 }
 
 handle_t sys_grant(handle_t proc_handle, handle_t handle,

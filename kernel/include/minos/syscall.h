@@ -20,7 +20,8 @@ extern ssize_t sys_kobject_recv(handle_t handle, void __user *data, size_t data_
 extern ssize_t sys_kobject_send(handle_t handle, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout);
 
-extern int sys_kobject_reply(int handle, unsigned long token, int err_code);
+extern int sys_kobject_reply(handle_t handle, long token,
+		long err_code, handle_t fd, right_t fd_right);
 
 extern long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 		struct timespec __user *utime,

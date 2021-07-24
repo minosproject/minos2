@@ -173,7 +173,12 @@ out:
 	return ret;
 }
 
-long sys_kobject_reply(handle_t handle, unsigned long token, int err_code)
+/*
+ * kobject reply can reply a fd to the target process
+ * who obtain this handle. if need to reply a fd.
+ */
+long sys_kobject_reply(handle_t handle, unsigned long token,
+		long err_code, handle_t fd, right_t fd_right)
 {
 	struct kobject *kobj;
 	right_t right;
@@ -183,7 +188,10 @@ long sys_kobject_reply(handle_t handle, unsigned long token, int err_code)
 	if (ret)
 		return ret;
 
-	ret = kobject_reply(kobj, right, token, err_code);
+	if (!(right & KOBJ_RIGHT_READ))
+		return -EPERM;
+
+	ret = kobject_reply(kobj, right, token, err_code, fd, fd_right);
 	put_kobject(kobj);
 
 	return ret;

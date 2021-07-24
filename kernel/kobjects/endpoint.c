@@ -345,8 +345,8 @@ static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_s
 	return ret;
 }
 
-static int endpoint_reply(struct kobject *kobj,
-		right_t right, long token, long errno)
+static int endpoint_reply(struct kobject *kobj, right_t right,
+		long token, long errno, handle_t fd, right_t fd_right)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	struct kobject *wk, *tmp;
@@ -366,8 +366,13 @@ static int endpoint_reply(struct kobject *kobj,
 		}
 	}
 
-	if (task)
+	if (task) {
+		if (fd > 0) {
+			errno = kobject_send_handle(current_proc,
+				task->proc, fd, fd_right);
+		}
 		wake_up(task, errno);
+	}
 
 	spin_unlock(&ep->lock);
 

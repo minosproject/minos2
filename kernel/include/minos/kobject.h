@@ -113,8 +113,8 @@ struct kobject_ops {
 
 	int (*close)(struct kobject *kobj, right_t right);
 
-	int (*reply)(struct kobject *kobj, right_t right,
-			long token, long err_code);
+	int (*reply)(struct kobject *kobj, right_t right, long token,
+			long err_code, handle_t fd, right_t fd_right);
 
 	void *(*mmap)(struct kobject *kobj, right_t right);
 
@@ -170,8 +170,8 @@ long kobject_send(struct kobject *kobj, void __user *data,
 		size_t data_size, void __user *extra,
 		size_t extra_size, uint32_t timeout);
 
-int kobject_reply(struct kobject *kobj, right_t right,
-			unsigned long token, long err_code);
+int kobject_reply(struct kobject *kobj, right_t right, unsigned long token,
+		long err_code, handle_t fd, right_t fd_right);
 
 int kobject_munmap(struct kobject *kobj, right_t right);
 
@@ -188,4 +188,6 @@ void register_namespace(struct process *proc);
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right);
 
+handle_t kobject_send_handle(struct process *psrc, struct process *pdst,
+		handle_t handle, right_t right_send);
 #endif

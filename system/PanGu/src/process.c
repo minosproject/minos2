@@ -64,7 +64,7 @@ int unmap_self_memory(void *base)
 	return 0;
 }
 
-void *map_self_memory(handle_t pma_handle, size_t size, int perm)
+void *map_self_memory(int pma_handle, size_t size, int perm)
 {
 	struct vma *vma;
 	int ret;
@@ -132,11 +132,11 @@ void release_process(struct process *proc)
 
 }
 
-static handle_t create_process(char *name, unsigned long entry,
+static int create_process(char *name, unsigned long entry,
 		unsigned long stack, int aff,
 		int prio, unsigned long flags)
 {
-	right_t right = KOBJ_RIGHT_CTL | KOBJ_RIGHT_RW;
+	int right = KOBJ_RIGHT_CTL | KOBJ_RIGHT_RW;
 
 	struct process_create_arg args = {
 		.entry = entry,

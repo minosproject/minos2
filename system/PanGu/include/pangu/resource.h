@@ -13,8 +13,8 @@ enum {
 
 struct resource {
 	uint16_t type;
-	handle_t client;
-	handle_t handle;
+	int client;
+	int handle;
 	unsigned long base;
 	unsigned long end;
 	struct resource *next;

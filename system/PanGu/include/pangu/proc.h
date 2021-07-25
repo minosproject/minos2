@@ -20,7 +20,7 @@
 struct process {
 	int pid;
 	int flags;
-	handle_t proc_handle;		// used to control the process.
+	int proc_handle;		// used to control the process.
 
 	struct vma *elf_vma;
 	struct vma *stack_vma;
@@ -40,7 +40,7 @@ extern struct process *self;
 
 void self_init(unsigned long vma_base, unsigned long vma_end);
 
-void *map_self_memory(handle_t pma_handle, size_t size, int perm);
+void *map_self_memory(int pma_handle, size_t size, int perm);
 
 int unmap_self_memory(void *base);
 

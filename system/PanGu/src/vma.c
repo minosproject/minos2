@@ -143,8 +143,8 @@ struct vma *__request_vma(struct process *proc, unsigned long base,
 	return out;
 }
 
-handle_t create_pma(struct process *proc, int type, right_t right,
-		right_t right_req, unsigned long base, size_t size)
+int create_pma(struct process *proc, int type, int right,
+		int right_req, unsigned long base, size_t size)
 {
 	struct pma_create_arg args = {
 		.cnt = size >> PAGE_SHIFT,
@@ -183,7 +183,7 @@ struct vma *request_vma(struct process *proc, unsigned long base,
 
 	ret = map(proc->proc_handle, vma->pma_handle, base, size, perm);
 	if (ret) {
-		kobject_destroy(vma->pma_handle);
+		kobject_close(vma->pma_handle);
 		release_vma(proc, vma);
 		return NULL;
 	}

@@ -34,7 +34,7 @@ struct vma {
 	unsigned long end;
 	int anon;
 	int perm;
-	handle_t pma_handle;
+	int pma_handle;
 	struct list_head list;
 };
 

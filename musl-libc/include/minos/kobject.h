@@ -83,11 +83,18 @@ struct pma_create_arg {
  * for thread kobject
  */
 struct thread_create_arg {
-	unsigned long func;
+	int (*fn)(void *);
 	void *user_sp;
 	int prio;
 	int aff;
-	unsigned long flags;
+	int flags;
+	void *tls;
+	void *pdata;
+};
+
+enum {
+	KOBJ_THREAD_OP_BASE = 0x3000,
+	KOBJ_THREAD_OP_WAKEUP,
 };
 
 /*

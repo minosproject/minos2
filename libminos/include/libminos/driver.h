@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-extern int get_mmio_handles(int argc, char **argv, handle_t *handles, int cnt);
-extern int get_irq_handles(int argc, char **argv, handle_t *handles, int cnt);
-extern int get_dma_handles(int argc, char **argv, handle_t *handles, int cnt);
+extern int get_mmio_handles(int argc, char **argv, int *handles, int cnt);
+extern int get_irq_handles(int argc, char **argv, int *handles, int cnt);
+extern int get_dma_handles(int argc, char **argv, int *handles, int cnt);
 
 #endif

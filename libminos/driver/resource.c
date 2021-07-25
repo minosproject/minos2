@@ -10,7 +10,7 @@
 #include <ctype.h>
 
 static int __get_resource_handles(char *compare, char *string,
-		handle_t *handles, int cnt)
+		int *handles, int cnt)
 {
 	int len = strlen(compare);
 	char *tmp = string;
@@ -34,7 +34,7 @@ static int __get_resource_handles(char *compare, char *string,
 }
 
 static int get_resource_handles(int argc, char **argv, char *comp,
-		handle_t *handles, int cnt)
+		int *handles, int cnt)
 {
 	int i;
 
@@ -52,17 +52,17 @@ static int get_resource_handles(int argc, char **argv, char *comp,
 	return -ENOENT;
 }
 
-int get_irq_handles(int argc, char **argv, handle_t *handles, int cnt)
+int get_irq_handles(int argc, char **argv, int *handles, int cnt)
 {
 	return get_resource_handles(argc, argv, "irq@", handles, cnt);
 }
 
-int get_mmio_handles(int argc, char **argv, handle_t *handles, int cnt)
+int get_mmio_handles(int argc, char **argv, int *handles, int cnt)
 {
 	return get_resource_handles(argc, argv, "mmio@", handles, cnt);
 }
 
-int get_dma_handles(int argc, char **argv, handle_t *handles, int cnt)
+int get_dma_handles(int argc, char **argv, int *handles, int cnt)
 {
 	return get_resource_handles(argc, argv, "dma@", handles, cnt);
 }

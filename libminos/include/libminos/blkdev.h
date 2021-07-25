@@ -54,12 +54,14 @@ struct partition {
 	struct blkdev *blkdev;
 	struct super_block *sb;
 	struct filesystem *fs;
+	int epfd;
+	int ctl_fd;
 };
 
 struct blkdev {
 	int id;
 	int nrpart;
-	handle_t dma_handle;
+	int dma_handle;
 	uint32_t sector_size;
 	uint64_t sector_cnt;
 	uint64_t data_sector_start; 

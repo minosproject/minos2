@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021 Min Le (lemin9538@163.com)
+ * Copyright (c) 2021 上海网返科技
  */
 
 #include <stdlib.h>
@@ -10,38 +11,47 @@
 #include <minos/debug.h>
 #include <minos/kmalloc.h>
 #include <minos/compiler.h>
+#include <minos/kobject.h>
 
 #include <libminos/vfs.h>
 #include <libminos/blkdev.h>
 #include "fs.h"
 
-int vfs_open(struct partition *part, char *path, handle_t fd,
-		size_t sbuf_size, int mode)
+#define FILE_RIGHT \
+	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
+#define FILE_REQ_RIGHT \
+	(KOBJ_RIGHT_READ | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
+
+struct file *vfs_open(struct partition *part, char *path, int flags, int mode)
 {
 	struct file *file;
 	struct fnode *fnode;
-	handle_t handle;
+	int handle;
 	int ret = 0;
 
 	ret = fs_open(part->sb, path, &fnode);
 	if (ret)
-		return ret;
+		return NULL;
 
 	// check the mode, TBD.
 	file = kzalloc(sizeof(struct file));
 	if (!file)
-		return -ENOMEM;
+		return NULL;
 
-#if 0
-	/*
-	 * mmap the handle to our space.
-	 */
-	file->sbuf = mmap(NULL, sbuf_size, fd, PROT_READ | PORT_WRITE, 0, fd);
-	if (!file->sbuf == (void *)-1) {
-		ret = -EFAULT;
-		goto err_map_file;
+	handle = kobject_create(NULL, KOBJ_TYPE_PORT,
+			FILE_RIGHT, FILE_REQ_RIGHT, PAGE_SIZE);
+	if (handle < 0) {
+		kfree(file);
+		return NULL;
 	}
-#endif
+
+	file->handle = handle;
+	file->sbuf = kobject_mmap(handle);
+	if (file->sbuf == (char *)-1) {
+		kobject_close(handle);
+		kfree(file);
+		return NULL;
+	}
 
 	file->offset = 0;
 	file->f_flags = 0;
@@ -49,17 +59,17 @@ int vfs_open(struct partition *part, char *path, handle_t fd,
 	file->offset = 0;
 	file->fnode = fnode;
 	file->next = part->open_file;
-	file->handle = fd;
-	file->sbuf_size = sbuf_size;
+	file->handle = handle;
+	file->sbuf_size = PAGE_SIZE;
 	file->mmap_mode = 0;
 	part->open_file = file;
 	
 err_map_file:
 	kfree(file);
-	return ret;
+	return file;
 }
 
-static struct file *handle_to_file(struct partition *part, handle_t handle)
+static struct file *handle_to_file(struct partition *part, int handle)
 {
 	struct file *head = part->open_file;
 
@@ -72,7 +82,7 @@ static struct file *handle_to_file(struct partition *part, handle_t handle)
 	return NULL;
 }
 
-ssize_t vfs_read(struct partition *part, handle_t handle, size_t size)
+ssize_t vfs_read(struct partition *part, int handle, size_t size)
 {
 	struct file *file = handle_to_file(part, handle);
 	ssize_t ret;
@@ -90,7 +100,7 @@ ssize_t vfs_read(struct partition *part, handle_t handle, size_t size)
 	return ret;
 }
 
-ssize_t vfs_write(struct partition *part, handle_t handle, size_t size)
+ssize_t vfs_write(struct partition *part, int handle, size_t size)
 {
 	return 0;
 }

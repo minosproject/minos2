@@ -3,58 +3,9 @@
 
 #include <inttypes.h>
 
-#define FS_NAME_SIZE 64
-
-enum {
-	DT_UNKNOWN = 0,
-	DT_FIFO = 1,
-	DT_CHR = 2,
-	DT_DIR = 4,
-	DT_BLK = 6,
-	DT_REG = 8,
-	DT_LNK = 10,
-	DT_SOCK = 12,
-	DT_WHT = 14,
-#define DT_ANY		0xff
-};
-
-#define O_ACCMODE	   00000003
-#define O_RDONLY	   00000000
-#define O_WRONLY	   00000001
-#define O_RDWR		   00000002
-#define O_CREAT		   00000100
-#define O_EXCL		   00000200	/* not fcntl */
-#define O_NOCTTY	   00000400	/* not fcntl */
-#define O_TRUNC		   00001000	/* not fcntl */
-#define O_APPEND	   00002000
-#define O_NONBLOCK	   00004000
-#define O_NDELAY	   O_NONBLOCK
-#define O_SYNC		   00010000
-#define FASYNC		   00020000	/* fcntl, for BSD compatibility */
-#define O_DIRECTORY	   00040000	/* must be a directory */
-#define O_NOFOLLOW	   00100000	/* don't follow links */
-#define O_DIRECT	   00200000	/* direct disk access hint - currently ignored */
-#define O_LARGEFILE	   00400000
-#define O_NOATIME	   01000000
-
-#define F_DUPFD		0	/* dup */
-#define F_GETFD		1	/* get close_on_exec */
-#define F_SETFD		2	/* set/clear close_on_exec */
-#define F_GETFL		3	/* get file->f_flags */
-#define F_SETFL		4	/* set file->f_flags */
-#define F_GETLK		5
-#define F_SETLK		6
-#define F_SETLKW	7
-
-#define SEEK_SET	0
-#define SEEK_CUR	1
-#define SEEK_END	2
-
 struct file;
 struct blkdev;
 struct super_block;
-
-#define MAX_FILENAME 256
 
 struct fnode {
 	uint8_t mode;
@@ -72,7 +23,7 @@ struct fnode {
 	struct list_head child; // all opened children in this directory
 	struct list_head list;	// list to the superblock f_opens;
 
-	char name[MAX_FILENAME];
+	char name[FILENAME_MAX];
 	struct partition *partition;
 };
 
@@ -103,6 +54,8 @@ struct super_block {
 	struct partition *partition;	/* partition of this super block */
 };
 
+#define FS_NAME_SIZE 32
+
 struct filesystem {
 	char name[FS_NAME_SIZE];
 	int (*match)(int type, char *name);
@@ -120,5 +73,8 @@ struct filesystem {
 int register_filesystem(struct filesystem *fs);
 
 int vfs_init(void);
+
+struct file *vfs_open(struct partition *part,
+		char *path, int flags, int mode);
 
 #endif

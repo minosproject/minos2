@@ -7,6 +7,10 @@
 #include <minos/sched.h>
 #include <minos/kmalloc.h>
 #include <minos/compiler.h>
+#include <minos/thread.h>
+#include <sys/epoll.h>
+#include <minos/kobject.h>
+#include <minos/proto.h>
 
 #include <libminos/blkdev.h>
 #include <libminos/vfs.h>
@@ -15,31 +19,126 @@
 hidden extern int parse_mbr(struct blkdev *blkdev);
 hidden extern struct filesystem *lookup_filesystem(unsigned char type);
 
-static void partition_thread(void *data)
+static int handle_vfs_open(struct partition *part,
+		struct proto *proto, char *path, size_t size)
 {
-	do {
-		pr_info("wait for message\n");
-	} while (1);
+	struct file *file;
+	struct epoll_event event;
+
+	if (size >= FILENAME_MAX) {
+		kobject_reply(part->epfd, 0, -EINVAL, 0, 0);
+		return -EINVAL;
+	}
+
+	path[size] = 0;
+	file = vfs_open(part, path, proto->open.flags, proto->open.mode);
+	if (!file) {
+		kobject_reply(part->epfd, 0, -ENOMEM, 0, 0);
+		return -ENOMEM;
+	}
+
+	event.events = EPOLLIN;
+	event.data.ptr = file;
+
+	epoll_ctl(part->epfd, EPOLL_CTL_ADD, file->handle, &event);
+	kobject_reply(part->ctl_fd, 0, 0, file->handle,
+			KOBJ_RIGHT_WRITE | KOBJ_RIGHT_MMAP);
+
+	return 0;
+}
+
+static int handle_vfs_read(struct partition *part,
+		struct proto *proto)
+{
+
+}
+
+static int handle_vfs_request(struct partition *part, struct epoll_event *event)
+{
+	struct file *file;
+	struct proto proto;
+	char path[FILENAME_MAX];
+	long ret;
+	size_t ad, ae;
+
+	ret = kobject_read(event->data.fd, &proto, sizeof(struct proto),
+			&ad, path, FILENAME_MAX, &ae, 0);
+	if (ret < 0)
+		return ret;
+
+	switch (proto.proto_id) {
+	case PROTO_OPEN:
+		handle_vfs_open(part, &proto, path, ae);
+		break;
+	case PROTO_READ:
+		break;
+	case PROTO_WRITE:
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static int partition_thread(void *data)
+{
+#define MAX_EPFD 10
+	struct epoll_event events[MAX_EPFD];
+	struct epoll_event *event = &events[0];
+	int epfd, cfd, cnt, i;
+	struct partition *part = data;
+
+	cfd = kobject_create("disk0", KOBJ_TYPE_ENDPOINT,
+			KOBJ_RIGHT_RW | KOBJ_RIGHT_POLL,
+			KOBJ_RIGHT_READ | KOBJ_RIGHT_POLL, 1);
+	if (cfd < 0)
+		return cfd;
+
+	epfd = epoll_create(1);
+	if (epfd < 0)
+		return epfd;
+
+	if (epoll_ctl(epfd, EPOLL_CTL_ADD, cfd, event))
+		return -1;
+
+	part->epfd = epfd;
+	part->ctl_fd = cfd;
+
+	for (;;) {
+		cnt = epoll_wait(epfd, events, MAX_EPFD, -1);
+		if (cnt <= 0)
+			continue;
+
+		for (i = 0; i < cnt; i++)
+			handle_vfs_request(part, &events[i]);
+	}
+
+	return -1;
 }
 
 static int register_partition(struct partition *part)
 {
-#if 0
 	void *stack;
+	int ret;
 
-	if (bdev == NULL)
+	if (part == NULL)
 		return -EINVAL;
 
-	stack = get_pages(BLKDEV_STACK_SIZE >> PAGE_SHIFT);
+	/*
+	 * one more pages for tls memory, 1 page is enough ? TBD
+	 */
+	stack = get_pages((BLKDEV_STACK_SIZE >> PAGE_SHIFT) + 1);
 	if (!stack)
 		return -ENOMEM;
 
-	ret = thread_create(blkdev_thread, stack + BLKDEV_STACK_SIZE, bdev);
+	stack += BLKDEV_STACK_SIZE;
+	ret = create_thread(partition_thread, stack, -1, -1, 0, stack, part);
 	if (ret) {
-		pr_err("create blkdev failed %s\n", bdev->name);
-		return ret
+		free_pages(stack);
+		pr_err("create partition failed\n");
+		return ret;
 	}
-#endif
 
 	return 0;
 }
@@ -85,14 +184,18 @@ int register_blkdev(struct blkdev *blkdev, unsigned long flags, int gpt)
 		part->fs = fs;
 	}
 
-	for (i = 0; i < blkdev->nrpart; i++) {
-		part = &blkdev->partitions[i];
-		if (part->stat != 0)
-			continue;
+	if (blkdev->nrpart > 1) {
+		for (i = 0; i < blkdev->nrpart; i++) {
+			part = &blkdev->partitions[i];
+			if (part->stat != 0)
+				continue;
 
-		ret = register_partition(part);
-		pr_notice("Register partition %s\n",
-				ret ? "fail" : "success");
+			ret = register_partition(part);
+			pr_notice("Register partition %s\n",
+					ret ? "fail" : "success");
+		}
+	} else {
+		partition_thread(&blkdev->partitions[0]);
 	}
 
 	return 0;

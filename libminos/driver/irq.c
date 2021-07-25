@@ -7,7 +7,7 @@
 #include <errno.h>
 #include <minos/kobject.h>
 
-int request_irq(handle_t handle)
+int request_irq(int handle)
 {
 	return kobject_open(handle);
 }

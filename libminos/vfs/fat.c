@@ -5,6 +5,8 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/param.h>
+#include <dirent.h>
+
 #include <minos/list.h>
 #include <minos/types.h>
 #include <minos/debug.h>

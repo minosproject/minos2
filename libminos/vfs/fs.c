@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include <errno.h>
+#include <dirent.h>
 #include <minos/list.h>
 #include <minos/debug.h>
 #include <minos/kmalloc.h>
@@ -90,7 +91,7 @@ int fs_open(struct super_block *sb, char *path, struct fnode **out)
 		}
 
 		end = strchrnul(pathrem, '/');
-		if (end - pathrem >= MAX_FILENAME) {
+		if (end - pathrem >= FILENAME_MAX) {
 			ret = -ENAMETOOLONG;
 			goto out;
 		}

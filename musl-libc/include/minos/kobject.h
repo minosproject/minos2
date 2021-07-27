@@ -30,6 +30,8 @@ long kobject_write(int handle, void *data, size_t data_size,
 
 int kobject_reply(int handle, long token, long err_code, int fd, int right);
 
+int kobject_reply_simple(int handle, long err_code);
+
 void *kobject_mmap(int handle);
 
 int kobject_unmap(int handle);

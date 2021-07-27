@@ -57,7 +57,9 @@ struct execv_extra {
 };
 
 struct proto {
+	long token;
 	int proto_id;
+	int padding;
 	union {
 		struct proto_mmap mmap;
 		struct proto_open open;

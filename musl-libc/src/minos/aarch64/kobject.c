@@ -61,6 +61,11 @@ int kobject_reply(int handle, long token, long err_code, int fd, int right)
 	return syscall(SYS_kobject_reply, token, err_code, fd, right);
 }
 
+int kobject_reply_simple(int handle, long err_code)
+{
+	return kobject_reply(handle, 0, err_code, -1, 0);
+}
+
 void *kobject_mmap(int handle)
 {
 	return (void *)syscall(SYS_kobject_mmap, handle);

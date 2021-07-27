@@ -28,6 +28,11 @@ static struct process proc_self;
 struct process *self = &proc_self;
 static LIST_HEAD(process_list);
 
+extern int load_process_from_file(struct process *proc,
+		struct elf_ctx *ctx, FILE *file);
+
+extern int elf_init(struct elf_ctx *ctx, FILE *file);
+
 int proc_epfd;
 
 int unmap_self_memory(void *base)
@@ -433,9 +438,38 @@ static int load_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
 	FILE *file = fopen(path, "r");
+	struct process *proc;
+	int ret;
+	char *name;
+	struct elf_ctx ctx;
 
 	if (!file)
 		return -ENOENT;
+
+	ret = elf_init(&ctx, file);
+	if (ret)
+		return ret;
+
+	name = file_path_to_proc_name(path);
+	proc = create_new_process(&ctx, name, flags, pdata);
+	if (!proc)
+		return -ENOMEM;
+
+	ret = load_process_from_file(proc, &ctx, file);
+	if (ret) {
+		fclose(file);
+		release_process(proc);
+		return ret;
+	}
+
+	ret = setup_process(proc, name, &ctx, argc, argv);
+	if (ret) {
+		fclose(file);
+		release_process(proc);
+		return ret;
+	}
+
+	list_add_tail(&process_list, &proc->list);
 
 	return 0;
 }
@@ -579,9 +613,16 @@ static long handle_process_exit(struct process *proc, uint64_t data0)
 	return 0;
 }
 
-static inline int execv_argv_is_ok(char *argv, int size)
+static inline int execv_argv_is_ok(char *argv, int max_size)
 {
-	return 1;
+	int i;
+
+	for (i = 0; i < max_size; i++) {
+		if (argv[i] == 0)
+			return 1;
+	}
+
+	return 0;
 }
 
 static long process_execv_handler(struct process *proc,

@@ -16,7 +16,7 @@
 #include <libminos/vfs.h>
 #include "virtio.h"
 
-static handle_t irq_handle, mmio_handle;
+static int irq_handle, mmio_handle;
 
 /*
  * mmio@4,5,6 irq@1,2,3

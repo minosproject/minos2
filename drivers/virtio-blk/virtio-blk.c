@@ -117,7 +117,7 @@ static int virtio_blk_poll(struct blkdev *blkdev, struct blkreq *req)
 	struct virtio_blk *blk = get_vblkdev(blkdev);
 	int ret;
 
-	ret = kobject_read(blk->intid, NULL, 0, NULL, 0, -1);
+	ret = kobject_read(blk->intid, NULL, 0, NULL, NULL, 0, NULL, -1);
 	if (ret != 0)
 		return ret;
 

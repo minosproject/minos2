@@ -50,12 +50,11 @@ static int handle_vfs_open(struct partition *part,
 static int handle_vfs_read(struct partition *part,
 		struct proto *proto)
 {
-
+	return 0;
 }
 
 static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 {
-	struct file *file;
 	struct proto proto;
 	char path[FILENAME_MAX];
 	long ret;
@@ -71,6 +70,7 @@ static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 		handle_vfs_open(part, &proto, path, ae);
 		break;
 	case PROTO_READ:
+		handle_vfs_read(part, &proto);
 		break;
 	case PROTO_WRITE:
 		break;
@@ -84,6 +84,10 @@ static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 static int partition_thread(void *data)
 {
 #define MAX_EPFD 10
+	struct endpoint_create_arg args = {
+		.mode = EP_MODE_MUTIL_WRITER,
+		.shmem_size = 0,
+	};
 	struct epoll_event events[MAX_EPFD];
 	struct epoll_event *event = &events[0];
 	int epfd, cfd, cnt, i;
@@ -91,7 +95,7 @@ static int partition_thread(void *data)
 
 	cfd = kobject_create("disk0", KOBJ_TYPE_ENDPOINT,
 			KOBJ_RIGHT_RW | KOBJ_RIGHT_POLL,
-			KOBJ_RIGHT_READ | KOBJ_RIGHT_POLL, 1);
+			KOBJ_RIGHT_READ, (unsigned long)&args);
 	if (cfd < 0)
 		return cfd;
 

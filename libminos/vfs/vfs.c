@@ -20,10 +20,14 @@
 #define FILE_RIGHT \
 	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
 #define FILE_REQ_RIGHT \
-	(KOBJ_RIGHT_READ | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
+	(KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP)
 
 struct file *vfs_open(struct partition *part, char *path, int flags, int mode)
 {
+	struct endpoint_create_arg args = {
+		.mode = EP_MODE_NORMAL,
+		.shmem_size = PAGE_SIZE,
+	};
 	struct file *file;
 	struct fnode *fnode;
 	int handle;
@@ -38,8 +42,8 @@ struct file *vfs_open(struct partition *part, char *path, int flags, int mode)
 	if (!file)
 		return NULL;
 
-	handle = kobject_create(NULL, KOBJ_TYPE_PORT,
-			FILE_RIGHT, FILE_REQ_RIGHT, PAGE_SIZE);
+	handle = kobject_create(NULL, KOBJ_TYPE_ENDPOINT,
+			FILE_RIGHT, FILE_REQ_RIGHT, (unsigned long)&args);
 	if (handle < 0) {
 		kfree(file);
 		return NULL;

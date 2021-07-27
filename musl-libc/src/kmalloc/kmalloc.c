@@ -56,7 +56,7 @@ static void inline add_slab_to_slab_pool(struct slab_header *header,
 		struct slab_pool *pool);
 
 static volatile int lock[1];
-volatile int *const __bump_lockptr = lock;
+volatile int *const __kmalloc_lockptr = lock;
 
 static struct slab_pool slab_pool[] = {
 	{16, 	NULL, 0},

@@ -6,6 +6,8 @@
 enum {
 	PROTO_IAM_OK = 0,
 	PROTO_MMAP,
+	PROTO_MUNMAP,
+	PROTO_MPROTECT,
 	PROTO_EXECV,
 	PROTO_OPEN,
 	PROTO_READ,
@@ -15,6 +17,12 @@ enum {
 	PROTO_MAX,
 };
 
+struct proto_mprotect {
+	void *addr;
+	size_t len;
+	int prot;
+};
+
 struct proto_mmap {
 	void *addr;
 	size_t len;
@@ -22,6 +30,11 @@ struct proto_mmap {
 	int flags;
 	int fd;
 	off_t offset;
+};
+
+struct proto_munmap {
+	void *start;
+	size_t len;
 };
 
 struct proto_open {
@@ -62,6 +75,8 @@ struct proto {
 	int padding;
 	union {
 		struct proto_mmap mmap;
+		struct proto_mprotect mprotect;
+		struct proto_munmap munmap;
 		struct proto_open open;
 		struct proto_read read;
 		struct proto_write write;

@@ -70,7 +70,7 @@ FILE *fopen(const char *restrict filename, const char *restrict mode)
 	f = __fdopen(fd, mode);
 	if (f) return f;
 
-	__syscall(SYS_close, fd);
+	kobject_close(fd);
 	return 0;
 }
 

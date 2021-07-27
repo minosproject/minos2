@@ -41,7 +41,8 @@ SRC_S = $(sort $(wildcard $(BASE_S)))
 OBJS	:= $(SRC_C:%.c=%.o)
 OBJS	+= $(SRC_S:%.S=%.o)
 
-OBJS_D 	= $(SRC_C:%.c=%.d)
+OBJS_D 	:= $(SRC_C:%.c=%.d)
+OBJS_D 	+= $(SRC_S:%.S=%.d)
 
 $(TARGET) : $(OBJS)
 	$(PROGRESS)
@@ -64,4 +65,4 @@ clean:
 distclean: clean
 	rm -rf cscope.in.out cscope.out cscope.po.out tags
 
--include src/*.d
+-include $(OBJS_D)

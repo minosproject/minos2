@@ -36,6 +36,7 @@ src_c	+= src/ramdisk.c
 src_c	+= src/bootarg.c
 src_c	+= src/of.c
 src_c	+= src/elf_ramdisk.c
+src_c	+= src/elf_std.c
 src_c	+= src/vma.c
 src_c	+= src/process.c
 src_c	+= src/resource.c

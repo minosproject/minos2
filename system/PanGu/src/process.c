@@ -432,7 +432,11 @@ static char *file_path_to_proc_name(char *path)
 static int load_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
-//	FILE *file = fopen();
+	FILE *file = fopen(path, "r");
+
+	if (!file)
+		return -ENOENT;
+
 	return 0;
 }
 

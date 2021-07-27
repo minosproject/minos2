@@ -43,9 +43,9 @@ struct poll_event *alloc_poll_event(void)
 	return &p->event;
 }
 
-int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk)
+int __poll_event_send_static(struct kobject *poller, struct poll_event_kernel *evk)
 {
-	struct poll_hub *peh = to_poll_hub(ps->poller);
+	struct poll_hub *peh = to_poll_hub(poller);
 	struct task *task;
 	unsigned long flags;
 
@@ -64,6 +64,11 @@ int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk
 	spin_unlock_irqrestore(&peh->lock, flags);
 
 	return 0;
+}
+
+int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk)
+{
+	return __poll_event_send_static(ps->poller, evk);
 }
 
 int poll_event_send_with_data(struct poll_struct *ps, int event, int type,

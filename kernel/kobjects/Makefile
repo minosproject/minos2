@@ -5,3 +5,5 @@ obj-y	+= pma.o
 obj-y	+= thread.o
 obj-y	+= irq.o
 obj-y	+= poll.o
+obj-y	+= kobject_copy.o
+obj-y	+= notify.o

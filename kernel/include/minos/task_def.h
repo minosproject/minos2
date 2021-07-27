@@ -67,6 +67,7 @@
 #define TASK_EVENT_FUTEX	0x800
 #define TASK_EVENT_IRQ		0x1000
 #define TASK_EVENT_ROOT_SERVICE 0x2000
+#define TASK_EVENT_PORT		0x4000
 
 #define TASK_STAT_PEND_OK       0u  /* Pending status OK, not pending, or pending complete */
 #define TASK_STAT_PEND_TO       1u  /* Pending timed out */
@@ -176,10 +177,5 @@ struct task {
 } __cache_line_align;
 
 #define OS_TASK_RESERVED	((struct task *)1)
-
-static inline unsigned long *task_syscall_regs(struct task *task)
-{
-	return (unsigned long *)&task->user_gp_regs->x0;
-}
 
 #endif

@@ -23,6 +23,8 @@
 #include <minos/poll.h>
 #include <minos/task.h>
 
+#include "kobject_copy.h"
+
 enum {
 	KOBJ_PROCESS_GET_PID = 0x100,
 	KOBJ_PROCESS_SETUP_SP,
@@ -38,18 +40,6 @@ struct process_create_arg {
 	int prio;
 	unsigned long flags;
 };
-
-struct process_proto {
-	unsigned long handle;
-	void *data;
-	long data_size;
-	void *extra;
-	long extra_size;
-	unsigned long timeout;
-};
-
-#define PROCESS_PROTO(task)	\
-	(struct process_proto *)task_syscall_regs(task)
 
 static long process_send(struct kobject *kobj,
 		void __user *data, size_t data_size,
@@ -82,7 +72,6 @@ static long process_recv(struct kobject *kobj, void __user *data,
 	struct process *proc = (struct process *)kobj->data;
 	struct kobject *thread = NULL;
 	struct task *task;
-	struct process_proto *proto;
 	int ret = 0;
 
 	spin_lock(&proc->request_lock);
@@ -101,32 +90,11 @@ out:
 		return ret;
 
 	task = (struct task *)thread->data;
-	proto = PROCESS_PROTO(task);
-	if ((proto->data_size != data_size) ||
-			(proto->extra_size > extra_size)) {
-		wake_up(task, -EINVAL);
+	ret = kobject_copy_ipc_payload(current, task,
+			actual_data, actual_extra, 1, 0);
+	if (ret < 0)
 		return -EAGAIN;
-	}
 
-	ret = copy_user_to_user(&current_proc->vspace, data,
-			&task->proc->vspace, proto->data, data_size);
-	if (ret <= 0) {
-		wake_up(task, -EFAULT);
-		return -EAGAIN;
-	}
-
-	*actual_data = proto->data_size;
-	if (proto->extra == NULL || proto->extra_size == 0)
-		return 0;
-
-	ret = copy_user_to_user(&current_proc->vspace, extra,
-			&task->proc->vspace, proto->extra, extra_size);
-	if (ret <= 0) {
-		wake_up(task, -EFAULT);
-		return -EAGAIN;
-	}
-
-	*actual_extra = proto->extra_size;
 	proc->request_current = task;
 
 	return 0;

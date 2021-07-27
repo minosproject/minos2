@@ -20,14 +20,6 @@
 #include <minos/mm.h>
 #include <minos/vspace.h>
 
-struct thread_create_arg {
-	unsigned long func;
-	void *user_sp;
-	int prio;
-	int aff;
-	unsigned long flags;
-};
-
 static struct kobject *thread_create(char *str, right_t right,
 		right_t right_req, unsigned long data)
 {

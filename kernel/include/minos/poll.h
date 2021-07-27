@@ -59,6 +59,9 @@ static inline int event_is_polled(struct poll_struct *ps, int event)
 	return !!(ps->poll_event & event);
 }
 
+int __poll_event_send_static(struct kobject *poller,
+		struct poll_event_kernel *evk);
+
 int poll_event_send_static(struct poll_struct *ps,
 		struct poll_event_kernel *evk);
 

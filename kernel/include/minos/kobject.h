@@ -28,7 +28,7 @@ enum {
 	KOBJ_TYPE_NONE,
 	KOBJ_TYPE_PROCESS,	// process, can be only created by root service
 	KOBJ_TYPE_THREAD,	// thread, in kernel is a task, can be create by process.
-	KOBJ_TYPE_PORT,		// a port, which is a service hub
+	KOBJ_TYPE_NOTIFY,	// a port, which is a service hub
 	KOBJ_TYPE_PMA,		// physical memory region, usually used to shared with each other.	
 	KOBJ_TYPE_ENDPOINT,	// endpoint, an point to point ipc way
 	KOBJ_TYPE_SOCKET,	// point to point ipc way.
@@ -61,6 +61,30 @@ enum {
 	KOBJ_POLL_OP_ADD,
 	KOBJ_POLL_OP_DEL,
 	KOBJ_POLL_OP_MOD,
+};
+
+/*
+ * for minos thread
+ */
+struct thread_create_arg {
+	unsigned long func;
+	void *user_sp;
+	int prio;
+	int aff;
+	int flags;
+	void *tls;
+	void *pdata;
+};
+
+/*
+ * for endpoint kobject
+ */
+#define EP_MODE_NORMAL 0x0
+#define EP_MODE_MUTIL_WRITER 0x1
+
+struct endpoint_create_arg {
+	int mode;
+	size_t shmem_size;
 };
 
 /*

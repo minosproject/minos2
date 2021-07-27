@@ -21,6 +21,8 @@
 #include <minos/sched.h>
 #include <minos/poll.h>
 
+#include "kobject_copy.h"
+
 #define EP_READER		0
 #define EP_WRITER		1
 #define EP_NULL			2
@@ -29,16 +31,17 @@
 #define EP_STAT_OPENED		1
 
 #define EP_NAME_SIZE		16
-#define EP_RIGHT_MASK		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE | KOBJ_RIGHT_NONBLOCK)
-#define EP_MAX_HANDLES		10
-#define EP_MAX_HANDLES_SIZE	(EP_MAX_HANDLES * sizeof(handle_t))
 
-#define EP_MODE_MUTIL_WRITER	1
+#define EP_RIGHT	\
+	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_POLL | KOBJ_RIGHT_MMAP)
 
 struct endpoint {
 	struct task *recv_task;			// which task is receiveing data from this endpoint.
 	int status[2];				// status for the reader and writer.
 	int mode;
+
+	void *shmem;
+	size_t shmem_size;
 
 	struct kobject kobj;			// kobj for this endpoint.
 	atomic_t connected;
@@ -111,70 +114,11 @@ static int endpoint_close(struct kobject *kobj, right_t right)
 	return 0;
 }
 
-static int endpoint_copy_handles(struct task *task, void __user *udst,
-		void __user *usrc, size_t size)
-{
-	handle_t ksrc[EP_MAX_HANDLES];
-	handle_t kdst[EP_MAX_HANDLES];
-	struct kobject *kobjs[EP_MAX_HANDLES];
-	struct kobject *kobj;
-	right_t right;
-	int ret, i;
-
-	if (size == 0)
-		return 0;
-
-	ret = __copy_from_user(ksrc, &task->proc->vspace, usrc, size);
-	if (ret)
-		return -EFAULT;
-
-	memset(kdst, 0, sizeof(kdst));
-
-	for (i = 0; i < size / sizeof(handle_t); i++) {
-		ret = get_kobject_from_process(task->proc, ksrc[i], &kobj, &right);
-		if (ret)
-			goto out;
-
-		kobjs[i] = kobj;
-
-		/*
-		 * only the shared kobject can be passed to other process
-		 * currently support SVMA (shared virtual memory area).
-		 */
-		if (!(kobj->right & KOBJ_RIGHT_SHARED))
-			goto out;
-
-		kdst[i] = alloc_handle(kobj, right);
-		if (kdst[i] == HANDLE_NULL)
-			goto out;
-	}
-
-	/*
-	 * all done, copy the handles to the target process.
-	 */
-	ret = copy_to_user(udst, kdst, size);
-	if (ret)
-		goto out;
-
-	return 0;
-out:
-	for (i = 0; i < size; i++) {
-		if (kobjs[i] != NULL)
-			kobject_put(kobjs[i]);
-		if (kdst[i] == 0)
-			break;
-		release_handle(kdst[i]);
-	}
-
-	return -EMFILE;
-}
-
 static long endpoint_recv(struct kobject *kobj, void __user *data,
 		size_t data_size, size_t *actual_data, void __user *extra,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
-	struct endpoint_proto *src;
 	struct kobject *pending = NULL;
 	struct task *writer;
 	ssize_t ret = 0;
@@ -243,37 +187,11 @@ static long endpoint_recv(struct kobject *kobj, void __user *data,
 	 * as current pending task and waitting for endpoint_reply
 	 */
 	writer = (struct task *)pending->data;
-	src = task_endpoint_proto(writer);
 	ASSERT(writer->wait_event == (unsigned long)ep);
-
-	/*
-	 * the endpoint size is not correct, or the handle cnt does
-	 * not match, wake up the writer and pass the error code.
-	 */
-	if ((data_size != src->data_size) || (extra_size != src->handle_size) ||
-			(extra_size > EP_MAX_HANDLES_SIZE)) {
-		wake_up(writer, -EINVAL);
-		ret = -EAGAIN;
-		goto out;
-	}
-
-	/*
-	 * copy the data from writer to the reader, then copy the
-	 * handles from writer to the reader.
-	 */
-	ret = copy_user_to_user(&current->proc->vspace, data,
-			&writer->proc->vspace,
-			(void __user *)src->data_addr, data_size);
-	if (ret <= 0) {
+	ret = kobject_copy_ipc_payload(current, writer,
+			actual_data, actual_extra, 1, 0);
+	if (ret < 0) {
 		wake_up(writer, -EFAULT);
-		ret = -EAGAIN;
-		goto out;
-	}
-
-	ret = endpoint_copy_handles(writer, extra,
-			(void *)src->handle_addr, extra_size);
-	if (ret) {
-		wake_up(writer, -EFAULT);	
 		ret = -EFAULT;
 		goto out;
 	}
@@ -399,12 +317,42 @@ static int endpoint_connect(struct kobject *kobj, handle_t handle, right_t right
 	return endpoint_open(kobj, handle, right);
 }
 
+static void *endpoint_mmap(struct kobject *kobj, right_t right)
+{
+	struct endpoint *ep = kobject_to_endpoint(kobj);
+	unsigned long base;
+	int ret;
+
+	ASSERT(ep->shmem != NULL);
+	base = va2sva(ep->shmem);
+
+	ret = map_process_memory(current_proc, base,
+			ep->shmem_size, vtop(ep->shmem), VM_RW | VM_SHARED);
+	if (ret)
+		return (void *)-1;
+
+	return (void *)base;
+}
+
+static int endpoint_munmap(struct kobject *kobj, right_t right)
+{
+	struct endpoint *ep = kobject_to_endpoint(kobj);
+	unsigned long base;
+
+	ASSERT(ep->shmem != NULL);
+	base = va2sva(ep->shmem);
+
+	return unmap_process_memory(current_proc, base, ep->shmem_size);
+}
+
 static struct kobject_ops endpoint_kobject_ops = {
 	.send		= endpoint_send,
 	.recv		= endpoint_recv,
 	.release	= endpoint_release,
 	.connect	= endpoint_connect,
 	.close		= endpoint_close,
+	.mmap		= endpoint_mmap,
+	.munmap		= endpoint_munmap,
 	.reply		= endpoint_reply,
 	.open		= endpoint_open,
 };
@@ -412,23 +360,49 @@ static struct kobject_ops endpoint_kobject_ops = {
 static struct kobject *endpoint_create(char *str, right_t right,
 		right_t right_req, unsigned long data)
 {
+	struct endpoint_create_arg args;
 	struct endpoint *ep;
+	size_t shmem_size;
+	ssize_t ret;
 
-	if ((data != 0) && (data != EP_MODE_MUTIL_WRITER))
-		return ERROR_PTR(EPERM);
+	ret = copy_from_user(&args, (void *)data,
+			sizeof(struct endpoint_create_arg));
+	if (ret <= 0)
+		return ERROR_PTR(-EFAULT);
+
+	if ((right & ~EP_RIGHT) || (right_req & ~EP_RIGHT))
+		return ERROR_PTR(-EPERM);
+
+	if (right_req & ~right)
+		return ERROR_PTR(-EPERM);
+
+	if ((right & KOBJ_RIGHT_MMAP) && (args.shmem_size == 0))
+		return ERROR_PTR(-EPERM);
 
 	/*
 	 * the owner only can have read right or write right
 	 * can not have both right.
 	 */
 	if ((right_req & KOBJ_RIGHT_RW) == KOBJ_RIGHT_RW)
-		return ERROR_PTR(EPERM);
+		return ERROR_PTR(-EPERM);
 
 	ep = zalloc(sizeof(struct endpoint));
 	if (!ep)
-		return ERROR_PTR(ENOMEM);
+		return ERROR_PTR(-ENOMEM);
 
-	right &= EP_RIGHT_MASK;
+	shmem_size = PAGE_BALIGN(args.shmem_size);
+	if (shmem_size > HUGE_PAGE_SIZE) {
+		free(ep);
+		return ERROR_PTR(-E2BIG);
+	}
+
+	ep->shmem = get_free_pages(shmem_size >> PAGE_SHIFT, GFP_USER);
+	if (!ep->shmem) {
+		free(ep);
+		return ERROR_PTR(-ENOMEM);
+	}
+
+	ep->shmem_size = shmem_size;
 	strcpy(ep->name, str);
 	init_list(&ep->pending_list);
 	init_list(&ep->processing_list);

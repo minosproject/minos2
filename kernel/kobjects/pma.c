@@ -21,20 +21,6 @@
 #include <minos/sched.h>
 #include <minos/vspace.h>
 
-enum {
-	PMA_TYPE_NORMAL = 0,
-	PMA_TYPE_MMIO,
-	PMA_TYPE_DMA,
-	PMA_TYPE_MAX
-};
-
-struct pma_create_arg {
-	int cnt;
-	int type;
-	unsigned long start;
-	unsigned long end;
-};
-
 struct pma_mapping_entry {
 	unsigned long base;
 	struct list_head list;

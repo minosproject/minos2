@@ -25,22 +25,6 @@
 
 #include "kobject_copy.h"
 
-enum {
-	KOBJ_PROCESS_GET_PID = 0x100,
-	KOBJ_PROCESS_SETUP_SP,
-	KOBJ_PROCESS_WAKEUP,
-	KOBJ_PROCESS_VA2PA,
-	KOBJ_PROCESS_EXIT,
-};
-
-struct process_create_arg {
-	unsigned long entry;
-	unsigned long stack;
-	int aff;
-	int prio;
-	unsigned long flags;
-};
-
 static long process_send(struct kobject *kobj,
 		void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size,

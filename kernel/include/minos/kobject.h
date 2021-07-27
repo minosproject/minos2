@@ -5,43 +5,7 @@
 #include <minos/compiler.h>
 #include <config/config.h>
 
-#define KOBJ_RIGHT_NONE		0x0000		// do not have any right.
-#define KOBJ_RIGHT_READ		0x0001		// can read this kobject, usually for IPC between two process.
-#define KOBJ_RIGHT_WRITE	0x0002		// can write this kobject, usually for IPC between two process.
-#define KOBJ_RIGHT_EXEC		0x0004		// can be exectued.
-#define KOBJ_RIGHT_SHARED	0x0008		// can be shared, for example PMA
-#define KOBJ_RIGHT_MMAP		0x0010		// can be mmaped to current process's memory space
-#define KOBJ_RIGHT_NONBLOCK	0x0020		// read and write is non-blocked
-#define KOBJ_RIGHT_CTL		0x0040		// can control the releated kobject
-#define KOBJ_RIGHT_HEAP_SELFCTL	0x0080		// the process will allocation memory itself, for system process.
-#define KOBJ_RIGHT_GRANT	0x0100		// this kobject can be changed owner.
-#define KOBJ_RIGHT_POLL		0x0200		// this kobject cab be polled.
-
-#define KOBJ_RIGHT_MASK		0x03ff
-
-#define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
-#define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)
-#define KOBJ_RIGHT_RWX		(KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
-#define KOBJ_RIGHT_ROOT		0xffff		// super right, only root sevice can have it.
-
-enum {
-	KOBJ_TYPE_NONE,
-	KOBJ_TYPE_PROCESS,	// process, can be only created by root service
-	KOBJ_TYPE_THREAD,	// thread, in kernel is a task, can be create by process.
-	KOBJ_TYPE_NOTIFY,	// a port, which is a service hub
-	KOBJ_TYPE_PMA,		// physical memory region, usually used to shared with each other.	
-	KOBJ_TYPE_ENDPOINT,	// endpoint, an point to point ipc way
-	KOBJ_TYPE_SOCKET,	// point to point ipc way.
-	KOBJ_TYPE_VM,		// virtual machine, for Virtualization
-	KOBJ_TYPE_VCPU,		// vcpu for vm
-	KOBJ_TYPE_IRQ,		// irq for user-space driver
-	KOBJ_TYPE_VIRQ,		// virq for vcpu process in user-space.
-	KOBJ_TYPE_STDIO,	// dedicated for system debuging
-	KOBJ_TYPE_POLL_HUB,	// hub for events need to send.
-	KOBJ_TYPE_MAX
-};
-
-#define KOBJ_FLAGS_INVISABLE	(1 << 0)	// kobject can be connected
+#include <minos/kobject_uapi.h>
 
 struct task;
 struct process;
@@ -54,37 +18,6 @@ struct poll_struct {
 	handle_t handle_poller;
 	void *data;
 	spinlock_t lock;
-};
-
-enum {
-	KOBJ_POLL_HUB_OP_BASE = 0x2000,
-	KOBJ_POLL_OP_ADD,
-	KOBJ_POLL_OP_DEL,
-	KOBJ_POLL_OP_MOD,
-};
-
-/*
- * for minos thread
- */
-struct thread_create_arg {
-	unsigned long func;
-	void *user_sp;
-	int prio;
-	int aff;
-	int flags;
-	void *tls;
-	void *pdata;
-};
-
-/*
- * for endpoint kobject
- */
-#define EP_MODE_NORMAL 0x0
-#define EP_MODE_MUTIL_WRITER 0x1
-
-struct endpoint_create_arg {
-	int mode;
-	size_t shmem_size;
 };
 
 /*
@@ -114,6 +47,8 @@ struct kobject {
 	};
 	const char *name;
 };
+
+#define KOBJ_FLAGS_INVISABLE	(1 << 0)	// kobject can be connected
 
 #define KOBJ_PLACEHOLDER	(struct kobject *)(-1)
 

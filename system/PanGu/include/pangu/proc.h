@@ -36,6 +36,12 @@ struct process {
 
 };
 
+struct epoll_event;
+struct process_proto;
+
+typedef long (*proc_event_handle_t)(struct process *proc,
+		struct process_proto *proto, void *data, size_t size);
+
 extern struct process *self;
 
 void self_init(unsigned long vma_base, unsigned long vma_end);
@@ -44,7 +50,9 @@ void *map_self_memory(int pma_handle, size_t size, int perm);
 
 int unmap_self_memory(void *base);
 
-void wakeup_all_process(void);
+void wakeup_and_listen_all_process(void);
+
+long handle_process_request(struct epoll_event *event);
 
 int load_ramdisk_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata);

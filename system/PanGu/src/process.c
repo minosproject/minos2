@@ -8,11 +8,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/mman.h>
+#include <sys/epoll.h>
+
 #include <minos/kobject.h>
 #include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/list.h>
 #include <minos/kmalloc.h>
+#include <minos/proto.h>
 
 #include <pangu/vma.h>
 #include <pangu/proc.h>
@@ -24,16 +28,7 @@ static struct process proc_self;
 struct process *self = &proc_self;
 static LIST_HEAD(process_list);
 
-struct process_proto {
-	int req;
-	union {
-		char path[FILENAME_MAX]; // libc is 4096, will change to 256
-	};
-};
-
-#define PROC_REQ_NONE		0x000
-#define PROC_REQ_CREATE_PROCESS	0x100
-#define PROC_REQ_GET_INFO	0x101
+int proc_epfd;
 
 int unmap_self_memory(void *base)
 {
@@ -54,7 +49,7 @@ int unmap_self_memory(void *base)
 		return -EINVAL;
 	}
 
-	ret = unmap(self->proc_handle, vma->pma_handle,
+	ret = sys_unmap(self->proc_handle, vma->pma_handle,
 			vma->start, vma->end - vma->start);
 	if (ret)
 		return ret;
@@ -83,7 +78,7 @@ void *map_self_memory(int pma_handle, size_t size, int perm)
 	 * map can only be called by root service, to control
 	 * the mapping of a process.
 	 */
-	ret = map(self->proc_handle, pma_handle, vma->start, size, perm);
+	ret = sys_map(self->proc_handle, pma_handle, vma->start, size, perm);
 	if (ret) {
 		release_vma(self, vma);
 		return NULL;
@@ -434,6 +429,13 @@ static char *file_path_to_proc_name(char *path)
 	return path;
 }
 
+static int load_process(char *path, int argc, char **argv,
+		unsigned long flags, void *pdata)
+{
+//	FILE *file = fopen();
+	return 0;
+}
+
 int load_ramdisk_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
@@ -477,13 +479,30 @@ int load_ramdisk_process(char *path, int argc, char **argv,
 	return 0;
 }
 
-void wakeup_all_process(void)
+void wakeup_and_listen_all_process(void)
 {
 	struct process *proc;
+	struct epoll_event event;
+
+	proc_epfd = epoll_create(10);
+	if (proc_epfd < 0) {
+		pr_err("can not create epoll fd\n");
+		exit(-ENOENT);
+	}
 
 	list_for_each_entry(proc, &process_list, list) {
 		if (proc->pid == 0)
 			continue;
+
+		event.events = EPOLLIN;
+		event.data.ptr = proc;
+
+		if (epoll_ctl(proc_epfd, EPOLL_CTL_ADD, proc->proc_handle, &event))
+			pr_err("epoll process %d fail\n", proc->pid);
+
+		/*
+		 * wakeup the process now
+		 */
 		kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 	}
 }
@@ -509,16 +528,196 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 	list_add(&self->vma_free, &vma->list);
 }
 
-int handle_process_request(struct process_proto *proto)
+struct process *get_process_by_handle(int handle)
 {
-	switch (proto->req) {
-	case PROC_REQ_CREATE_PROCESS:
-		break;
-	case PROC_REQ_GET_INFO:
-		break;
+	struct process *proc = NULL;
+
+	list_for_each_entry(proc, &process_list, list) {
+		if (proc->proc_handle == handle)
+			return proc;
+	}
+
+	return NULL;
+}
+
+static long handle_process_page_fault(struct process *proc,
+		uint64_t virt_addr, uint64_t access_type)
+{
+	unsigned long start = PAGE_ALIGN(virt_addr);
+	struct vma *vma;
+
+	vma = find_vma(proc, start);
+	if (!vma || !vma->anon)
+		goto out;
+
+	if (start + PAGE_SIZE >= vma->end)
+		goto out;
+
+	if (sys_map(proc->proc_handle, -1, start, PAGE_SIZE, KOBJ_RIGHT_RWX)) {
+		pr_err("map memory for process %d failed\n", proc->pid);
+		goto out;
+	}
+
+	kobject_reply_simple(proc->proc_handle, 0);
+
+	return 0;
+
+out:
+	/*
+	 * kill this process, TBD
+	 */
+	pr_err("process %d access invalid address");
+	return -EFAULT;
+}
+
+static long handle_process_exit(struct process *proc, uint64_t data0)
+{
+	return 0;
+}
+
+static inline int execv_argv_is_ok(char *argv, int size)
+{
+	return 1;
+}
+
+static long process_execv_handler(struct process *proc,
+		struct proto *proto, void *data, size_t size)
+{
+	struct execv_extra *extra = data;
+	char **argv = extra->argv;
+	unsigned long limit;
+	char *string;
+	int i;
+
+	if (size < sizeof(struct execv_extra))
+		return -EINVAL;
+
+	limit = PAGE_SIZE - sizeof(struct execv_extra);
+	string = extra->buf;
+	extra->path[FILENAME_MAX - 1] = 0;
+
+	for (i = 0; i < extra->argc; i++) {
+		if ((unsigned long)argv[i] >= limit)
+			goto out;
+
+		if (!execv_argv_is_ok(string + (unsigned long)argv[i],
+					limit - (unsigned long)argv[i]))
+			goto out;
+
+		argv[i] = string + (unsigned long)argv[i];
+	}
+
+	return load_process(extra->path, extra->argc, extra->argv, 0, NULL);
+
+out:
+	return -EINVAL;
+}
+
+static long process_mmap_handler(struct process *proc,
+		struct proto *proto, void *data, size_t size)
+{
+	size_t len = proto->mmap.len;
+	int prot = proto->mmap.prot;
+	struct vma *vma;
+	int perm = 0;
+	void *addr = (void *)-1;
+
+	if ((proto->mmap.addr != NULL) || (proto->mmap.fd != -1)) {
+		pr_err("only support map anon mapping for process\n");
+		goto out;
+	}
+
+	if (prot & PROT_EXEC)
+		perm |= KOBJ_RIGHT_EXEC;
+	if (prot & PROT_WRITE)
+		perm |= KOBJ_RIGHT_WRITE;
+	if (prot & PROT_READ)
+		perm |= KOBJ_RIGHT_READ;
+
+	if (perm == KOBJ_RIGHT_NONE)
+		pr_warn("request memory with no right\n");
+
+	len = BALIGN(len, PAGE_SIZE);
+	vma = request_vma(proc, 0, len, perm, 1);
+	if (vma)
+		addr = (void *)vma->start;
+
+out:
+	return (long)addr;
+}
+
+static long process_iamok_handler(struct process *proc,
+		struct proto *proto, void *data, size_t size)
+{
+	return 0;
+}
+
+static long handle_process_kernel_request(struct process *proc,
+		struct epoll_event *event)
+{
+	switch (event->data.type) {
+	case EPOLLIN_PAGE_FAULT:
+		return handle_process_page_fault(proc, event->data.data0,
+				event->data.data1);
+	case EPOLLIN_EXIT:
+		return handle_process_exit(proc, event->data.data0);
 	default:
+		pr_err("unknown request from kernel %d\n", event->data.type);
 		break;
 	}
 
 	return 0;
+}
+
+static long handle_process_write_request(struct process *proc,
+		struct epoll_event *event)
+{
+	struct proto proto;
+	static void *data = NULL;
+	size_t dsize, esize;
+	long ret;
+
+	if (data == NULL) {
+		data = get_pages(1);
+		if (data == NULL)
+			exit(-ENOMEM);
+	}
+
+	proto.token = kobject_read(proc->proc_handle, &proto,
+			sizeof(struct proto), &dsize, data,
+			PAGE_SIZE, &esize, 0);
+	if (proto.token < 0)
+		return proto.token;
+
+	switch (proto.proto_id) {
+	case PROTO_MMAP:
+		ret = process_mmap_handler(proc, &proto, data, esize);
+		break;
+	case PROTO_EXECV:
+		ret = process_execv_handler(proc, &proto, data, esize);
+		break;
+	case PROTO_IAM_OK:
+		ret = process_iamok_handler(proc, &proto, data, esize);
+		break;
+	default:
+		ret = -EPROTONOSUPPORT;
+		break;
+	}
+
+	return ret;
+}
+
+long handle_process_request(struct epoll_event *event)
+{
+	struct process *proc = event->data.ptr;
+
+	if (!proc) {
+		pr_err("can not find process\n");
+		return -ENOENT;
+	}
+
+	if (event->data.type == EPOLLIN_WRITE)
+		return handle_process_write_request(proc, event);
+	else
+		return handle_process_kernel_request(proc, event);
 }

@@ -8,8 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/epoll.h>
+
 #include <minos/debug.h>
 #include <minos/kmalloc.h>
+#include <minos/kobject.h>
 
 #include <uapi/bootdata.h>
 
@@ -17,6 +20,8 @@
 #include <pangu/bootarg.h>
 
 static struct bootdata *bootdata;
+extern int proc_epfd;
+
 extern void ramdisk_init(unsigned long base, unsigned long end);
 extern void of_init(unsigned long base, unsigned long end);
 
@@ -55,13 +60,28 @@ static void dump_boot_info(void)
                        bootdata->heap_start, bootdata->heap_end);
 }
 
-static int pangu_loop(void)
+static void pangu_loop(void)
 {
-	while (1) {
+#define MAX_POLL_EVENT	10
+	struct epoll_event events[MAX_POLL_EVENT];
+	struct epoll_event *event;
+	long ret;
+	int i;
 
+	while (1) {
+		ret = epoll_wait(proc_epfd, events, MAX_POLL_EVENT, -1);
+		if (ret <= 0 || ret > MAX_POLL_EVENT) {
+			pr_err("failed wait for event try again %d?\n", ret);
+			continue;
+		}
+
+		for (i = 0; i < ret; i++) {
+			event = &events[i];
+			handle_process_request(event);
+		}
 	}
 
-	return 0;
+	exit(-1);
 }
 
 static int load_rootfs_driver(void)
@@ -152,7 +172,9 @@ int main(int argc, char **argv)
 	 * every thing is down, wakeup all the process created
 	 * by PanGu.
 	 */
-	wakeup_all_process();
+	wakeup_and_listen_all_process();
 
-	return  pangu_loop();
+	pangu_loop();
+
+	return -1;
 }

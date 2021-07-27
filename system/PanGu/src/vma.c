@@ -181,7 +181,7 @@ struct vma *request_vma(struct process *proc, unsigned long base,
 		return NULL;
 	}
 
-	ret = map(proc->proc_handle, vma->pma_handle, base, size, perm);
+	ret = sys_map(proc->proc_handle, vma->pma_handle, base, size, perm);
 	if (ret) {
 		kobject_close(vma->pma_handle);
 		release_vma(proc, vma);

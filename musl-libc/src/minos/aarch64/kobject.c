@@ -38,8 +38,11 @@ long kobject_read(int handle, void *data, size_t data_size,
 			SYS_kobject_send, &res);
 
 	ret = (long)res.a0;
-	*actual_data = (size_t)res.a1;
-	*actual_extra = (size_t)res.a2;
+
+	if (actual_data)
+		*actual_data = (size_t)res.a1;
+	if (actual_extra)
+		*actual_extra = (size_t)res.a2;
 
 	return ret;
 }

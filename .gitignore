@@ -7,6 +7,9 @@ linkmap.txt
 include/config/config.h
 ramdisk.sh
 ramdisk2.sh
+fat32.sh
+*.srv
+*.drv
 .*
 *.bin
 *.o
@@ -28,6 +31,7 @@ ramdisk2.sh
 *.bz2
 *.lzma
 *.xz
+*.d
 *.lz4
 *.lzo
 *.patch

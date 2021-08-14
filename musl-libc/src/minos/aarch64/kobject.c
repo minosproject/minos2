@@ -4,21 +4,14 @@
 #include "stdio_impl.h"
 #include "aarch64_svc.h"
 
-int kobject_connect(char *path, int right)
-{
-	return syscall(SYS_kobject_connect, path, right);
-}
-
 int kobject_close(int handle)
 {
 	return syscall(SYS_kobject_open, handle);
 }
 
-int kobject_create(char *name, int type, int right,
-		int right_req, unsigned long data)
+int kobject_create(int type, int right, int right_req, unsigned long data)
 {
-	return syscall(SYS_kobject_create, name, type,
-			right, right_req, data);
+	return syscall(SYS_kobject_create, type, right, right_req, data);
 }
 
 /*
@@ -64,9 +57,9 @@ int kobject_reply(int handle, long token, long err_code, int fd, int right)
 	return syscall(SYS_kobject_reply, token, err_code, fd, right);
 }
 
-int kobject_reply_simple(int handle, long err_code)
+int kobject_reply_errcode(int handle, long token, long err_code)
 {
-	return kobject_reply(handle, 0, err_code, -1, 0);
+	return kobject_reply(handle, token, err_code, -1, 0);
 }
 
 void *kobject_mmap(int handle)

@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <ctype.h>
 
+#include "libc.h"
+
 #include <minos/kobject.h>
 #include <minos/proto.h>
 
@@ -19,27 +21,18 @@ int __sys_open(const char *restrict filename, int flags, int mode)
 	char path[2];
 	struct proto proto;
 
-	if ((len >= FILENAME_MAX) || isalpha(filename[0]) ||
-			(filename[1] != ':') || (filename[2] != '/'))
+	if ((len >= FILENAME_MAX) || (filename[0] != '/'))
 		return -EINVAL;
 
-	/*
-	 * connect to the target service using kobject connect
-	 * then the process can write data to the target server.
-	 */
-	path[0] = filename[0];
-	path[1] = 0;
-	handle = kobject_connect(path, KOBJ_RIGHT_WRITE);
-	if (handle < 0)
-		return handle;
+	if (libc.rootfs_handle <= 0)
+		return -ENOENT;
 
 	proto.proto_id = PROTO_OPEN;
 	proto.open.flags = flags;
 	proto.open.mode = mode;
 
-	fd = kobject_write(handle, &proto, sizeof(struct proto),
-			(char *)filename, len + 1, -1);
-	kobject_close(handle);
+	fd = kobject_write(libc.rootfs_handle, &proto, sizeof(struct proto),
+			(char *)filename, len, -1);
 
 	return fd;
 }

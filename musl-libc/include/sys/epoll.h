@@ -18,17 +18,7 @@ extern "C" {
 
 enum EPOLL_EVENTS { __EPOLL_DUMMY };
 #define EPOLLIN 0x001
-#define EPOLLPRI 0x002
-#define EPOLLOUT 0x004
-#define EPOLLRDNORM 0x040
-#define EPOLLNVAL 0x020
-#define EPOLLRDBAND 0x080
-#define EPOLLWRNORM 0x100
-#define EPOLLWRBAND 0x200
-#define EPOLLMSG 0x400
-#define EPOLLERR 0x008
-#define EPOLLHUP 0x010
-#define EPOLLRDHUP 0x2000
+#define EPOLLOUT 0x002
 #define EPOLLEXCLUSIVE (1U<<28)
 #define EPOLLWAKEUP (1U<<29)
 #define EPOLLONESHOT (1U<<30)
@@ -43,9 +33,13 @@ enum EPOLL_EVENTS { __EPOLL_DUMMY };
 #define EPOLLIN_PAGE_FAULT 0x2	// page fault
 #define EPOLLIN_EXIT 0x3
 #define EPOLLIN_IRQ 0x4
+#define POLLIN_KOBJ_CLOSE 0x5
 
 typedef struct epoll_data {
-	void *ptr;
+	union {
+		void *ptr;
+		unsigned long pdata;
+	};
 	int fd;
 	int type;
 	uint64_t data0;

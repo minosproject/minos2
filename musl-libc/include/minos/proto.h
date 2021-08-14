@@ -2,9 +2,10 @@
 #define __MINOS_PROTO_H__
 
 #include <stdio.h>
+#include <stdint.h>
 
 enum {
-	PROTO_IAM_OK = 0,
+	PROTO_IAMOK = 0,
 	PROTO_MMAP,
 	PROTO_MUNMAP,
 	PROTO_MPROTECT,
@@ -14,6 +15,9 @@ enum {
 	PROTO_WRITE,
 	PROTO_IOCTL,
 	PROTO_LSEEK,
+	PROTO_GETDENT,
+	PROTO_MOUNT,
+	PROTO_UNMOUNT,
 	PROTO_MAX,
 };
 
@@ -57,8 +61,16 @@ struct proto_lseek {
 	int whence;
 };
 
-struct open_extra {
-	char path[FILENAME_MAX];
+struct proto_mount {
+	int source_off;
+	int target_off;
+	int flags;
+};
+
+struct proto_unmount {
+	int source_off;
+	int target_off;
+	int flags;
 };
 
 struct execv_extra {
@@ -81,7 +93,30 @@ struct proto {
 		struct proto_read read;
 		struct proto_write write;
 		struct proto_lseek lseek;
+		struct proto_mount mount;
+		struct proto_unmount unmount;
 	};
 };
+
+struct proc_info {
+	int pid;
+	char name[PROCESSNAME_MAX];
+};
+
+struct service_info {
+	int right;
+	int type;
+	char name[SERVICENAME_MAX];
+};
+
+#define PROTO_SIZE sizeof(struct proto)
+
+int kobject_read_proto_with_string(int handle, struct proto *proto,
+		char *extra, size_t size, uint32_t timeout);
+
+int kobject_read_proto(int handle, struct proto *proto,
+		char *extra, size_t size, uint32_t timeout);
+
+void i_am_ok(void);
 
 #endif

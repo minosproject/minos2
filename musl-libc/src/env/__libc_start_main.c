@@ -38,6 +38,8 @@ void __init_libc(char **envp, char *pn)
 			(libc.heap_end > libc.heap_start))
 		libc.use_kmalloc = 1;
 
+	libc.rootfs_handle = aux[AT_ROOTFS_HANDLE];
+
 	if (!pn) pn = (void*)aux[AT_EXECFN];
 	if (!pn) pn = "";
 	__progname = __progname_full = pn;

@@ -132,3 +132,6 @@
 #define ENOTRECOVERABLE 131
 #define ERFKILL         132
 #define EHWPOISON       133
+
+#define EABORT		134
+#define EOTHERSIDECLOSED 135	/* the otherside of this kobject is closed */

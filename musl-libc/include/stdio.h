@@ -47,6 +47,9 @@ extern "C" {
 
 #define BUFSIZ 4096
 #define FILENAME_MAX 256
+#define SERVICENAME_MAX 32
+#define SERVICETYPE_MAX 16
+#define PROCESSNAME_MAX 64
 #define FOPEN_MAX 1000
 #define TMP_MAX 10000
 #define L_tmpnam 20

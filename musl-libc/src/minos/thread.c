@@ -7,6 +7,7 @@
 int create_thread(int (*fn)(void *), void *stack, int prio, int aff,
 		int flags, void *tls, void *pdata)
 {
+#if 0
 	struct thread_create_arg args;
 	int handle;
 
@@ -28,5 +29,7 @@ int create_thread(int (*fn)(void *), void *stack, int prio, int aff,
 	kobject_ctl(handle, KOBJ_THREAD_OP_WAKEUP, 0);
 
 	return handle;
+#endif
+	return 0;
 }
 

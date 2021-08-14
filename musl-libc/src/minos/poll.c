@@ -28,7 +28,7 @@ int epoll_wait(int epfd, struct epoll_event *events,
 	else if (size == 0)
 		return -EAGAIN;
 
-	return (size / sizeof(struct epoll_event));
+	return (d / sizeof(struct epoll_event));
 }
 
 int epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
@@ -51,7 +51,7 @@ int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
 int epoll_create(int size)
 {
-	return kobject_create(NULL, KOBJ_TYPE_POLL_HUB,
+	return kobject_create(KOBJ_TYPE_POLL_HUB,
 			KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL,
 			KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL, 0);
 }

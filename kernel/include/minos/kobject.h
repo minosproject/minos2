@@ -12,11 +12,14 @@ struct process;
 struct ipc_msg;
 struct kobject_ops;
 
-struct poll_struct {
-	unsigned long poll_event;
+struct poll_event_info {
 	struct kobject *poller;
-	handle_t handle_poller;
-	void *data;
+	unsigned long data;
+};
+
+struct poll_struct {
+	int poll_event;
+	struct poll_event_info infos[2];	// only support POLLIN and POLLOUT.
 	spinlock_t lock;
 };
 
@@ -28,27 +31,17 @@ struct poll_struct {
  * ref  : reference count of this kernel object, when
  *        0 can be released.
  * rights : the original rights of this kernel object.
- * owner : the process who create this kobject.
  * list : list all the kernel object for a task or global.
  */
 struct kobject {
 	int type;
-	int flags;
 	right_t right;
-	pid_t owner;
 	atomic_t ref;
 	struct poll_struct poll_struct;
 	struct kobject_ops *ops;
 	unsigned long data;
 	struct list_head list;
-	union {
-		struct list_head child;
-		struct list_head parent;
-	};
-	const char *name;
 };
-
-#define KOBJ_FLAGS_INVISABLE	(1 << 0)	// kobject can be connected
 
 #define KOBJ_PLACEHOLDER	(struct kobject *)(-1)
 
@@ -66,9 +59,7 @@ struct kobject_ops {
 
 	int (*open)(struct kobject *kobj, handle_t handle, right_t right);
 
-	int (*poll)(struct kobject *ksrc, int event, int enable);
-
-	int (*connect)(struct kobject *kobj, handle_t handle, right_t right);
+	int (*poll)(struct kobject *ksrc, struct kobject *kdst, int event, bool enable);
 
 	int (*close)(struct kobject *kobj, right_t right);
 
@@ -82,8 +73,8 @@ struct kobject_ops {
 	long (*ctl)(struct kobject *kobj, int req, unsigned long data);
 };
 
-typedef struct kobject *(*kobject_create_cb)(char __user *name,
-		right_t right, right_t right_req, unsigned long data);
+typedef struct kobject *(*kobject_create_cb)( right_t right,
+		right_t right_req, unsigned long data);
 
 struct kobject_desc {
 	char *name;
@@ -104,21 +95,16 @@ int kobject_get(struct kobject *kobj);
 
 int kobject_put(struct kobject *kobj);
 
-void kobject_add(struct kobject *kobj);
-
-void kobject_delete(struct kobject *kobj);
-
-void kobject_init(struct kobject *kobj, pid_t owner, int type,
-		int flags, right_t right, unsigned long data);
+void kobject_init(struct kobject *kobj, int type,
+		right_t right, unsigned long data);
 
 int kobject_close(struct kobject *kobj, right_t right);
 
-int kobject_connect(char *name, right_t right);
-
-struct kobject *kobject_create(char *name, int type, right_t right,
+struct kobject *kobject_create(int type, right_t right,
 		right_t right_req, unsigned long data);
 
-int kobject_poll(struct kobject *ksrc, int event, int enable);
+int kobject_poll(struct kobject *ksrc,
+		struct kobject *dst, int event, int enable);
 
 long kobject_recv(struct kobject *kobj, void __user *data,
 		size_t data_size, size_t *actual_data,
@@ -139,14 +125,9 @@ void *kobject_mmap(struct kobject *kobj, right_t right);
 long kobject_ctl(struct kobject *kobj, right_t right,
 		int req, unsigned long data);
 
-int get_kobject_from_namespace(char *name, struct kobject **kobj, char **path);
-
-struct kobject *get_kobject_by_name(struct kobject *root, const char *name);
-
-void register_namespace(struct process *proc);
-
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right);
 
 handle_t kobject_send_handle(struct process *psrc, struct process *pdst,
 		handle_t handle, right_t right_send);
+
 #endif

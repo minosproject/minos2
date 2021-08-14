@@ -33,13 +33,6 @@ static void aarch64_syscall_unsupport(gp_regs *regs)
 	regs->x0 = -ENOENT;
 }
 
-static void __sys_kobject_connect(gp_regs *regs)
-{
-	regs->x0 = sys_kobject_connect(
-			(char __user *)regs->x0,
-			(right_t)regs->x1);
-}
-
 static void __sys_kobject_close(gp_regs *regs)
 {
 	regs->x0 = sys_kobject_close((handle_t)regs->x0);
@@ -48,11 +41,10 @@ static void __sys_kobject_close(gp_regs *regs)
 static void __sys_kobject_create(gp_regs *regs)
 {
 	regs->x0 = sys_kobject_create(
-			(char __user *)regs->x0,
+			(int)regs->x0,
 			(int)regs->x1,
-			(int)regs->x2,
-			(unsigned long)regs->x3,
-			(unsigned long)regs->x4);
+			(unsigned long)regs->x2,
+			(unsigned long)regs->x3);
 }
 
 static void __sys_kobject_recv(gp_regs *regs)
@@ -162,7 +154,6 @@ static syscall_handler_t __syscall_table[] = {
 	[__NR_kobject_reply]		= __sys_kobject_reply,
 	[__NR_kobject_send]		= __sys_kobject_send,
 	[__NR_kobject_recv]		= __sys_kobject_recv,
-	[__NR_kobject_connect]		= __sys_kobject_connect,
 	[__NR_kobject_close]		= __sys_kobject_close,
 	[__NR_kobject_ctl]		= __sys_kobject_ctl,
 	[__NR_kobject_mmap]		= __sys_kobject_mmap,

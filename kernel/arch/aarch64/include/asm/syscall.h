@@ -7,7 +7,7 @@
 #define __NR_kobject_recv 3
 #define __NR_kobject_send 4
 #define __NR_kobject_reply 5
-#define __NR_kobject_connect 6
+#define __NR_kobject_reply_recv 6
 #define __NR_kobject_ctl 7
 #define __NR_kobject_mmap 8
 #define __NR_kobject_munmap 9

@@ -8,7 +8,6 @@
 #define PROCESS_NAME_SIZE	32
 
 struct task;
-struct service;
 
 struct process {
 	int pid;
@@ -37,17 +36,15 @@ struct process {
 	struct list_head request_list;
 	spinlock_t request_lock;
 	struct task *request_current;
-
-	char name[PROCESS_NAME_SIZE];
 };
 
 #define for_all_task_in_process(proc, task)	\
 	for (task = proc->head; task != NULL; task = task->next)
 
-struct process *create_process(char *name, task_func_t func,
+struct process *create_process(task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt);
 
-struct task *create_task_for_process(struct process *proc, char *name,
+struct task *create_task_for_process(struct process *proc,
 		unsigned long func, void *usp, int prio,
 		int aff, unsigned long flags);
 

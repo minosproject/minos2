@@ -43,11 +43,16 @@ struct poll_event *alloc_poll_event(void)
 	return &p->event;
 }
 
-int __poll_event_send_static(struct kobject *poller, struct poll_event_kernel *evk)
+int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk)
 {
-	struct poll_hub *peh = to_poll_hub(poller);
+	struct poll_hub *peh;
 	struct task *task;
 	unsigned long flags;
+
+	if (evk->event.events & POLLIN)
+		peh = to_poll_hub(ps->infos[0].poller);
+	else
+		peh = to_poll_hub(ps->infos[1].poller);
 
 	spin_lock_irqsave(&peh->lock, flags);
 
@@ -66,25 +71,24 @@ int __poll_event_send_static(struct kobject *poller, struct poll_event_kernel *e
 	return 0;
 }
 
-int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk)
-{
-	return __poll_event_send_static(ps->poller, evk);
-}
-
 int poll_event_send_with_data(struct poll_struct *ps, int event, int type,
 		uint64_t data0, uint64_t data1, uint64_t data2)
 {
 	struct poll_event_kernel *p;
 	struct poll_event *pe;
+	struct poll_event_info *info;
 
+	if ((event & POLL_EVENT_MASK) == 0)
+		return -EINVAL;
+
+	info = (event == POLLIN ? &ps->infos[0] : &ps->infos[1]);
 	p = (struct poll_event_kernel *)alloc_poll_event();
 	if (!p)
 		return -ENOMEM;
 
 	pe = &p->event;
 	pe->events = event;
-	pe->data.ptr = ps->data;
-	pe->data.fd = ps->handle_poller;
+	pe->data.pdata = info->data;
 	pe->data.type = type;
 	pe->data.data0 = data0;
 	pe->data.data0 = data1;
@@ -129,10 +133,10 @@ static int __poll_hub_read(struct poll_hub *peh,
 		struct poll_event __user *events,
 		int max_event, uint32_t timeout)
 {
+	struct poll_event_kernel *pevent, *tmp;
 	unsigned long flags;
 	LIST_HEAD(event_list);
 	int ret = 0, cnt = 0;
-	struct poll_event_kernel *pevent, *tmp;
 
 	if (max_event <= 0)
 		return -EINVAL;
@@ -143,6 +147,11 @@ static int __poll_hub_read(struct poll_hub *peh,
 
 	while (ret == 0) {
 		spin_lock_irqsave(&peh->lock, flags);
+
+		/*
+		 * some task in this process is aready waitting data on
+		 * this poll_hub, return -EAGAIN.
+		 */
 		if (peh->task != NULL)
 			goto out;
 
@@ -160,6 +169,7 @@ static int __poll_hub_read(struct poll_hub *peh,
 			 * consider the case of EABORT
 			 */
 			ret = wait_event();
+			peh->task = NULL;
 			if (ret)
 				return ret;
 			continue;
@@ -177,7 +187,6 @@ static int __poll_hub_read(struct poll_hub *peh,
 
 		if (!is_list_empty(&event_list)) {
 			ret = copy_poll_event_to_user(events, &event_list, cnt);
-			peh->task = NULL;
 			return ret;
 		}
 	}
@@ -214,49 +223,62 @@ static int poll_hub_close(struct kobject *kobj, right_t right)
 	return 0;
 }
 
-static int __poll_hub_ctl(struct kobject *kdst, struct kobject *ksrc,
-		int op, struct poll_event *uevent)
+static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
+		int right, int op, struct poll_event *uevent)
 {
 	struct poll_struct *ps = &ksrc->poll_struct;
-
-	/*
-	 * only suppoert POLLIN now
-	 */
-	if (!(uevent->events & POLLIN))
-		return -ENOSYS;
+	struct poll_event_info *pi[2] = { NULL, NULL};
+	int ret = 0;
+	int i;
 
 	spin_lock(&ps->lock);
-	switch (op) {
-	case KOBJ_POLL_OP_MOD:
-	case KOBJ_POLL_OP_ADD:
-		ps->poll_event = uevent->events;
-		ps->poller = kdst;
-		ps->handle_poller = uevent->data.fd;
-		ps->data = uevent->data.ptr;
-		kobject_poll(ksrc, uevent->events, 1);
-		break;
-	case KOBJ_POLL_OP_DEL:
-		ps->poll_event &= ~(uevent->events);
-		if (ps->poll_event) {
-			ps->poller = NULL;
-			ps->handle_poller = -1;
-			ps->data = NULL;
+
+	if (uevent->events & POLLIN)
+		pi[0] = &ps->infos[0];
+	if (uevent->events)
+		pi[1] = &ps->infos[1];
+
+	for (i = 0; i < 2; i++) {
+		if (!pi[i])
+			continue;
+
+		switch (op) {
+		case KOBJ_POLL_OP_ADD:
+			if ((ps->poll_event & (1 << i)) != 0)
+				break;
+			ret = kobject_poll(ksrc, &ph->kobj, 1 << i, true);
+			if (ret)
+				break;
+		case KOBJ_POLL_OP_MOD:
+			ps->poll_event |= (1 << i);
+			pi[i]->poller = &ph->kobj;
+			pi[i]->data = uevent->data.pdata;
+			break;
+
+		case KOBJ_POLL_OP_DEL:
+			if ((ps->poll_event & (1 << i)) == 0)
+				break;
+
+			kobject_poll(ksrc, &ph->kobj, 1 << i, false);
+			ps->poll_event &= ~(1 << i);
+			pi[i]->poller = NULL;
+			pi[i]->data = 0;
+			break;
+		default:
+			break;
 		}
-		kobject_poll(ksrc, uevent->events, 0);
-		break;
-	default:
-		pr_err("unsupport poll ctl op %d\n", op);
-		break;
 	}
+
 	spin_unlock(&ps->lock);
 
-	return 0;
+	return ret;
 }
 
 static long poll_hub_ctl(struct kobject *kobj, int op, unsigned long data)
 {
+	struct poll_hub *ph = (struct poll_hub *)kobj->data;
 	struct poll_event uevent;
-	struct kobject *kobj_poll;
+	struct kobject *kobj_polled;
 	right_t right;
 	int ret;
 
@@ -265,18 +287,29 @@ static long poll_hub_ctl(struct kobject *kobj, int op, unsigned long data)
 	if (ret <= 0)
 		return ret;
 
-	ret = get_kobject_from_process(current_proc, uevent.data.fd, &kobj_poll, &right);
+	ret = get_kobject_from_process(current_proc,
+			uevent.data.fd, &kobj_polled, &right);
 	if (ret)
 		return -ENOENT;
 
-	if (!(right & KOBJ_RIGHT_POLL)) {
+	if ((uevent.events & (POLLIN | POLLOUT)) == 0) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if ((uevent.events & POLLIN) && !(right & KOBJ_RIGHT_READ)) {
 		ret = -EPERM;
 		goto out;
 	}
 
-	ret = __poll_hub_ctl(kobj, kobj_poll, op, &uevent);
+	if ((uevent.events & POLLOUT) && !(right & KOBJ_RIGHT_READ)) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	ret = __poll_hub_ctl(ph, kobj_polled, right, op, &uevent);
 out:
-	put_kobject(kobj_poll);
+	put_kobject(kobj_polled);
 	return ret;
 }
 
@@ -287,7 +320,7 @@ static struct kobject_ops poll_hub_ops = {
 	.ctl		= poll_hub_ctl,
 };
 
-static struct kobject *poll_hub_create(char *str, right_t right,
+static struct kobject *poll_hub_create(right_t right,
 		right_t right_req, unsigned long data)
 {
 	struct poll_hub *peh;
@@ -304,8 +337,7 @@ static struct kobject *poll_hub_create(char *str, right_t right,
 
 	init_list(&peh->event_list);
 	spin_lock_init(&peh->lock);
-	kobject_init(&peh->kobj, current_pid, KOBJ_TYPE_POLL_HUB,
-			0, right, (unsigned long)peh);
+	kobject_init(&peh->kobj, KOBJ_TYPE_POLL_HUB, right, (unsigned long)peh);
 	peh->kobj.ops = &poll_hub_ops;
 
 	return &peh->kobj;

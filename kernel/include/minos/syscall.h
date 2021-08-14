@@ -10,8 +10,8 @@ extern int sys_kobject_connect(char __user *path, right_t right);
 extern int sys_kobject_close(int handle);
 extern int sys_kobject_open(handle_t handle);
 
-extern handle_t sys_kobject_create(char __user *name, int type,
-		int right, right_t right_req, unsigned long data);
+extern handle_t sys_kobject_create(int type, int right,
+		right_t right_req, unsigned long data);
 
 extern ssize_t sys_kobject_recv(handle_t handle, void __user *data, size_t data_size,
 		size_t *actual_data, void __user *extra, size_t extra_size,

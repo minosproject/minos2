@@ -74,7 +74,7 @@ struct kobject_ops stdio_ops = {
 
 static int stdio_kobject_init(void)
 {
-	kobject_init(&stdio_kobj, 0, KOBJ_TYPE_STDIO, 0, KOBJ_RIGHT_RW, 0);
+	kobject_init(&stdio_kobj, KOBJ_TYPE_STDIO, KOBJ_RIGHT_RW, 0);
 	stdio_kobj.ops = &stdio_ops;
 	mutex_init(&stdio_lock);
 

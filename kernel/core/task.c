@@ -141,7 +141,11 @@ static void task_init(struct task *task, char *name,
 	init_timer_on_cpu(&task->delay_timer, cpu);
 	task->delay_timer.function = task_timeout_handler;
 	task->delay_timer.data = (unsigned long)task;
-	strncpy(task->name, name, MIN(strlen(name), TASK_NAME_SIZE));
+
+	if (name)
+		strncpy(task->name, name, MIN(strlen(name), TASK_NAME_SIZE));
+	else
+		task->name[0] = '\0';
 }
 
 static struct task *do_create_task(char *name,

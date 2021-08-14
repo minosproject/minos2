@@ -18,28 +18,17 @@
 #include <minos/kobject.h>
 #include <minos/uaccess.h>
 #include <minos/mm.h>
-#include <minos/vspace.h>
+#include <minos/sched.h>
+#include <minos/poll.h>
 
-static struct kobject *thread_create(right_t right,
-		right_t right_req, unsigned long data)
-{
-	struct thread_create_arg args;
-	struct task *task;
-	int ret;
+struct socket {
+	struct task *recv_task;
+	int status[2];
 
-	ret = copy_from_user(&args, (void *)data,
-			sizeof(struct thread_create_arg));
-	if (ret <= 0)
-		return ERROR_PTR(ENOMEM);
+	void *shmem;
+	size_t shmem_size;
+	int widx;
+	int ridx;
 
-	task = create_task_for_process(current_proc, args.func,
-			args.user_sp, args.prio, args.aff, args.flags);
-	if (!task)
-		return ERROR_PTR(ENOMEM);
-
-	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
-			KOBJ_RIGHT_NONE, (unsigned long)task);
-
-	return &task->kobj;
-}
-DEFINE_KOBJECT(thread, KOBJ_TYPE_ENDPOINT, thread_create);
+	struct kobject kobj;
+};

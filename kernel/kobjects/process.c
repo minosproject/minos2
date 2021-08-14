@@ -234,8 +234,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 		 * if the REQUEST_EXIT bit is seted in task->request
 		 */
 		if (process_exit(proc)) {
-			pr_err("process-%d %s exit fail\n",
-					proc->pid, proc->name);
+			pr_err("process-%d exit fail\n", proc->pid);
 			return -EABORT;
 		} else {
 			return 0;
@@ -259,11 +258,8 @@ static struct kobject_ops proc_kobj_ops = {
 
 static void process_kobject_init(struct process *proc, right_t right)
 {
-	kobject_init(&proc->kobj, current_pid, KOBJ_TYPE_PROCESS,
-			KOBJ_FLAGS_INVISABLE, right, (unsigned long)proc);
-	proc->kobj.name = proc->name;
+	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS, right, (unsigned long)proc);
 	proc->kobj.ops = &proc_kobj_ops;
-	register_namespace(proc);
 }
 
 struct process *create_root_process(char *name, task_func_t func,
@@ -271,19 +267,17 @@ struct process *create_root_process(char *name, task_func_t func,
 {
 	struct process *proc;
 
-	proc = create_process(name, func, usp, prio, aff, opt);
+	proc = create_process(func, usp, prio, aff, opt);
 	if (!proc)
 		return NULL;
 
 	proc->kobj.right = KOBJ_RIGHT_ROOT;
-	proc->kobj.name = proc->name;
 	proc->kobj.ops = &proc_kobj_ops;
-	register_namespace(proc);
 
 	return proc;
 }
 
-static struct kobject *process_create(char *str, right_t right,
+static struct kobject *process_create(right_t right,
 		right_t right_req, unsigned long data)
 {
 	struct kobject *kobj = &current_proc->kobj;
@@ -302,7 +296,7 @@ static struct kobject *process_create(char *str, right_t right,
 	if (ret <= 0)
 		return NULL;
 
-	proc = create_process(str, (task_func_t)args.entry,
+	proc = create_process((task_func_t)args.entry,
 			(void *)args.stack, args.aff,
 			args.prio, args.flags);
 	if (!proc)

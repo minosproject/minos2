@@ -80,93 +80,19 @@ int kobject_put(struct kobject *kobj)
 	return old;
 }
 
-void kobject_add(struct kobject *kobj)
-{
-	struct process *proc = current_proc;
-	unsigned long flags;
-
-	/*
-	 * add kobject will export a interface to other
-	 * process, then other process can connect the kobject
-	 * to communicated with this process.
-	 */
-	spin_lock_irqsave(&proc->lock, flags);
-	list_add_tail(&proc->kobj.child, &kobj->parent);
-	spin_unlock_irqrestore(&proc->lock, flags);
-}
-
-void kobject_delete(struct kobject *kobj)
-{
-	struct process *proc = current_proc;
-	unsigned long flags;
-
-	if (kobj->type == KOBJ_TYPE_PROCESS)
-		return;
-
-	if (kobj->owner != current_pid)
-		return;
-
-	/*
-	 * add port will export a port to other
-	 * process, then other process can open the port
-	 * to communicated with this process.
-	 *
-	 * the port object will add to the process's
-	 * namespace kobject's list.
-	 */
-	spin_lock_irqsave(&proc->lock, flags);
-	list_del(&kobj->parent);
-	spin_unlock_irqrestore(&proc->lock, flags);
-}
-
-struct kobject *get_kobject_by_name(struct kobject *root, const char *name)
-{
-	struct process *proc = (struct process *)root->data;
-	unsigned long flags;
-	struct kobject *kobj, *ret = NULL;
-
-	if ((root->type != KOBJ_TYPE_PROCESS) || !proc)
-		return NULL;
-
-	spin_lock_irqsave(&proc->lock, flags);
-	list_for_each_entry(kobj, &root->child, parent) {
-		if (!kobj->name || (kobj->flags & KOBJ_FLAGS_INVISABLE))
-			continue;
-
-		if (strcmp(kobj->name, name) == 0) {
-			if (kobject_get(kobj))
-				ret = kobj;
-			break;
-		}
-	}
-	spin_unlock_irqrestore(&proc->lock, flags);
-
-	return ret;
-}
-
-void kobject_init(struct kobject *kobj, pid_t owner, int type,
-		int flags, right_t right, unsigned long data)
+void kobject_init(struct kobject *kobj, int type, right_t right, unsigned long data)
 {
 
 	BUG_ON((!kobj));
 	kobj->right = right;
 	kobj->type = type;
-	kobj->flags = flags;
-	kobj->owner = owner;
 	kobj->data = data;
 	kobj->list.pre = NULL;
 	kobj->list.next = NULL;
-	init_list(&kobj->child);
 	spin_lock_init(&kobj->poll_struct.lock);
-
-	/*
-	 * the initial value of ref is 1, so kobject_create do not
-	 * need to call kobject_get();
-	 */
-	atomic_set(1, &kobj->ref);
 }
 
-struct kobject *kobject_create(char *name, int type, right_t right,
+struct kobject *kobject_create(int type, right_t right,
 		right_t right_req, unsigned long data)
 {
 	kobject_create_cb ops;
@@ -179,7 +105,7 @@ struct kobject *kobject_create(char *name, int type, right_t right,
 	if (!ops)
 		return ERROR_PTR(-EACCES);
 
-	kobj = ops(name, right, right_req, data);
+	kobj = ops(right, right_req, data);
 	if (IS_ERROR_PTR(kobj))
 		return kobj;
 
@@ -187,12 +113,21 @@ struct kobject *kobject_create(char *name, int type, right_t right,
 	return kobj;
 }
 
-int kobject_poll(struct kobject *ksrc, int event, int enable)
+int kobject_poll(struct kobject *ksrc, struct kobject *kdst, int event, bool enable)
 {
-	if (!ksrc->ops || !ksrc->ops->poll)
-		return 0;
+	int ret = 0;
 
-	return ksrc->ops->poll(ksrc, event, enable);
+	if (ksrc->ops && ksrc->ops->poll)
+		ret = ksrc->ops->poll(ksrc, kdst, event, enable);
+
+	if (enable) {
+		if (ret == 0)
+			kobject_get(kdst);
+	} else {
+		kobject_put(kdst);
+	}
+
+	return 0;
 }
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)
@@ -203,105 +138,40 @@ int kobject_open(struct kobject *kobj, handle_t handle, right_t right)
 	return kobj->ops->open(kobj, handle, right);
 }
 
-int kobject_connect(char *name, right_t right)
-{
-	struct kobject *kobj;
-	char *realname;
-	int ret;
-	handle_t handle;
-
-	ret = get_kobject_from_namespace(name, &kobj, &realname);
-	if (ret)
-		return -ENOENT;
-
-	if (kobj->right & KOBJ_FLAGS_INVISABLE) {
-		ret = -EACCES;
-		goto out;
-	}
-
-	/*
-	 * the owner of this kobject can not connect it.
-	 */
-	if ((current_pid == kobj->owner) ||
-			!kobj->ops || !kobj->ops->connect) {
-		ret = -EPERM;
-		goto out;
-	}
-
-	/*
-	 * TBD some IPC methold may support pass argument to the
-	 * userspace.
-	 */
-	if (realname != NULL) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	/*
-	 * if the kobject do not have the request right, return
-	 * error.
-	 */
-	if ((right & kobj->right) != right) {
-		ret = -EPERM;
-		goto out;
-	}
-
-	/*
-	 * everything is ok, allocate a new handle for the process
-	 * and return to the application, the open the kobject.
-	 *
-	 * first allocate a handle with temp invalid kobject, if
-	 * connect is successfully, the truly kobject and right will
-	 * fill to the handle.
-	 */
-	handle = alloc_handle((struct kobject *)-1, 0);
-	if (ret <= 0) {
-		ret = -ENOSPC;
-		goto out;
-	}
-
-	ret = kobj->ops->connect(kobj, handle, right);
-	if (ret) {
-		release_handle(handle);
-		ret = -EIO;
-	}
-
-	setup_handle(handle, kobj, right);
-out:
-	if (ret)
-		kobject_put(kobj);
-
-	return ret;
-}
-
 int kobject_close(struct kobject *kobj, right_t right)
 {
+	struct poll_struct *ps = &kobj->poll_struct;
 	int ret = 0;
-
-	if (current_pid == kobj->owner)
-		return -EPERM;
+	int events;
 
 	if (!kobj->ops || !kobj->ops->close)
 		ret = kobj->ops->close(kobj, right);
 
 	/*
-	 * kobject_close will delete the kobject from the process's
-	 * forcely no matter whether there some process is connected
-	 * it, after it detached from the process, no process can
-	 * open or connected it, then it can wait all the process
-	 * which opened it to close it and release it resource.
-	 *
-	 * the kobject_put here is corresponds to kobject_create
-	 *
-	 * close will not truly release all the resource of this kobject
-	 * when the reference is 0, then kobject_put will the release
-	 * callback to release the resource of this kobject.
-	 *
-	 * first need to check whether this kobject is connected to
-	 * the process, the kernel irq will not belong to any process.
+	 * if the kobject has been polled, release the poll
+	 * event in poll_hub.
 	 */
-	if ((current_pid == kobj->owner) && (kobj->parent.next != NULL))
-		kobject_delete(kobj);
+	events = ps->poll_event;
+	ps->poll_event = 0;
+	smp_wmb();
+
+	if ((events & POLLIN) && ((right & KOBJ_RIGHT_RW) == KOBJ_RIGHT_WRITE))
+		poll_event_send_with_data(ps, POLLIN, POLLIN_KOBJ_CLOSE, 0, 0, 0);
+
+	if ((events & POLLOUT) && ((right & KOBJ_RIGHT_RW) == KOBJ_RIGHT_READ))
+		poll_event_send_with_data(ps, POLLOUT, POLLIN_KOBJ_CLOSE, 0, 0, 0);
+
+	if (events & POLLIN)
+		kobject_poll(kobj, ps->infos[0].poller, POLLIN, false);
+	if (events & POLLOUT)
+		kobject_poll(kobj, ps->infos[1].poller, POLLOUT, false);
+
+	memset(ps, 0, sizeof(struct poll_struct));
+
+	/*
+	 * dec the refcount which caused by kobject_init and
+	 * kobject_connect.
+	 */
 	kobject_put(kobj);
 
 	return ret;
@@ -324,7 +194,8 @@ long kobject_send(struct kobject *kobj, void __user *data, size_t data_size,
 	if (!kobj->ops || !kobj->ops->send)
 		return -EACCES;
 
-	return kobj->ops->send(kobj, data, data_size, extra, extra_size, timeout);
+	return kobj->ops->send(kobj, data, data_size, extra,
+			extra_size, timeout);
 }
 
 int kobject_reply(struct kobject *kobj, right_t right, unsigned long token,
@@ -372,7 +243,7 @@ handle_t kobject_send_handle(struct process *psrc, struct process *pdst,
 	if (ret)
 		return ret;
 
-	if (!(right & KOBJ_RIGHT_GRANT) || (kobj->owner != current_pid)) {
+	if (!(right & KOBJ_RIGHT_GRANT)) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -389,8 +260,7 @@ out:
 	return ret;
 }
 
-handle_t sys_grant(handle_t proc_handle, handle_t handle,
-		right_t right, int release)
+handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
 {
 	struct kobject *kobj_proc, *kobj;
 	right_t right_proc, right_kobj;
@@ -430,16 +300,8 @@ handle_t sys_grant(handle_t proc_handle, handle_t handle,
 		goto out;
 	}
 
-	/*
-	 * change the owner.
-	 */
 	proc = (struct process *)kobj_proc->data;
-	kobj->owner = proc->pid;
 	handle_out = __alloc_handle(proc, kobj, right);
-
-	if (release) {
-		// TBD
-	}
 
 out:
 	put_kobject(kobj_proc);

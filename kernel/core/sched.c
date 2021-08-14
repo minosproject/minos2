@@ -483,6 +483,7 @@ int __wake_up(struct task *task, int pend_state, void *data)
 
 	preempt_disable();
 	spin_lock_irqsave(&task->s_lock, flags);
+
 	/*
 	 * task already waked up, if the stat is set to
 	 * TASK_STAT_WAIT_EVENT, it means that the task will
@@ -490,7 +491,7 @@ int __wake_up(struct task *task, int pend_state, void *data)
 	 */
 	if (task->stat != TASK_STAT_WAIT_EVENT) {
 		spin_unlock_irqrestore(&task->s_lock, flags);
-		return -EINVAL;
+		return 0;
 	}
 
 	/*

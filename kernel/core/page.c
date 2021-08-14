@@ -294,7 +294,6 @@ static struct page *alloc_pages_from_section(int pages, int align, int flags)
 struct page *__alloc_pages(int pages, int align, int flags)
 {
 	struct page *page;
-	void *addr;
 
 	if ((pages <= 0) || (align == 0))
 		return NULL;
@@ -302,11 +301,6 @@ struct page *__alloc_pages(int pages, int align, int flags)
 	page = alloc_pages_from_section(pages, align, flags);
 	if (!page)
 		return NULL;
-
-	if (flags & GFP_USER) {
-		addr = (void *)page_va(page);
-		memset(addr, 0, pages << PAGE_SHIFT);
-	}
 
 	return page;
 }
@@ -358,8 +352,12 @@ static int free_pages_in_section(struct page *page, struct mem_section *ms)
 				ms->vir_base, ms->vir_end);
 	}
 
+	/*
+	 * clear all the pages in case the memory data leak.
+	 */
 	count = page_count(page);
 	pstart = page_va(page);
+	memset((void *)pstart, 0, count << PAGE_SHIFT);
 
 	start = (pstart - ms->vir_base) >> PAGE_SHIFT;
 	bitmap_clear(ms->bitmap, start, count);

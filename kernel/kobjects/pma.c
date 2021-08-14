@@ -158,7 +158,7 @@ static int pma_unmap(struct kobject *kobj, struct process *proc)
 
 static void *pma_mmap(struct kobject *kobj, right_t right)
 {
-	if (!(right & KOBJ_RIGHT_SHARED) && (kobj->owner != current_pid))
+	if (!(right & KOBJ_RIGHT_SHARED))
 		return (void *)-1;
 
 	return pma_map(kobj, current_proc, 0);
@@ -327,7 +327,7 @@ static int allocate_pma_memory(struct pma *p, int cnt,
 	return 0;
 }
 
-static struct kobject *pma_create(char *str, right_t right,
+static struct kobject *pma_create(right_t right,
 		right_t right_req, unsigned long data)
 {
 	struct pma_create_arg args;
@@ -382,8 +382,7 @@ static struct kobject *pma_create(char *str, right_t right,
 	spin_lock_init(&p->lock);
 	p->owner = current_pid;
 	p->kobj.ops = &pma_ops;
-	kobject_init(&p->kobj, current_pid, KOBJ_TYPE_PMA,
-			0, right, (unsigned long)p);
+	kobject_init(&p->kobj, KOBJ_TYPE_PMA, right, (unsigned long)p);
 
 	return &p->kobj;
 }

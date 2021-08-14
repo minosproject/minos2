@@ -19,12 +19,6 @@
 #include <minos/handle.h>
 #include <minos/mm.h>
 
-struct handle_table_desc {
-	uint32_t index;
-	uint32_t left;
-	struct handle_desc *next;
-} __packed;
-
 #define to_handle_table_desc(hdesc)	\
 	(struct handle_table_desc *)&hdesc[NR_DESC_PER_PAGE]
 
@@ -95,7 +89,7 @@ int release_handle(handle_t handle)
 	struct process *proc = current_proc;
 	struct handle_desc *hd;
 	struct handle_table_desc *htd;
-	int ret;
+	int ret = -ENOENT;
 
 	if (WRONG_HANDLE(handle))
 		return -EINVAL;
@@ -105,7 +99,9 @@ int release_handle(handle_t handle)
 	if (ret)
 		goto out;
 
-	ASSERT(hd->kobj != NULL);
+	if (hd->kobj == NULL)
+		goto out;
+
 	htd->left++;
 	hd->kobj = NULL;
 	hd->right = KOBJ_RIGHT_NONE;
@@ -166,6 +162,7 @@ handle_t __alloc_handle(struct process *proc, struct kobject *kobj, right_t righ
 
 	hdesc->kobj = kobj;
 	hdesc->right = right;
+	kobject_get(kobj);
 out:
 	spin_unlock(&proc->kobj_lock);
 	
@@ -214,6 +211,7 @@ int get_kobject_from_process(struct process *proc, handle_t handle,
 	ret = lookup_handle_desc(proc, handle, &hd, &htd);
 	if (ret)
 		goto out;
+
 	tmp = hd->kobj;
 
 	if ((tmp != NULL) && (tmp != KOBJ_PLACEHOLDER)) {
@@ -222,10 +220,7 @@ int get_kobject_from_process(struct process *proc, handle_t handle,
 			*right = hd->right;
 			ret = 0;
 		}
-	} else {
-		panic("%s handle info broken\n", __func__);
 	}
-
 out:
 	spin_unlock(&proc->kobj_lock);
 	return ret;

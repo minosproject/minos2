@@ -69,17 +69,10 @@ static void add_task_to_process(struct process *proc, struct task *task)
 	task->next = proc->head;
 	proc->tail = task;
 	proc->task_cnt++;
-
-	/*
-	 * also link the task's object to the proce's child
-	 * list.
-	 */
-	list_add_tail(&proc->kobj.child, &task->kobj.parent);
-
 	spin_unlock_irqrestore(&proc->lock, flags);
 }
 
-struct task *create_task_for_process(struct process *proc, char *name,
+struct task *create_task_for_process(struct process *proc,
 		unsigned long func, void *user_sp, int prio,
 		int aff, unsigned long flags)
 {
@@ -88,7 +81,7 @@ struct task *create_task_for_process(struct process *proc, char *name,
 	if (proc->exit)
 		return NULL;
 
-	task = create_task(name, (task_func_t)func, user_sp,
+	task = create_task(NULL, (task_func_t)func, user_sp,
 			prio, aff, flags, proc);
 	if (!task)
 		return NULL;
@@ -99,7 +92,7 @@ struct task *create_task_for_process(struct process *proc, char *name,
 	return task;
 }
 
-struct process *create_process(char *name, task_func_t func,
+struct process *create_process(task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt)
 {
 	struct process *proc = NULL;
@@ -126,7 +119,7 @@ struct process *create_process(char *name, task_func_t func,
 	/*
 	 * create a root task for this process
 	 */
-	task = create_task(name, func, usp, prio, aff, opt |
+	task = create_task(NULL, func, usp, prio, aff, opt |
 			TASK_FLAGS_NO_AUTO_START | TASK_FLAGS_ROOT, proc);
 	if (!task)
 		goto task_create_fail;
@@ -135,12 +128,11 @@ struct process *create_process(char *name, task_func_t func,
 	 * if the process is not root service, then its right
 	 * will be given by root service, when create the process.
 	 */
-	kobject_init(&proc->kobj, proc->pid, KOBJ_TYPE_PROCESS,
-			KOBJ_FLAGS_INVISABLE, KOBJ_RIGHT_NONE,
+	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS,
+			KOBJ_RIGHT_RW | KOBJ_RIGHT_CTL,
 			(unsigned long)proc);
-	kobject_init(&task->kobj, pid, KOBJ_TYPE_THREAD,
-			KOBJ_FLAGS_INVISABLE, 0, (unsigned long)task);
-	task->kobj.name = task->name;
+	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
+			KOBJ_RIGHT_CTL, (unsigned long)task);
 
 	proc->head = task;
 	proc->tail = task;
@@ -148,12 +140,6 @@ struct process *create_process(char *name, task_func_t func,
 	task->pid = proc->pid;
 	spin_lock_init(&proc->request_lock);
 	init_list(&proc->request_list);
-
-	/*
-	 * add the thread to the process's kobject list.
-	 */
-	strncpy(proc->name, name, PROCESS_NAME_SIZE - 1);
-	list_add_tail(&proc->kobj.child, &task->kobj.parent);
 
 	return proc;
 

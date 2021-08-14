@@ -8,7 +8,14 @@ struct kobject;
 
 struct handle_desc {
 	struct kobject *kobj;
-	unsigned long right;
+	int right;
+	int padding;
+} __packed;
+
+struct handle_table_desc {
+	uint32_t index;
+	uint32_t left;
+	struct handle_desc *next;
 } __packed;
 
 #define HANDLE_NULL	(-1)

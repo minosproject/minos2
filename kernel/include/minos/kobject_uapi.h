@@ -5,13 +5,13 @@
 #define KOBJ_RIGHT_READ		0x0001		// can read this kobject, usually for IPC between two process.
 #define KOBJ_RIGHT_WRITE	0x0002		// can write this kobject, usually for IPC between two process.
 #define KOBJ_RIGHT_EXEC		0x0004		// can be exectued.
-#define KOBJ_RIGHT_SHARED	0x0008		// can be shared, for example PMA
-#define KOBJ_RIGHT_MMAP		0x0010		// can be mmaped to current process's memory space
-#define KOBJ_RIGHT_NONBLOCK	0x0020		// read and write is non-blocked
-#define KOBJ_RIGHT_CTL		0x0040		// can control the releated kobject
+#define KOBJ_RIGHT_MMAP		0x0008		// can be mmaped to current process's memory space
+#define KOBJ_RIGHT_CTL		0x0010		// can control the releated kobject
+
+#define KOBJ_RIGHT_SHARED	0x0020		// can be shared, for example PMA
+#define KOBJ_RIGHT_NONBLOCK	0x0040		// read and write is non-blocked
 #define KOBJ_RIGHT_HEAP_SELFCTL	0x0080		// the process will allocation memory itself, for system process.
 #define KOBJ_RIGHT_GRANT	0x0100		// this kobject can be changed owner.
-#define KOBJ_RIGHT_POLL		0x0200		// this kobject cab be polled.
 
 #define KOBJ_RIGHT_MASK		0x03ff
 
@@ -43,6 +43,7 @@ enum {
 enum {
 	KOBJ_PROCESS_GET_PID = 0x1000,
 	KOBJ_PROCESS_SETUP_SP,
+	KOBJ_PROCESS_SETUP_REG0,
 	KOBJ_PROCESS_WAKEUP,
 	KOBJ_PROCESS_VA2PA,
 	KOBJ_PROCESS_EXIT,

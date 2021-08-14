@@ -26,23 +26,13 @@
 	(struct irq_desc *)kobj->data
 
 #define IRQ_KOBJ_RIGHT	\
-	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_POLL)
+	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT)
 
 static int irq_kobj_open(struct kobject *kobj, handle_t handle, right_t rigt)
 {
 	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
 
 	return request_user_irq(idesc->hno, idesc->flags, kobj);
-}
-
-static int irq_kobj_poll(struct kobject *kobj, int event, int enable)
-{
-	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
-
-	idesc->poll_event->event.data.fd =
-		enable ? kobj->poll_struct.handle_poller : -1;
-
-	return 0;
 }
 
 static long irq_kobj_read(struct kobject *kobj, void __user *data,
@@ -118,11 +108,10 @@ static struct kobject_ops irq_kobj_ops = {
 	.open	= irq_kobj_open,
 	.recv	= irq_kobj_read,
 	.send	= irq_kobj_write,
-	.poll	= irq_kobj_poll,
 	.close	= irq_kobj_close,
 };
 
-static struct kobject *irq_kobject_create(char *str, right_t right,
+static struct kobject *irq_kobject_create(right_t right,
 		right_t right_req, unsigned long data)
 {
 	/*
@@ -163,13 +152,13 @@ static struct kobject *irq_kobject_create(char *str, right_t right,
 		return ERROR_PTR(ENOMEM);
 	}
 
+	idesc->kobj = kobj;
 	idesc->poll_event->release = 0;
 	idesc->poll_event->event.events = POLLIN;
 	idesc->poll_event->event.data.type = POLLIN_IRQ;
 	idesc->flags = flags;
 	idesc->hno = irqnum;
-	kobject_init(kobj, current_pid, KOBJ_TYPE_IRQ,
-			0, right, (unsigned long)idesc);
+	kobject_init(kobj, KOBJ_TYPE_IRQ, right, (unsigned long)idesc);
 	kobj->ops = &irq_kobj_ops;
 
 	return kobj;

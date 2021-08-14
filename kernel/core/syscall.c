@@ -32,18 +32,6 @@ void sys_sched_yield(void)
 	local_irq_disable();
 }
 
-long sys_kobject_connect(char __user *path, right_t right)
-{
-	char name[FILENAME_MAX];
-	int ret;
-
-	ret = copy_string_from_user_safe(name, path, FILENAME_MAX);
-	if (ret <= 0)
-		return -EINVAL;
-
-	return kobject_connect(name, right);
-}
-
 long sys_kobject_close(handle_t handle)
 {
 	struct kobject *kobj;
@@ -70,26 +58,16 @@ out:
 	return ret;
 }
 
-handle_t sys_kobject_create(char __user *name, int type, right_t right,
+handle_t sys_kobject_create(int type, right_t right,
 		right_t right_req, unsigned long data)
 {
-	char str[FILENAME_MAX];
 	struct kobject *kobj;
 	handle_t handle;
-	int ret;
 
 	if ((type >= KOBJ_TYPE_MAX) || (type <= 0))
 		return -EINVAL;
 
-	if (name != NULL) {
-		ret = copy_string_from_user_safe(str, name, FILENAME_MAX);
-		if (ret <= 0)
-			return ret;
-	} else {
-		str[0] = 0;
-	}
-
-	kobj = kobject_create(str, type, right, right_req, data);
+	kobj = kobject_create(type, right, right_req, data);
 	if (IS_ERROR_PTR(kobj))
 		return (handle_t)(long)(kobj);
 
@@ -101,12 +79,6 @@ handle_t sys_kobject_create(char __user *name, int type, right_t right,
 		kobject_put(kobj);
 		return -ENOSPC;
 	}
-
-	/*
-	 * other process can see this kobject and can connect it
-	 * using connect() syscall.
-	 */
-	kobject_add(kobj);
 
 	return handle;
 }

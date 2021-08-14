@@ -25,11 +25,11 @@
 #define NOTIFY_NAME_SIZE	32
 #define NOTIRY_MSG_SIZE_MAX	PAGE_SIZE
 
-#define NOTIFY_RIGHT		(KOBJ_RIGHT_WRITE | KOBJ_RIGHT_POLL)
+#define NOTIFY_RIGHT		(KOBJ_RIGHT_WRITE)
 #define NOTIFY_RIGHT_MASK	(KOBJ_RIGHT_WRITE)
 
 struct notify_wait_entry {
-	struct kobject *poller;
+	struct poll_struct *ps;
 	struct list_head list;
 };
 
@@ -37,13 +37,12 @@ struct notify {
 	spinlock_t lock;
 	struct list_head wait_list;
 	struct kobject kobj;
-	char name[NOTIFY_NAME_SIZE];
 };
 
 #define kobject_to_notify(kobj) \
 	(struct notify *)(kobj)->data
 
-static int notify_send_event(struct kobject *poller,
+static int notify_send_event(struct poll_struct *ps,
 		unsigned long id, unsigned long *data)
 {
 	struct poll_event_kernel *evk =
@@ -61,7 +60,7 @@ static int notify_send_event(struct kobject *poller,
 	event->data.data1 = data[1];
 	event->data.data2 = data[2];
 
-	__poll_event_send_static(poller, evk);
+	poll_event_send_static(ps, evk);
 
 	return 0;
 }
@@ -72,7 +71,7 @@ static long notify_kobj_send(struct kobject *kobj, void __user *data,
 {
 	struct notify *nf = (struct notify *)kobj->data;
 	unsigned long event_id = (unsigned long)data;
-	struct notify_wait_entry *w, *tmp;
+	struct notify_wait_entry *w;
 	unsigned long msg[3];
 	int ret;
 
@@ -85,14 +84,14 @@ static long notify_kobj_send(struct kobject *kobj, void __user *data,
 		return ret;
 
 	spin_lock(&nf->lock);
-	list_for_each_entry_safe(w, tmp, &nf->wait_list, list)
-		ret += notify_send_event(w->poller, event_id, msg);
+	list_for_each_entry(w, &nf->wait_list, list)
+		ret += notify_send_event(w->ps, event_id, msg);
 	spin_unlock(&nf->lock);
 
 	return ret;
 }
 
-static int notify_add_receiver(struct notify *nf, struct kobject *poller)
+static int notify_add_receiver(struct notify *nf, struct poll_struct *ps)
 {
 	struct notify_wait_entry *we;
 
@@ -101,21 +100,21 @@ static int notify_add_receiver(struct notify *nf, struct kobject *poller)
 		return -ENOMEM;
 
 	spin_lock(&nf->lock);
-	we->poller = poller;
+	we->ps = ps;
 	list_add_tail(&nf->wait_list, &we->list);
 	spin_unlock(&nf->lock);
 
 	return 0;
 }
 
-static int notify_del_receiver(struct notify *nf, struct kobject *poller)
+static int notify_del_receiver(struct notify *nf, struct poll_struct *ps)
 {
 	struct notify_wait_entry *we, *tmp;
 	int ret = -ENOENT;
 
 	spin_lock(&nf->lock);
 	list_for_each_entry_safe(we, tmp, &nf->wait_list, list) {
-		if (poller == we->poller) {
+		if (ps == we->ps) {
 			list_del(&we->list);
 			ret = 0;
 			break;
@@ -126,30 +125,20 @@ static int notify_del_receiver(struct notify *nf, struct kobject *poller)
 	return ret;
 }
 
-static int notify_kobj_poll(struct kobject *kobj, int event, int enable)
+static int notify_kobj_poll(struct kobject *kobj,
+		struct kobject *dst, int event, int enable)
 {
-	struct kobject *dst = kobj->poll_struct.poller;
 	struct notify *nf = kobject_to_notify(kobj);
 
 	if (enable)
-		return notify_add_receiver(nf, dst);
+		return notify_add_receiver(nf, &kobj->poll_struct);
 	else
-		return notify_del_receiver(nf, dst);
-}
-
-static int notify_kobj_connect(struct kobject *kobj,
-		handle_t handle, right_t right)
-{
-	if (right != KOBJ_RIGHT_POLL)
-		return -EPERM;
-
-	return 0;
+		return notify_del_receiver(nf, &kobj->poll_struct);
 }
 
 struct kobject_ops notify_kobj_ops = {
 	.send		= notify_kobj_send,
 	.poll		= notify_kobj_poll,
-	.connect 	= notify_kobj_connect,
 };
 
 static int notify_check_right(right_t right, right_t right_req)
@@ -163,7 +152,7 @@ static int notify_check_right(right_t right, right_t right_req)
 	return 1;
 }
 
-static struct kobject *notify_create(char *str, right_t right,
+static struct kobject *notify_create(right_t right,
 		right_t right_req, unsigned long data)
 {
 	struct notify *nf;
@@ -175,10 +164,8 @@ static struct kobject *notify_create(char *str, right_t right,
 	if (!nf)
 		return ERROR_PTR(-ENOMEM);
 
-	strncpy(nf->name, str, NOTIFY_NAME_SIZE - 1);
 	spin_lock_init(&nf->lock);
-	kobject_init(&nf->kobj, current_pid, KOBJ_TYPE_NOTIFY,
-			0, right, (unsigned long)nf);
+	kobject_init(&nf->kobj, KOBJ_TYPE_NOTIFY, right, (unsigned long)nf);
 	nf->kobj.ops = &notify_kobj_ops;
 
 	return &nf->kobj;

@@ -60,6 +60,15 @@ static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 	long ret;
 	size_t ad, ae;
 
+	/*
+	 * get the request from the client. then handle the request
+	 * for open the flow should be like this:
+	 *
+	 * fd = sys_connect_service("vblk0p0", KOBJ_RIGHT_WRITE);
+	 * file_fd = kobject_write(fd, PROTO_OPEN, size, PATH, size, -1);
+	 *
+	 * then use file_fd to conmunicated with vfs service.
+	 */
 	ret = kobject_read(event->data.fd, &proto, sizeof(struct proto),
 			&ad, path, FILENAME_MAX, &ae, 0);
 	if (ret < 0)
@@ -73,6 +82,9 @@ static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 		handle_vfs_read(part, &proto);
 		break;
 	case PROTO_WRITE:
+		/*
+		 * TBD
+		 */
 		break;
 	default:
 		break;
@@ -84,24 +96,24 @@ static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 static int partition_thread(void *data)
 {
 #define MAX_EPFD 10
-	struct endpoint_create_arg args = {
-		.mode = EP_MODE_MUTIL_WRITER,
-		.shmem_size = 0,
-	};
 	struct epoll_event events[MAX_EPFD];
 	struct epoll_event *event = &events[0];
 	int epfd, cfd, cnt, i;
 	struct partition *part = data;
+	char srv_name[BLKDEV_NAME_SIZE + 3];
 
-	cfd = kobject_create("disk0", KOBJ_TYPE_ENDPOINT,
-			KOBJ_RIGHT_RW | KOBJ_RIGHT_POLL,
-			KOBJ_RIGHT_READ, (unsigned long)&args);
+	sprintf(srv_name, "%sp%d", part->blkdev->name, part->partid);
+#if 0
+	cfd = sys_register_srv(srv_name, SERVICE_TYPE_STORAGE, 1);
 	if (cfd < 0)
 		return cfd;
+#endif
 
 	epfd = epoll_create(1);
 	if (epfd < 0)
 		return epfd;
+
+	event->events = EPOLLIN;
 
 	if (epoll_ctl(epfd, EPOLL_CTL_ADD, cfd, event))
 		return -1;

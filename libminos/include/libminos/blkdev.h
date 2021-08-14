@@ -44,6 +44,8 @@ struct blkdev_ops {
 #define BLKDEV_STAT_SB_FAIL		0x1
 #define BLKDEV_STAT_FS_UNSUPPORT	0x2
 
+#define BLKDEV_NAME_SIZE 16
+
 struct partition {
 	int type;
 	int partid;
@@ -69,6 +71,8 @@ struct blkdev {
 	struct blkdev_ops *ops;
 	spinlock_t lock;
 	struct partition partitions[BLKDEV_MAX_PARTITIONS];
+
+	char name[BLKDEV_NAME_SIZE];
 };
 
 #define bdev_sector_pages(bdev, nr)	\

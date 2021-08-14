@@ -37,7 +37,11 @@ struct file {
 	void *sbuf;		// shared buf with the client.
 	int sbuf_size;
 
-	struct fnode *fnode;
+	union {
+		struct fnode *fnode;
+		void *pdata;
+	};
+
 	struct file *next;	// link all the opened file.
 };
 

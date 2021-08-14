@@ -42,7 +42,7 @@ struct file *vfs_open(struct partition *part, char *path, int flags, int mode)
 	if (!file)
 		return NULL;
 
-	handle = kobject_create(NULL, KOBJ_TYPE_ENDPOINT,
+	handle = kobject_create(KOBJ_TYPE_ENDPOINT,
 			FILE_RIGHT, FILE_REQ_RIGHT, (unsigned long)&args);
 	if (handle < 0) {
 		kfree(file);

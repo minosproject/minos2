@@ -32,6 +32,7 @@ CFLAGS	:= -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE -march=armv8-a -MD \
 	--static -L../../libminos/ -lminos
 
 src_c	:= src/main.c
+src_c	+= src/pangu.c
 src_c	+= src/ramdisk.c
 src_c	+= src/bootarg.c
 src_c	+= src/of.c

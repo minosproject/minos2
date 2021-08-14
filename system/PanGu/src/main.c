@@ -13,6 +13,7 @@
 #include <minos/debug.h>
 #include <minos/kmalloc.h>
 #include <minos/kobject.h>
+#include <minos/proto.h>
 
 #include <uapi/bootdata.h>
 
@@ -20,10 +21,10 @@
 #include <pangu/bootarg.h>
 
 static struct bootdata *bootdata;
-extern int proc_epfd;
 
 extern void ramdisk_init(unsigned long base, unsigned long end);
 extern void of_init(unsigned long base, unsigned long end);
+extern void pangu_main(void);
 
 unsigned long heap_base, heap_end;
 
@@ -60,28 +61,52 @@ static void dump_boot_info(void)
                        bootdata->heap_start, bootdata->heap_end);
 }
 
-static void pangu_loop(void)
+static int load_fuxi_service(void)
 {
-#define MAX_POLL_EVENT	10
-	struct epoll_event events[MAX_POLL_EVENT];
-	struct epoll_event *event;
-	long ret;
-	int i;
+	struct process *proc;
+	struct proto proto;
+	int ret;
 
-	while (1) {
-		ret = epoll_wait(proc_epfd, events, MAX_POLL_EVENT, -1);
-		if (ret <= 0 || ret > MAX_POLL_EVENT) {
-			pr_err("failed wait for event try again %d?\n", ret);
-			continue;
-		}
+	/*
+	 * create the endpoint for fuxi service, that it
+	 * can commuicate with other process, this endpoint
+	 * will grant to fuxi service
+	 */
+	fuxi_handle = kobject_create_port(KR_RWCG, KR_WG);
+	if (fuxi_handle <= 0)
+		return fuxi_handle;
 
-		for (i = 0; i < ret; i++) {
-			event = &events[i];
-			handle_process_request(event);
-		}
-	}
+	ret = load_ramdisk_process("fuxi", 0, NULL, TASK_FLAGS_SRV, NULL);
+	if (ret)
+		return ret;
 
-	exit(-1);
+	/*
+	 * fuxi service will be the second process in the process
+	 * list after self_init()
+	 */
+	proc = list_entry(&process_list.next->next, struct process, list);
+	ret = grant(proc->proc_handle, fuxi_handle, KR_R);
+	if (ret <= 0)
+		return ret;
+
+	ret = kobject_ctl(proc->proc_handle, KOBJ_PROCESS_SETUP_REG0, ret);
+	if (ret)
+		return ret;
+
+	/*
+	 * start the fuxi service and wait it finish startup
+	 */
+	pr_info("Start Fuxi service and waitting ...\n");
+	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
+	kobject_read_simple(proc->proc_handle,
+			&proto, sizeof(struct proto), -1);
+
+	if (proto.proto_id != PROTO_IAMOK)
+		return -EPROTO;
+
+	kobject_reply_errcode(proc->proc_handle, proto.token, 0);
+
+	return 0;
 }
 
 static int load_rootfs_driver(void)
@@ -159,6 +184,10 @@ int main(int argc, char **argv)
 	of_init(bootdata->dtb_start, bootdata->dtb_end);
 	self_init(bootdata->vmap_start, bootdata->vmap_end);
 
+	ret = load_fuxi_service();
+	if (ret)
+		exit(ret);
+
 	/*
 	 * load the rootfs driver process, the rootfs driver
 	 * need to store in the ramdisk. rootfs driver process
@@ -166,15 +195,9 @@ int main(int argc, char **argv)
 	 */
 	ret = load_rootfs_driver();
 	if (ret)
-		exit(-EIO);
+		exit(ret);
 
-	/*
-	 * every thing is down, wakeup all the process created
-	 * by PanGu.
-	 */
-	wakeup_and_listen_all_process();
-
-	pangu_loop();
+	pangu_main();
 
 	return -1;
 }

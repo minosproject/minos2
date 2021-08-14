@@ -23,17 +23,16 @@
 #include <pangu/ramdisk.h>
 #include <pangu/elf.h>
 #include <pangu/resource.h>
+#include <pangu/request.h>
 
 static struct process proc_self;
 struct process *self = &proc_self;
-static LIST_HEAD(process_list);
+LIST_HEAD(process_list);
 
 extern int load_process_from_file(struct process *proc,
 		struct elf_ctx *ctx, FILE *file);
 
 extern int elf_init(struct elf_ctx *ctx, FILE *file);
-
-int proc_epfd;
 
 int unmap_self_memory(void *base)
 {
@@ -149,7 +148,7 @@ static int create_process(char *name, unsigned long entry,
 	if (flags & TASK_FLAGS_DEDICATED_HEAP)
 		right |= KOBJ_RIGHT_HEAP_SELFCTL;
 
-	return kobject_create(name, KOBJ_TYPE_PROCESS, right,
+	return kobject_create(KOBJ_TYPE_PROCESS, right,
 			KOBJ_RIGHT_CTL, (unsigned long)&args);
 }
 
@@ -159,7 +158,7 @@ static int prepare_driver_resource(struct process *proc)
 
 	while (resource) {
 		resource->client = grant(proc->proc_handle,
-				resource->handle, RES_DEFAULT_RIGHT, 0);
+				resource->handle, RES_DEFAULT_RIGHT);
 		if (resource->client <= 0)
 			return -EIO;
 		resource = resource->next;
@@ -198,6 +197,8 @@ static struct process *create_new_process(struct elf_ctx *ctx,
 			goto err_out;
 		}
 	}
+
+	register_request_entry(REQUEST_TYPE_PROCESS, proc->proc_handle, proc);
 
 	return proc;
 
@@ -277,10 +278,21 @@ static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 {
 	Elf64_auxv_t *auxp = (Elf64_auxv_t *)top;
 	extern unsigned long heap_base, heap_end;
+	int fuxi;
 
 	NEW_AUX_ENT(auxp, AT_NULL, 0);
 	NEW_AUX_ENT(auxp, AT_PAGESZ, PAGE_SIZE);
 	NEW_AUX_ENT(auxp, AT_HWCAP, 0);		// TBD cpu feature.
+
+	/*
+	 * pass the fuxi handle to this process, so it can connect
+	 * to the service center. here will not check the return
+	 * value, libc should check it ?
+	 */
+	if (fuxi_handle > 0) {
+		fuxi = grant(proc->proc_handle, fuxi_handle, KR_WC);
+		NEW_AUX_ENT(auxp, AT_ROOTFS_HANDLE, fuxi);
+	}
 
 	if (flags & TASK_FLAGS_DEDICATED_HEAP) {
 		NEW_AUX_ENT(auxp, AT_HEAP_BASE, heap_base);
@@ -517,26 +529,13 @@ int load_ramdisk_process(char *path, int argc, char **argv,
 	return 0;
 }
 
-void wakeup_and_listen_all_process(void)
+void wakeup_all_process(void)
 {
 	struct process *proc;
-	struct epoll_event event;
-
-	proc_epfd = epoll_create(10);
-	if (proc_epfd < 0) {
-		pr_err("can not create epoll fd\n");
-		exit(-ENOENT);
-	}
 
 	list_for_each_entry(proc, &process_list, list) {
 		if (proc->pid == 0)
 			continue;
-
-		event.events = EPOLLIN;
-		event.data.ptr = proc;
-
-		if (epoll_ctl(proc_epfd, EPOLL_CTL_ADD, proc->proc_handle, &event))
-			pr_err("epoll process %d fail\n", proc->pid);
 
 		/*
 		 * wakeup the process now
@@ -596,9 +595,7 @@ static long handle_process_page_fault(struct process *proc,
 		goto out;
 	}
 
-	kobject_reply_simple(proc->proc_handle, 0);
-
-	return 0;
+	return kobject_reply_errcode(proc->proc_handle, 0, 0);
 
 out:
 	/*
@@ -694,6 +691,8 @@ out:
 static long process_iamok_handler(struct process *proc,
 		struct proto *proto, void *data, size_t size)
 {
+	kobject_reply_errcode(proc->proc_handle, proto->token, 0);
+
 	return 0;
 }
 
@@ -741,7 +740,7 @@ static long handle_process_write_request(struct process *proc,
 	case PROTO_EXECV:
 		ret = process_execv_handler(proc, &proto, data, esize);
 		break;
-	case PROTO_IAM_OK:
+	case PROTO_IAMOK:
 		ret = process_iamok_handler(proc, &proto, data, esize);
 		break;
 	default:
@@ -752,9 +751,10 @@ static long handle_process_write_request(struct process *proc,
 	return ret;
 }
 
-long handle_process_request(struct epoll_event *event)
+long handle_process_request(struct epoll_event *event, struct request_entry *re)
 {
-	struct process *proc = event->data.ptr;
+	struct process *proc = re->data;
+	long ret;
 
 	if (!proc) {
 		pr_err("can not find process\n");
@@ -762,7 +762,28 @@ long handle_process_request(struct epoll_event *event)
 	}
 
 	if (event->data.type == EPOLLIN_WRITE)
-		return handle_process_write_request(proc, event);
+		ret = handle_process_write_request(proc, event);
 	else
-		return handle_process_kernel_request(proc, event);
+		ret = handle_process_kernel_request(proc, event);
+
+	return ret;
+}
+
+int handle_process_info_request(struct epoll_event *event, struct request_entry *re)
+{
+	struct list_head *list = re->data;
+	struct process *proc;
+	struct proc_info info;
+
+	if (list == &process_list) {
+		memset(&info, 0, sizeof(struct proc_info));
+	} else {
+		proc = list_entry(list, struct process, list);
+		re->data = (void *)list->next;
+
+		strcpy(info.name, proc->name);
+		info.pid = proc->pid;
+	}
+
+	return kobject_write(re->handle, &info, sizeof(struct proc_info), NULL, 0, 0);
 }

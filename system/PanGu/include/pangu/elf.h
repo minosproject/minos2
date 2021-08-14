@@ -606,6 +606,7 @@ typedef struct {
 #define AT_EXECFN  31   /* filename of program */
 
 /* dedicated for minos */
+#define AT_ROOTFS_HANDLE 61
 #define AT_HEAP_BASE 62
 #define AT_HEAP_END 63
 

@@ -33,7 +33,7 @@ int request_device_resource(const char *name, struct resource **res_ret)
 	args.type = PMA_TYPE_MMIO;
 	args.start = res->base;
 	args.end = res->end;
-	res->handle = kobject_create("drv-mmio", KOBJ_TYPE_PMA,
+	res->handle = kobject_create(KOBJ_TYPE_PMA,
 			RES_DEFAULT_RIGHT | KOBJ_RIGHT_GRANT,
 			KOBJ_RIGHT_RW, (unsigned long)&args);
 	pr_info("mmio handle %d\n", res->handle);
@@ -44,7 +44,7 @@ int request_device_resource(const char *name, struct resource **res_ret)
 	res->type = RES_TYPE_IRQ;
 	res->base = 74;
 	res->end = 74;
-	res->handle = kobject_create("drv-irq", KOBJ_TYPE_IRQ,
+	res->handle = kobject_create(KOBJ_TYPE_IRQ,
 			RES_DEFAULT_RIGHT | KOBJ_RIGHT_GRANT,
 			KOBJ_RIGHT_RW, 74);
 	res->next = head;

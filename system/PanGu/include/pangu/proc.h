@@ -17,6 +17,11 @@
 
 #define MAX_ARGC	(PAGE_SIZE / sizeof(char *))
 
+#define PROCESS_NAME_SIZE 64
+
+struct service;
+struct request_entry;
+
 struct process {
 	int pid;
 	int flags;
@@ -34,7 +39,12 @@ struct process {
 
 	struct list_head list;		// link to all the process in the system.
 
+	char name[PROCESS_NAME_SIZE];
 };
+
+extern struct process *self;
+extern int fuxi_handle;
+extern struct list_head process_list;
 
 struct epoll_event;
 struct process_proto;
@@ -42,17 +52,16 @@ struct process_proto;
 typedef long (*proc_event_handle_t)(struct process *proc,
 		struct process_proto *proto, void *data, size_t size);
 
-extern struct process *self;
-
 void self_init(unsigned long vma_base, unsigned long vma_end);
 
 void *map_self_memory(int pma_handle, size_t size, int perm);
 
 int unmap_self_memory(void *base);
 
-void wakeup_and_listen_all_process(void);
+void wakeup_all_process(void);
 
-long handle_process_request(struct epoll_event *event);
+long handle_process_request(struct epoll_event *event,
+		struct request_entry *re);
 
 int load_ramdisk_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata);

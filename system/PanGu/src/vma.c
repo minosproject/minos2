@@ -153,7 +153,7 @@ int create_pma(struct process *proc, int type, int right,
 		.end = base + size,
 	};
 
-	return kobject_create(NULL, KOBJ_TYPE_PMA, right,
+	return kobject_create(KOBJ_TYPE_PMA, right,
 			right_req, (unsigned long)&args);
 }
 

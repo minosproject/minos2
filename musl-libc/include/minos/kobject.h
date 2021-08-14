@@ -33,6 +33,8 @@ extern "C" {
 #define KR_WC (KR_W | KR_C)
 #define KR_WCG (KR_W | KR_C | KR_G)
 #define KR_RCG (KR_R | KR_C | KR_G)
+#define KR_WG (KR_W | KR_G)
+#define KR_GG (KR_R | KR_G)
 
 /*
  * kobject related API.
@@ -48,6 +50,13 @@ long kobject_read(int handle, void *data, size_t data_size,
 		size_t *actual_data, void *extra, size_t extra_size,
 		size_t *actual_extra, uint32_t timeout);
 
+static inline long kobject_read_simple(int handle, void *data,
+		size_t data_size, uint32_t timeout)
+{
+	return kobject_read(handle, data, data_size,
+			NULL, NULL, 0, NULL, timeout);
+}
+
 long kobject_write(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout);
 
@@ -61,7 +70,7 @@ int kobject_unmap(int handle);
 
 long kobject_ctl(int handle, int action, unsigned long data);
 
-int grant(int proc, int handle, int right, int release);
+int grant(int proc, int handle, int right);
 
 int sys_connect_service(const char *path, int right);
 

@@ -43,9 +43,6 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 	unsigned long flags;
 	int wait = 0, ret = 0;
 
-	if (event_is_polled(&kobj->poll_struct, POLLIN))
-		return -EBUSY;
-
 	/*
 	 * return as soon as fast if the irq is already pending.
 	 */

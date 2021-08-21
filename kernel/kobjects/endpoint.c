@@ -23,17 +23,14 @@
 
 #include "kobject_copy.h"
 
-#define EP_READER		0
-#define EP_WRITER		1
-#define EP_NULL			2
+#define EP_READER 0
+#define EP_WRITER 1
+#define EP_NULL 2
 
-#define EP_STAT_CLOSED		0
-#define EP_STAT_OPENED		1
+#define EP_STAT_CLOSED 0
+#define EP_STAT_OPENED 1
 
-#define EP_NAME_SIZE		16
-
-#define EP_RIGHT	\
-	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
+#define EP_RIGHT (KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
 
 struct endpoint {
 	struct task *recv_task;			// which task is receiveing data from this endpoint.
@@ -44,6 +41,7 @@ struct endpoint {
 	size_t shmem_size;
 
 	struct kobject kobj;			// kobj for this endpoint.
+	uint32_t token;
 
 	spinlock_t lock;			// spinlock to prevent below member.
 	struct list_head pending_list;		// pending write task will list here.
@@ -60,14 +58,9 @@ static int endpoint_open(struct kobject *kobj,
 			handle_t handle, right_t right)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
-	int dir = EP_DIR(right);
 
-	if (dir == EP_READER) {
-		ep->status[EP_DIR(right)] = EP_STAT_OPENED;
-	} else {
-		if (ep->mode != EP_MODE_MUTIL_WRITER)
-			ep->status[EP_WRITER] = EP_STAT_OPENED;
-	}
+	ep->status[EP_DIR(right)] = EP_STAT_OPENED;
+	smp_wmb();
 
 	return 0;
 }
@@ -92,22 +85,16 @@ static int endpoint_close(struct kobject *kobj, right_t right)
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	int dir = EP_DIR(right);
 
+	ep->status[dir] = EP_STAT_CLOSED;
+	smp_wmb();
+
 	if (dir == EP_READER) {
-		ep->status[dir] = EP_STAT_CLOSED;
 		spin_lock(&ep->lock);
 		wake_all_ep_writer(ep, -EIO);
 		spin_unlock(&ep->lock);
-	} else {
-		if (ep->mode != EP_MODE_MUTIL_WRITER) {
-			ep->status[dir] = EP_STAT_CLOSED;
-			if (event_is_polled(&kobj->poll_struct, POLLIN)) {
-				poll_event_send(&kobj->poll_struct,
-						POLLIN, POLLIN_KOBJ_CLOSE);
-			}
-		}
 	}
 
-	if ((ep->mode != EP_MODE_MUTIL_WRITER) && (ep->shmem))
+	if (ep->shmem)
 		unmap_process_memory(current_proc, va2sva(ep->shmem), ep->shmem_size);
 
 	return 0;
@@ -130,8 +117,7 @@ static long endpoint_recv(struct kobject *kobj, void __user *data,
 			return -EIO;
 		}
 
-		if ((ep->status[EP_WRITER] == EP_STAT_CLOSED) &&
-				(ep->mode == EP_MODE_NORMAL)) {
+		if (ep->status[EP_WRITER] == EP_STAT_CLOSED) {
 			spin_unlock(&ep->lock);
 			return -EOTHERSIDECLOSED;
 		}
@@ -199,28 +185,31 @@ out:
 	return ret;
 }
 
-static long generate_token(struct task *task)
+static inline long endpoint_generate_token(struct endpoint *ep)
 {
-	return ((long)task->pid << 32) | (task->tid);
+	/*
+	 * consider of the 32bit system.
+	 */
+	uint32_t token = ep->token++;
+
+	return (long)token;
 }
 
 static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
-	struct poll_struct *ps = &kobj->poll_struct;
+	struct poll_struct *ps = kobj->poll_struct;
 	struct task *task;
 	int ret;
 
 	spin_lock(&ep->lock);
-
 	if (ep->status[EP_READER] == EP_STAT_CLOSED) {
 		spin_unlock(&ep->lock);
 		return -EOTHERSIDECLOSED;
 	}
 
-	if ((ep->status[EP_WRITER] == EP_STAT_CLOSED) &&
-			(ep->mode == EP_MODE_NORMAL)) {
+	if (ep->status[EP_WRITER] == EP_STAT_CLOSED) {
 		spin_unlock(&ep->lock);
 		return -EIO;
 	}
@@ -230,19 +219,20 @@ static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_s
 	 * for.
 	 */
 	list_add_tail(&ep->pending_list, &current->kobj.list);
-	__event_task_wait(generate_token(current),
+	__event_task_wait(endpoint_generate_token(ep),
 			TASK_EVENT_KOBJ_REPLY, timeout);
-	task = ep->recv_task;
+	spin_unlock(&ep->lock);
 
 	/*
-	 * if there is some task waitting for the data, need to
-	 * wake up this task.
+	 * if the releated kobject event is not polled, try
+	 * to wake up the reading task.
 	 */
-	if (ps->poll_event & POLLIN) {
-		spin_unlock(&ep->lock);
-		poll_event_send(ps, POLLIN, POLLIN_WRITE);
-	} else if (task) {
-		wake_up(task, 0);
+	ret = poll_event_send(ps, EV_IN);
+	if (ret == -EAGAIN) {
+		spin_lock(&ep->lock);
+		task = ep->recv_task;
+		if (task)
+			wake_up(task, 0);
 		spin_unlock(&ep->lock);
 	}
 
@@ -348,29 +338,15 @@ static struct kobject_ops endpoint_kobject_ops = {
 	.open		= endpoint_open,
 };
 
-static struct kobject *endpoint_create(right_t right,
-		right_t right_req, unsigned long data)
+static struct kobject *endpoint_create(right_t right, right_t right_req, unsigned long data)
 {
-	struct endpoint_create_arg args;
+	size_t shmem_size = data;
 	struct endpoint *ep;
-	size_t shmem_size;
-	ssize_t ret;
-
-	ret = copy_from_user(&args, (void *)data,
-			sizeof(struct endpoint_create_arg));
-	if (ret <= 0)
-		return ERROR_PTR(-EFAULT);
 
 	if ((right & ~EP_RIGHT) || (right_req & ~EP_RIGHT))
 		return ERROR_PTR(-EPERM);
 
-	if ((right & KOBJ_RIGHT_MMAP) && (args.shmem_size == 0))
-		return ERROR_PTR(-EPERM);
-
-	/*
-	 * EP_MODE_MUTIL_WRITER mode do not support mmap.
-	 */
-	if ((right & KOBJ_RIGHT_MMAP) && (args.mode == EP_MODE_MUTIL_WRITER))
+	if ((right & KOBJ_RIGHT_MMAP) && (shmem_size == 0))
 		return ERROR_PTR(-EPERM);
 
 	/*
@@ -380,15 +356,13 @@ static struct kobject *endpoint_create(right_t right,
 	if ((right_req & KOBJ_RIGHT_RW) == KOBJ_RIGHT_RW)
 		return ERROR_PTR(-EPERM);
 
+	shmem_size = PAGE_BALIGN(shmem_size);
+	if (shmem_size > HUGE_PAGE_SIZE)
+		return ERROR_PTR(-E2BIG);
+
 	ep = zalloc(sizeof(struct endpoint));
 	if (!ep)
 		return ERROR_PTR(-ENOMEM);
-
-	shmem_size = PAGE_BALIGN(args.shmem_size);
-	if (shmem_size > HUGE_PAGE_SIZE) {
-		free(ep);
-		return ERROR_PTR(-E2BIG);
-	}
 
 	ep->shmem = get_free_pages(shmem_size >> PAGE_SHIFT, GFP_USER);
 	if (!ep->shmem) {

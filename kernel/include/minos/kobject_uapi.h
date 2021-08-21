@@ -34,6 +34,7 @@ enum {
 	KOBJ_TYPE_VIRQ,		// virq for vcpu process in user-space.
 	KOBJ_TYPE_STDIO,	// dedicated for system debuging
 	KOBJ_TYPE_POLL_HUB,	// hub for events need to send.
+	KOBJ_TYPE_PORT,
 	KOBJ_TYPE_MAX
 };
 
@@ -100,17 +101,6 @@ struct thread_create_arg {
 enum {
 	KOBJ_THREAD_OP_BASE = 0x3000,
 	KOBJ_THREAD_OP_WAKEUP,
-};
-
-/*
- * for endpoint kobject
- */
-#define EP_MODE_NORMAL 0x0
-#define EP_MODE_MUTIL_WRITER 0x1
-
-struct endpoint_create_arg {
-	int mode;
-	size_t shmem_size;
 };
 
 #endif

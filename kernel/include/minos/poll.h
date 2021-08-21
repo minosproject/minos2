@@ -6,25 +6,57 @@
 
 #define POLLIN 0x001
 #define POLLOUT 0x002
-#define POLLEXCLUSIVE (1U<<28)
-#define POLLWAKEUP (1U<<29)
-#define POLLONESHOT (1U<<30)
-#define POLLET (1U<<31)
+#define POLLROPEN 0X004
+#define POLLRCLOSE 0x008
+#define POLLWOPEN 0x010
+#define POLLWCLOSE 0x020
+#define POLLKERNEL 0x040
 
-#define POLL_EVENT_MASK (POLLIN | POLLOUT)
+enum {
+	EV_IN = 0,
+	EV_OUT,
+	EV_ROPEN,
+	EV_RCLOSE,
+	EV_WOPEN,
+	EV_WCLOSE,
+	EV_KERNEL,
+	EV_MAX,
+};
 
-#define POLLIN_WRITE 0x0
-#define POLLIN_NOTIFY 0x1
+#define POLL_EVENT_MASK \
+	(POLLIN | POLLOUT | POLLROPEN | POLLRCLOSE | \
+	 POLLWOPEN | POLLWCLOSE | POLLKERNEL)
+
+#define POLL_READ_RIGHT_EVENT \
+	(POLLIN | POLLWOPEN | POLLWCLOSE)
+
+#define POLL_WRITE_RIGHT_EVENT \
+	(POLLOUT | POLLROPEN | POLLRCLOSE)
+
+/*
+ * kernel events - which sended by kernel which
+ * happend on the kobject.
+ */
 #define POLLIN_PGF 0x2
 #define POLLIN_EXIT 0x3
 #define POLLIN_IRQ 0x4
-#define POLLIN_KOBJ_CLOSE 0x5
 
 struct poll_hub {
 	struct list_head event_list;
 	spinlock_t lock;
 	struct kobject kobj;
 	struct task *task;
+};
+
+struct pevent_item {
+	struct poll_hub *poller;
+	unsigned long data;
+	struct pevent_item *next;
+};
+
+struct poll_struct {
+	int poll_events;
+	struct pevent_item *pevents[EV_MAX];
 };
 
 struct poll_data {
@@ -40,7 +72,7 @@ struct poll_data {
 };
 
 struct poll_event {
-	uint32_t events;
+	int events;
 	struct poll_data data;
 };
 
@@ -50,15 +82,14 @@ struct poll_event_kernel {
 	int release;
 };
 
-static inline int event_is_polled(struct poll_struct *ps, int event)
+static inline int event_is_polled(struct poll_struct *ps, int ev)
 {
-	return !!(ps->poll_event & event);
+	return (ps && (ps->poll_events & ev));
 }
 
-int poll_event_send_static(struct poll_struct *ps,
-		struct poll_event_kernel *evk);
+int poll_event_send_static(struct pevent_item *pi, struct poll_event_kernel *evk);
 
-int poll_event_send(struct poll_struct *ps, int event, int type);
+int poll_event_send(struct poll_struct *ps, int ev);
 
 int poll_event_send_with_data(struct poll_struct *ps, int event, int type,
 		uint64_t data0, uint64_t data1, uint64_t data2);

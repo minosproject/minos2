@@ -68,7 +68,7 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 {
 	struct kobject *kobj = (struct kobject *)data;
 	struct irq_desc *idesc = (struct irq_desc *)kobj->data;
-	struct poll_struct *ps = &kobj->poll_struct;
+	struct poll_struct *ps = kobj->poll_struct;
 	struct task *task = NULL;
 	int wakeup = 0;
 
@@ -83,9 +83,9 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	/*
 	 * whether this irq has been listened.
 	 */
-	if (event_is_polled(&kobj->poll_struct, POLLIN)) {
+	if (event_is_polled(ps, POLLIN)) {
 		ASSERT(idesc->poll_event != NULL);
-		poll_event_send_static(ps, idesc->poll_event);
+		poll_event_send_static(ps->pevents[EV_IN], idesc->poll_event);
 		return 0;
 	}
 

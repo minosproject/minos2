@@ -43,21 +43,16 @@ struct poll_event *alloc_poll_event(void)
 	return &p->event;
 }
 
-int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk)
+int poll_event_send_static(struct pevent_item *pi, struct poll_event_kernel *evk)
 {
-	struct poll_hub *peh;
+	struct poll_hub *peh = pi->poller;
 	struct task *task;
 	unsigned long flags;
 
-	if (evk->event.events & POLLIN)
-		peh = to_poll_hub(ps->infos[0].poller);
-	else
-		peh = to_poll_hub(ps->infos[1].poller);
-
 	spin_lock_irqsave(&peh->lock, flags);
-
 	list_add_tail(&peh->event_list, &evk->list);
 	task = peh->task;
+	spin_unlock_irqrestore(&peh->lock, flags);
 
 	/*
 	 * wake up the waitter, if has.
@@ -66,40 +61,53 @@ int poll_event_send_static(struct poll_struct *ps, struct poll_event_kernel *evk
 			(task->wait_event == (unsigned long)peh))
 		wake_up(task, 0);
 
-	spin_unlock_irqrestore(&peh->lock, flags);
-
 	return 0;
 }
 
-int poll_event_send_with_data(struct poll_struct *ps, int event, int type,
+int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
 		uint64_t data0, uint64_t data1, uint64_t data2)
 {
-	struct poll_event_kernel *p;
 	struct poll_event *pe;
-	struct poll_event_info *info;
+	struct pevent_item *pi;
+	int event = (1 << ev);
+	int events;
+	int ret = 0;
 
-	if ((event & POLL_EVENT_MASK) == 0)
-		return -EINVAL;
+	if (!ps)
+		return -ENOENT;
 
-	info = (event == POLLIN ? &ps->infos[0] : &ps->infos[1]);
-	p = (struct poll_event_kernel *)alloc_poll_event();
-	if (!p)
-		return -ENOMEM;
+	events = ps->poll_events;
+	pi = ps->pevents[ev];
+	smp_rmb();
 
-	pe = &p->event;
-	pe->events = event;
-	pe->data.pdata = info->data;
-	pe->data.type = type;
-	pe->data.data0 = data0;
-	pe->data.data0 = data1;
-	pe->data.data0 = data2;
+	if ((event & events) == 0)
+		return -EAGAIN;
 
-	return poll_event_send_static(ps, p);
+	/*
+	 * need aquire the spinlock of the poll_struct ?
+	 */
+	while (pi) {
+		pe = alloc_poll_event();
+		if (!pe)
+			return -ENOMEM;
+
+		pe->events = event;
+		pe->data.pdata = pi->data;
+		pe->data.type = type;
+		pe->data.data0 = data0;
+		pe->data.data0 = data1;
+		pe->data.data0 = data2;
+
+		ret += poll_event_send_static(pi, (struct poll_event_kernel *)pe);
+		pi = pi->next;
+	}
+
+	return ret;
 }
 
-int poll_event_send(struct poll_struct *ps, int event, int type)
+int poll_event_send(struct poll_struct *ps, int ev)
 {
-	return poll_event_send_with_data(ps, event, type, 0, 0, 0);
+	return poll_event_send_with_data(ps, ev, 0, 0, 0, 0);
 }
 
 static int copy_poll_event_to_user(struct poll_event __user *events,
@@ -152,8 +160,10 @@ static int __poll_hub_read(struct poll_hub *peh,
 		 * some task in this process is aready waitting data on
 		 * this poll_hub, return -EAGAIN.
 		 */
-		if (peh->task != NULL)
+		if ((peh->task != NULL) && (peh->task != current))
 			goto out;
+
+		peh->task = NULL;
 
 		if (is_list_empty(&peh->event_list)) {
 			if (timeout == 0)
@@ -169,9 +179,10 @@ static int __poll_hub_read(struct poll_hub *peh,
 			 * consider the case of EABORT
 			 */
 			ret = wait_event();
-			peh->task = NULL;
-			if (ret)
+			if (ret) {
+				peh->task = NULL;
 				return ret;
+			}
 			continue;
 		}
 
@@ -215,7 +226,11 @@ static long poll_hub_read(struct kobject *kobj, void __user *data, size_t data_s
 
 static void poll_hub_release(struct kobject *kobj)
 {
-
+	/*
+	 * currently only kernel can access this kobject
+	 * now. so do not need to acquire the poll_hub's
+	 * spinlock here.
+	 */
 }
 
 static int poll_hub_close(struct kobject *kobj, right_t right)
@@ -223,55 +238,151 @@ static int poll_hub_close(struct kobject *kobj, right_t right)
 	return 0;
 }
 
+static struct pevent_item *find_pevent_item(struct poll_struct *ps, int ev, struct poll_hub *ph)
+{
+	struct pevent_item *pi = ps->pevents[ev];
+
+	while (pi) {
+		if (pi->poller == ph)
+			return pi;
+		pi = pi->next;
+	}
+
+	return NULL;
+}
+
+static inline void add_new_pevent(struct poll_struct *ps, int ev, struct pevent_item *pi)
+{
+	struct pevent_item *head = ps->pevents[ev];
+
+	pi->next = head;
+	head = pi;
+	mb();
+}
+
+static struct pevent_item * find_and_del_pevent_item(struct poll_struct *ps,
+		int ev, struct poll_hub *ph)
+{
+	struct pevent_item *pi = ps->pevents[ev];
+	struct pevent_item *tmp = NULL;
+
+	while (pi) {
+		if (pi->poller == ph) {
+			if (tmp == NULL)
+				ps->pevents[ev] = pi->next;
+			else
+				tmp->next = pi->next;
+
+			mb();
+			return pi;
+		}
+
+		tmp = pi;
+		pi = pi->next;
+	}
+
+	return NULL;
+}
+
 static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 		int right, int op, struct poll_event *uevent)
 {
-	struct poll_struct *ps = &ksrc->poll_struct;
-	struct poll_event_info *pi[2] = { NULL, NULL};
-	int ret = 0;
-	int i;
+	int events, new_events, ev;
+	struct pevent_item *ei;
+	struct poll_struct *ps;
+	int i, ret = 0;
 
-	spin_lock(&ps->lock);
+	spin_lock(&ksrc->lock);
 
-	if (uevent->events & POLLIN)
-		pi[0] = &ps->infos[0];
-	if (uevent->events)
-		pi[1] = &ps->infos[1];
+	ps = ksrc->poll_struct;
+	if (ps == NULL) {
+		ps = zalloc(sizeof(struct poll_struct));
+		if (ps == NULL) {
+			spin_unlock(&ksrc->lock);
+			return -ENOMEM;
+		}
 
-	for (i = 0; i < 2; i++) {
-		if (!pi[i])
+		ksrc->poll_struct = ps;
+	}
+
+	events = uevent->events;
+	new_events = 0;
+
+	for (i = 0; i < EV_MAX; i++) {
+		ev = events & (1 << i);
+		if (!ev)
 			continue;
 
 		switch (op) {
 		case KOBJ_POLL_OP_ADD:
-			if ((ps->poll_event & (1 << i)) != 0)
-				break;
-			ret = kobject_poll(ksrc, &ph->kobj, 1 << i, true);
-			if (ret)
-				break;
-		case KOBJ_POLL_OP_MOD:
-			ps->poll_event |= (1 << i);
-			pi[i]->poller = &ph->kobj;
-			pi[i]->data = uevent->data.pdata;
+			ei = find_pevent_item(ps, i, ph);
+			if (!ei) {
+				ret = kobject_poll(&ph->kobj, ksrc, ev, 1);
+				if (ret)
+					break;
+
+				ei = malloc(sizeof(struct pevent_item));
+				if (!ei) {
+					ret = -ENOMEM;
+					goto out;
+				}
+
+				ei->poller = ph;
+				ei->data = uevent->data.pdata;
+				add_new_pevent(ps, i, ei);
+				new_events |= ev;
+				kobject_get(&ph->kobj);
+			}
 			break;
-
+		case KOBJ_POLL_OP_MOD:
+			ei = find_pevent_item(ps, i, ph);
+			if (ei)
+				ei->data = uevent->data.pdata;
+			else
+				pr_err("epoll_mod %d is not enabled\n", ev);
+			break;
 		case KOBJ_POLL_OP_DEL:
-			if ((ps->poll_event & (1 << i)) == 0)
-				break;
-
-			kobject_poll(ksrc, &ph->kobj, 1 << i, false);
-			ps->poll_event &= ~(1 << i);
-			pi[i]->poller = NULL;
-			pi[i]->data = 0;
+			ei = find_and_del_pevent_item(ps, i, ph);
+			if (ei) {
+				kobject_poll(&ph->kobj, ksrc, ev, 0);
+				free(ei);
+				new_events |= ev;
+				kobject_put(&ph->kobj);
+			} else {
+				pr_err("epoll_del %d is not enabled\n", ev);
+			}
 			break;
 		default:
+			pr_err("unsupport epoll action\n");
 			break;
 		}
 	}
 
-	spin_unlock(&ps->lock);
+	if (op == KOBJ_POLL_OP_ADD)
+		ps->poll_events |= new_events;
+	else if (op == KOBJ_POLL_OP_DEL)
+		ps->poll_events &= ~new_events;
+	smp_wmb();
+
+out:
+	spin_unlock(&ksrc->lock);
 
 	return ret;
+}
+
+static int poll_hub_check_right(int events, right_t right)
+{
+	events &= POLL_EVENT_MASK;
+	if (events == 0)
+		return -EINVAL;
+
+	if ((events & POLL_READ_RIGHT_EVENT) && !(right & KOBJ_RIGHT_READ))
+		return -EPERM;
+
+	if ((events & POLL_WRITE_RIGHT_EVENT) && !(right & KOBJ_RIGHT_WRITE))
+		return -EPERM;
+
+	return 0;
 }
 
 static long poll_hub_ctl(struct kobject *kobj, int op, unsigned long data)
@@ -292,24 +403,13 @@ static long poll_hub_ctl(struct kobject *kobj, int op, unsigned long data)
 	if (ret)
 		return -ENOENT;
 
-	if ((uevent.events & (POLLIN | POLLOUT)) == 0) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	if ((uevent.events & POLLIN) && !(right & KOBJ_RIGHT_READ)) {
-		ret = -EPERM;
-		goto out;
-	}
-
-	if ((uevent.events & POLLOUT) && !(right & KOBJ_RIGHT_READ)) {
-		ret = -EPERM;
-		goto out;
-	}
+	ret = poll_hub_check_right(uevent.events, right);
+	if (ret)
+		return -EPERM;
 
 	ret = __poll_hub_ctl(ph, kobj_polled, right, op, &uevent);
-out:
 	put_kobject(kobj_polled);
+
 	return ret;
 }
 

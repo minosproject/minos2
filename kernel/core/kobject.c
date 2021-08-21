@@ -89,7 +89,6 @@ void kobject_init(struct kobject *kobj, int type, right_t right, unsigned long d
 	kobj->data = data;
 	kobj->list.pre = NULL;
 	kobj->list.next = NULL;
-	spin_lock_init(&kobj->poll_struct.lock);
 }
 
 struct kobject *kobject_create(int type, right_t right,
@@ -132,41 +131,37 @@ int kobject_poll(struct kobject *ksrc, struct kobject *kdst, int event, bool ena
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)
 {
+	int ret;
+
 	if (!kobj->ops || !kobj->ops->open)
 		return 0;
 
-	return kobj->ops->open(kobj, handle, right);
+	ret = kobj->ops->open(kobj, handle, right);
+	if (ret)
+		return ret;
+
+	if (right & KOBJ_RIGHT_WRITE)
+		poll_event_send(kobj->poll_struct, EV_WOPEN);
+	else
+		poll_event_send(kobj->poll_struct, EV_ROPEN);
+
+	return 0;
 }
 
 int kobject_close(struct kobject *kobj, right_t right)
 {
-	struct poll_struct *ps = &kobj->poll_struct;
 	int ret = 0;
-	int events;
 
 	if (!kobj->ops || !kobj->ops->close)
 		ret = kobj->ops->close(kobj, right);
 
 	/*
-	 * if the kobject has been polled, release the poll
-	 * event in poll_hub.
+	 * send the close event to the poller if need.
 	 */
-	events = ps->poll_event;
-	ps->poll_event = 0;
-	smp_wmb();
-
-	if ((events & POLLIN) && ((right & KOBJ_RIGHT_RW) == KOBJ_RIGHT_WRITE))
-		poll_event_send_with_data(ps, POLLIN, POLLIN_KOBJ_CLOSE, 0, 0, 0);
-
-	if ((events & POLLOUT) && ((right & KOBJ_RIGHT_RW) == KOBJ_RIGHT_READ))
-		poll_event_send_with_data(ps, POLLOUT, POLLIN_KOBJ_CLOSE, 0, 0, 0);
-
-	if (events & POLLIN)
-		kobject_poll(kobj, ps->infos[0].poller, POLLIN, false);
-	if (events & POLLOUT)
-		kobject_poll(kobj, ps->infos[1].poller, POLLOUT, false);
-
-	memset(ps, 0, sizeof(struct poll_struct));
+	if (right & KOBJ_RIGHT_WRITE)
+		poll_event_send(kobj->poll_struct, EV_WCLOSE);
+	else
+		poll_event_send(kobj->poll_struct, EV_RCLOSE);
 
 	/*
 	 * dec the refcount which caused by kobject_init and
@@ -184,6 +179,13 @@ long kobject_recv(struct kobject *kobj, void __user *data, size_t data_size,
 	if (!kobj->ops || !kobj->ops->recv)
 		return -EACCES;
 
+	/*
+	 * before read, if there is task waitting the event
+	 * to be read, here can send EV_OUT event to notify
+	 * the target task to send new data.
+	 */
+	poll_event_send(kobj->poll_struct, EV_OUT);
+
 	return kobj->ops->recv(kobj, data, data_size, actual_data,
 			extra, extra_size, actual_extra, timeout);
 }
@@ -193,7 +195,9 @@ long kobject_send(struct kobject *kobj, void __user *data, size_t data_size,
 {
 	if (!kobj->ops || !kobj->ops->send)
 		return -EACCES;
-
+	/*
+	 * the poll event must called by the kobject itself
+	 */
 	return kobj->ops->send(kobj, data, data_size, extra,
 			extra_size, timeout);
 }

@@ -11,17 +11,7 @@ struct task;
 struct process;
 struct ipc_msg;
 struct kobject_ops;
-
-struct poll_event_info {
-	struct kobject *poller;
-	unsigned long data;
-};
-
-struct poll_struct {
-	int poll_event;
-	struct poll_event_info infos[2];	// only support POLLIN and POLLOUT.
-	spinlock_t lock;
-};
+struct poll_struct;
 
 /*
  * Kernel object is a object than can provide some ability
@@ -37,10 +27,12 @@ struct kobject {
 	int type;
 	right_t right;
 	atomic_t ref;
-	struct poll_struct poll_struct;
 	struct kobject_ops *ops;
 	unsigned long data;
 	struct list_head list;
+
+	struct poll_struct *poll_struct;
+	spinlock_t lock;
 };
 
 #define KOBJ_PLACEHOLDER	(struct kobject *)(-1)

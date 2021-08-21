@@ -31,7 +31,7 @@ static long process_send(struct kobject *kobj,
 		uint32_t timeout)
 {
 	struct process *proc = (struct process *)kobj->data;
-	struct poll_struct *ps = &kobj->poll_struct;
+	struct poll_struct *ps = kobj->poll_struct;
 
 	/*
 	 * ROOT service will always poll to the process's
@@ -44,7 +44,7 @@ static long process_send(struct kobject *kobj,
 	__event_task_wait(0, TASK_EVENT_ROOT_SERVICE, 0);
 	spin_unlock(&proc->request_lock);
 
-	poll_event_send(ps, POLLIN, POLLIN_WRITE);
+	poll_event_send(ps, EV_IN);
 
 	return wait_event();
 }
@@ -146,9 +146,9 @@ static void process_release(struct kobject *kobj)
 
 static int send_process_exit_event(struct process *proc)
 {
-	struct poll_struct *ps = &proc->kobj.poll_struct;
+	struct poll_struct *ps = proc->kobj.poll_struct;
 
-	return poll_event_send(ps, POLLIN, POLLIN_EXIT);
+	return poll_event_send_with_data(ps, EV_KERNEL, POLLIN_EXIT, 0, 0, 0);
 }
 
 static void task_exit_helper(void *data)

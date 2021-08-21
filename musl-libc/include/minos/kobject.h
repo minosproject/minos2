@@ -53,8 +53,8 @@ long kobject_read(int handle, void *data, size_t data_size,
 static inline long kobject_read_simple(int handle, void *data,
 		size_t data_size, uint32_t timeout)
 {
-	return kobject_read(handle, data, data_size,
-			NULL, NULL, 0, NULL, timeout);
+	return kobject_read(handle, data, data_size, (size_t *)0,
+			(void *)0, 0, (size_t *)0, timeout);
 }
 
 long kobject_write(int handle, void *data, size_t data_size,
@@ -66,7 +66,7 @@ int kobject_reply_errcode(int handle, long token, long err_code);
 
 void *kobject_mmap(int handle);
 
-int kobject_unmap(int handle);
+int kobject_munmap(int handle);
 
 long kobject_ctl(int handle, int action, unsigned long data);
 

@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include "libc.h"
+#include <string.h>
 
 #include <minos/kmalloc.h>
 
@@ -13,6 +14,16 @@ void *libc_malloc(size_t size)
 		return kmalloc(size);
 	else
 		return malloc(size);
+}
+
+void *libc_zalloc(size_t size)
+{
+	void *addr;
+
+	addr = libc_malloc(size);
+	if (addr)
+		memset(addr, 0, size);
+	return addr;
 }
 
 void libc_free(void *p)

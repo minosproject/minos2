@@ -11,6 +11,7 @@ enum {
 	PROTO_MPROTECT,
 	PROTO_EXECV,
 	PROTO_OPEN,
+	PROTO_OPENAT,
 	PROTO_READ,
 	PROTO_WRITE,
 	PROTO_IOCTL,
@@ -42,6 +43,11 @@ struct proto_munmap {
 };
 
 struct proto_open {
+	int flags;
+	int mode;
+};
+
+struct proto_openat {
 	int flags;
 	int mode;
 };
@@ -90,6 +96,7 @@ struct proto {
 		struct proto_mprotect mprotect;
 		struct proto_munmap munmap;
 		struct proto_open open;
+		struct proto_open openat;
 		struct proto_read read;
 		struct proto_write write;
 		struct proto_lseek lseek;

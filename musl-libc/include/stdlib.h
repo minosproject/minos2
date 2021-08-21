@@ -41,6 +41,10 @@ void *realloc (void *, size_t);
 void free (void *);
 void *aligned_alloc(size_t, size_t);
 
+void *libc_malloc(size_t);
+void *libc_zalloc(size_t);
+void libc_free(void *);
+
 _Noreturn void abort (void);
 int atexit (void (*) (void));
 _Noreturn void exit (int);

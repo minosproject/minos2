@@ -11,14 +11,9 @@
 
 #define FILE_PATH_MIN 4
 
-/*
- * fopen("c:/home/minos/1.txt")
- */
 int __sys_open(const char *restrict filename, int flags, int mode)
 {
 	int len = strlen(filename);
-	int handle, fd;
-	char path[2];
 	struct proto proto;
 
 	if ((len >= FILENAME_MAX) || (filename[0] != '/'))
@@ -31,10 +26,8 @@ int __sys_open(const char *restrict filename, int flags, int mode)
 	proto.open.flags = flags;
 	proto.open.mode = mode;
 
-	fd = kobject_write(libc.rootfs_handle, &proto, sizeof(struct proto),
+	return kobject_write(libc.rootfs_handle, &proto, sizeof(struct proto),
 			(char *)filename, len, -1);
-
-	return fd;
 }
 
 FILE *fopen(const char *restrict filename, const char *restrict mode)

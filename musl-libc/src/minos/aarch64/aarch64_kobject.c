@@ -67,7 +67,7 @@ void *kobject_mmap(int handle)
 	return (void *)syscall(SYS_kobject_mmap, handle);
 }
 
-int kobject_unmap(int handle)
+int kobject_munmap(int handle)
 {
 	return syscall(SYS_kobject_munmap, handle);
 }

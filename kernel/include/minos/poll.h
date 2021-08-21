@@ -37,9 +37,9 @@ enum {
  * kernel events - which sended by kernel which
  * happend on the kobject.
  */
-#define POLLIN_PGF 0x2
-#define POLLIN_EXIT 0x3
-#define POLLIN_IRQ 0x4
+#define POLL_KEV_NULL 0x0
+#define POLL_KEV_PAGE_FAULT 0x1
+#define POLL_KEV_PROCESS_EXIT 0x2
 
 struct poll_hub {
 	struct list_head event_list;

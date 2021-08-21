@@ -14,62 +14,27 @@
 #include <minos/kobject.h>
 
 #include <libminos/vfs.h>
+#include <libminos/file.h>
 #include <libminos/blkdev.h>
 #include "fs.h"
 
-#define FILE_RIGHT \
-	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)
-#define FILE_REQ_RIGHT \
-	(KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP)
-
 struct file *vfs_open(struct partition *part, char *path, int flags, int mode)
 {
-	struct endpoint_create_arg args = {
-		.mode = EP_MODE_NORMAL,
-		.shmem_size = PAGE_SIZE,
-	};
 	struct file *file;
 	struct fnode *fnode;
-	int handle;
 	int ret = 0;
 
 	ret = fs_open(part->sb, path, &fnode);
 	if (ret)
 		return NULL;
 
-	// check the mode, TBD.
-	file = kzalloc(sizeof(struct file));
+	file = create_file(flags, mode);
 	if (!file)
 		return NULL;
 
-	handle = kobject_create(KOBJ_TYPE_ENDPOINT,
-			FILE_RIGHT, FILE_REQ_RIGHT, (unsigned long)&args);
-	if (handle < 0) {
-		kfree(file);
-		return NULL;
-	}
-
-	file->handle = handle;
-	file->sbuf = kobject_mmap(handle);
-	if (file->sbuf == (char *)-1) {
-		kobject_close(handle);
-		kfree(file);
-		return NULL;
-	}
-
-	file->offset = 0;
-	file->f_flags = 0;
-	file->f_mode = 0;
-	file->offset = 0;
 	file->fnode = fnode;
-	file->next = part->open_file;
-	file->handle = handle;
-	file->sbuf_size = PAGE_SIZE;
-	file->mmap_mode = 0;
 	part->open_file = file;
 	
-err_map_file:
-	kfree(file);
 	return file;
 }
 

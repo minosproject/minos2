@@ -3,6 +3,8 @@
 
 #include <inttypes.h>
 
+#include <libminos/file.h>
+
 struct file;
 struct blkdev;
 struct super_block;
@@ -26,26 +28,6 @@ struct fnode {
 	char name[FILENAME_MAX];
 	struct partition *partition;
 };
-
-struct file {
-	uint8_t f_mode;
-	uint8_t mmap_mode;
-	int f_flags;
-
-	uint64_t offset;
-	int handle;		// root file will be -1.
-	void *sbuf;		// shared buf with the client.
-	int sbuf_size;
-
-	union {
-		struct fnode *fnode;
-		void *pdata;
-	};
-
-	struct file *next;	// link all the opened file.
-};
-
-typedef struct file dir_t;
 
 struct super_block {
 	unsigned char dirty;		/* if the superblock is dirty */

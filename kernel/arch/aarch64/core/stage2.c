@@ -506,35 +506,21 @@ int arch_guest_map(struct vspace *vs,
 		unsigned long start, unsigned long end,
 		unsigned long physical, unsigned long flags)
 {
-	int ret;
-
-	spin_lock(&vs->lock);
-	ret = stage2_map_pud_range(vs, start, end, physical, flags);
-	spin_unlock(&vs->lock);
-
-	return ret;
+	return stage2_map_pud_range(vs, start, end, physical, flags);
 }
 
 int arch_guest_unmap(struct vspace *vs, unsigned long start, unsigned long end)
 {
-	int ret;
-
-	spin_lock(&vs->lock);
-	ret = stage2_unmap_ipa_range(vs, start, end, 0);
-	spin_unlock(&vs->lock);
-
-	return ret;
+	return stage2_unmap_ipa_range(vs, start, end, 0);
 }
 
 int arch_guest_vspace_release(struct vspace *vs)
 {
-	spin_lock(&vs->lock);
 	if (vs->pgdp) {
 		stage2_unmap_ipa_range(vs, 0, S2_PHYSICAL_SIZE, 1);
 		free(vs->pgdp);
 		vs->pgdp = NULL;
 	}
-	spin_unlock(&vs->lock);
 
 	return 0;
 }

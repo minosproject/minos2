@@ -207,12 +207,12 @@ static void user_task_sched_in(struct task *task)
 #endif
 }
 
-static void kernel_task_sched_out(struct task *task)
+void kernel_task_sched_out(struct task *task)
 {
 
 }
 
-static void kernel_task_sched_in(struct task *task)
+void kernel_task_sched_in(struct task *task)
 {
 
 }
@@ -279,6 +279,12 @@ void arch_set_task_user_stack(struct task *task, unsigned long stack)
 {
 	gp_regs *regs = stack_to_gp_regs(task->stack_top);
 	regs->sp = stack;
+}
+
+void arch_set_task_reg0(struct task *task, unsigned long data)
+{
+	gp_regs *regs = stack_to_gp_regs(task->stack_top);
+	regs->x0 = data;
 }
 
 void arch_set_task_entry_point(struct task *task, long entry)

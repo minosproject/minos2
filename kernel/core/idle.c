@@ -54,7 +54,29 @@ int system_suspend(void)
 
 static inline bool pcpu_can_idle(struct pcpu *pcpu)
 {
-	return (pcpu->local_rdy_grp != 0);
+	return (pcpu->local_rdy_grp == (1 << OS_PRIO_IDLE)) &&
+			(is_list_empty(&pcpu->stop_list));
+}
+
+static void do_pcpu_cleanup_work(struct pcpu *pcpu)
+{
+	struct task *task;
+
+	for (; ;) {
+		task = NULL;
+		preempt_disable();
+		if (!is_list_empty(&pcpu->stop_list)) {
+			task = list_first_entry(&pcpu->stop_list, struct task, stat_list);
+			list_del(&task->stat_list);
+		}
+		preempt_enable();
+
+		if (!task)
+			break;
+
+		release_task(task);
+	}
+
 }
 
 void cpu_idle(void)
@@ -66,6 +88,8 @@ void cpu_idle(void)
 	local_irq_enable();
 
 	while (1) {
+		do_pcpu_cleanup_work(pcpu);
+
 		/*
 		 * need to check whether the pcpu can go to idle
 		 * state to avoid the interrupt happend before wfi

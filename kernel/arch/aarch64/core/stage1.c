@@ -300,17 +300,8 @@ static inline pte_t stage1_pte_attr(unsigned long phy, unsigned long flags)
 	return pte;
 }
 
-static void add_page_to_vspace(struct vspace *vs, unsigned long addr)
-{
-	struct page *page = addr_to_page(addr);
-
-	ASSERT(page != NULL);
-	page->next = vs->release_pages;
-	vs->release_pages = page;
-}
-
 static void stage1_unmap_pte_range(struct vspace *vs, pte_t *ptep,
-		unsigned long addr, unsigned long end)
+		unsigned long addr, unsigned long end, int release)
 {
 	pte_t *pte;
 
@@ -325,8 +316,9 @@ static void stage1_unmap_pte_range(struct vspace *vs, pte_t *ptep,
 			//	flush_dcache_pte(addr);
 
 			/* pfnmap and shared page don not free the page */
-			if (!(old_pte & S1_PFNMAP) && !(old_pte & S1_SHARED))
-				add_page_to_vspace(vs, ptov(stage1_phy_pte(old_pte)));
+			if (!(old_pte & S1_PFNMAP) && !(old_pte & S1_SHARED) &&
+					(release & UNMAP_RELEASE_PAGE))
+				add_released_page_to_vspace(vs, ptov(stage1_phy_pte(old_pte)));
 		}
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 }
@@ -351,20 +343,21 @@ static void stage1_unmap_pmd_range(struct vspace *vs, pmd_t *pmdp,
 				// if (!(old_pmd & S1_DEVMAP))
 				//	flush_dcache_pmd(addr);
 
-				if (!(old_pmd & S1_PFNMAP) && !(old_pmd & S1_SHARED))
-					add_page_to_vspace(vs, ptov(stage1_phy_pte(old_pmd)));
+				if (!(old_pmd & S1_PFNMAP) && !(old_pmd & S1_SHARED) &&
+						(release & UNMAP_RELEASE_PAGE))
+					add_released_page_to_vspace(vs, ptov(stage1_phy_pte(old_pmd)));
 			} else {
 				ptep = (pte_t *)ptov(stage1_pte_table_addr(*pmd));
-				stage1_unmap_pte_range(vs, ptep, addr, next);
-				if (release)
-					add_page_to_vspace(vs, (unsigned long)ptep);
+				stage1_unmap_pte_range(vs, ptep, addr, next, release);
+				if ((release & UNMAP_RELEASE_PAGE_TABLE) && (next - addr == S1_PMD_SIZE))
+					add_released_page_to_vspace(vs, (unsigned long)ptep);
 			}
 		}
 	} while (pmd++, addr = next, addr != end);
 }
 
 static int stage1_unmap_pud_range(struct vspace *vs,
-		unsigned long addr, unsigned long end, bool release)
+		unsigned long addr, unsigned long end, int release)
 {
 	unsigned long next;
 	pud_t *pud;
@@ -376,8 +369,8 @@ static int stage1_unmap_pud_range(struct vspace *vs,
 		if (!stage1_pud_none(*pud)) {
 			pmdp = (pmd_t *)ptov(stage1_pmd_table_addr(*pud));
 			stage1_unmap_pmd_range(vs, pmdp, addr, next, release);
-			if (release)
-				add_page_to_vspace(vs, (unsigned long)pmdp);
+			if ((release & UNMAP_RELEASE_PAGE_TABLE) && (next - addr == S1_PUD_SIZE))
+				add_released_page_to_vspace(vs, (unsigned long)pmdp);
 		}
 	} while (pud++, addr = next, addr != end);
 
@@ -553,26 +546,21 @@ static inline phy_addr_t stage1_va_to_pa(struct vspace *vs, unsigned long va)
 	pmd_t *pmdp;
 	pte_t *ptep;
 
-	spin_lock(&vs->lock);
-
 	pudp = stage1_pud_offset(vs->pgdp, va);
 	if (stage1_pud_none(*pudp))
-		goto out;
+		return 0;
 
 	pmdp = stage1_pmd_offset(ptov(stage1_pmd_table_addr(*pudp)), va);
 	if (stage1_pmd_none(*pmdp))
-		goto out;
+		return 0;
 
 	if (stage1_pmd_huge(*pmdp)) {
 		phy = ((*pmdp) & S1_PHYSICAL_MASK) + pmd_offset;
-		goto out;
+		return 0;
 	}
 
 	ptep = stage1_pte_offset(ptov(stage1_pte_table_addr(*pmdp)), va);
 	phy = ((*ptep) & S1_PHYSICAL_MASK) + pte_offset;
-
-out:
-	spin_unlock(&vs->lock);
 
 	return phy;
 }
@@ -585,34 +573,16 @@ phy_addr_t arch_translate_va_to_pa(struct vspace *vs, unsigned long va)
 int arch_host_map(struct vspace *vs, unsigned long start, unsigned long end,
 		unsigned long physical, unsigned long flags)
 {
-	int ret;
-
 	ASSERT((start < S1_VIRT_MAX) && (end < S1_VIRT_MAX));
 	ASSERT(physical < S1_PHYSICAL_MAX);
 
-	spin_lock(&vs->lock);
-	ret = stage1_map_pud_range(vs, start, end, physical, flags);
-	spin_unlock(&vs->lock);
-
-	return ret;
+	return stage1_map_pud_range(vs, start, end, physical, flags);
 }
 
-int arch_host_unmap(struct vspace *vs, unsigned long start, unsigned long end)
+int arch_host_unmap(struct vspace *vs, unsigned long start, unsigned long end, int mode)
 {
-	int ret, inuse;
-
 	ASSERT((start < S1_VIRT_MAX) && (end < S1_VIRT_MAX));
-
-	spin_lock(&vs->lock);
-
-	inuse = atomic_read(&vs->inuse);
-	ret = stage1_unmap_pud_range(vs, start, end, 0);
-	if (inuse == 0)
-		release_vspace_pages(vs);
-
-	spin_unlock(&vs->lock);
-
-	return ret;
+	return stage1_unmap_pud_range(vs, start, end, mode);
 }
 
 unsigned long arch_kernel_pgd_base(void)

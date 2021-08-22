@@ -38,24 +38,17 @@ long sys_kobject_close(handle_t handle)
 	right_t right;
 	int ret;
 
-	ret = get_kobject(handle, &kobj, &right);
-	if (ret)
-		return ret;
-
 	/*
 	 * release the handle first, then other thread in
 	 * this process can not see this kobject now. if one
 	 * thread in this process called this successfully
 	 * other thread can not get ok from release_handle.
 	 */
-	ret = release_handle(handle);
+	ret = release_handle(handle, &kobj, &right);
 	if (ret)
-		goto out;
-	ret = kobject_close(kobj, right);
-out:
-	put_kobject(kobj);
+		return ret;
 
-	return ret;
+	return kobject_close(kobj, right);
 }
 
 handle_t sys_kobject_create(int type, right_t right,
@@ -75,10 +68,8 @@ handle_t sys_kobject_create(int type, right_t right,
 	 * visable for all the threads in this process.
 	 */
 	handle = alloc_handle(kobj, right_req);
-	if (handle <= 0) {
-		kobject_put(kobj);
+	if (handle <= 0)
 		return -ENOSPC;
-	}
 
 	return handle;
 }

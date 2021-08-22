@@ -104,7 +104,7 @@
 
 	mrs	x2, daif		// pstate
 	mrs	x3, nzcv
-	mov	x4, #0x9
+	mov	x4, #ARM64_SPSR_KERNEL
 	orr	x2, x2, x3
 	orr	x2, x2, x4
 	str	x2, [sp, #-8]!
@@ -187,6 +187,8 @@ vfunc __sync_exception_from_lower_el
 	nop
 
 	bl	task_return_to_user
+	mov	x0, sp				// x0 is the gp_regs pass to irq_c_handler
+	str	x0, [x18, #TASK_STACK_OFFSET]	// save the current task's stack to task
 
 	LOAD_GP_REGS
 	eret

@@ -32,6 +32,7 @@ struct boot_option {
 };
 
 static struct boot_option *boot_options;
+static char *cmdline;
 
 int __get_boot_option(char *name, void *value,
 		int (*parse)(char *args, void *value))
@@ -143,14 +144,18 @@ static void bootarg_init_one(char *str)
 
 int bootargs_init(const char *str, int len)
 {
-	char cmdline[CMDLINE_SIZE + 1];
-	char *tmp = cmdline;
+	char *tmp;
 	char *bootarg;
 
+	cmdline = kmalloc(CMDLINE_SIZE);
+	if (!cmdline)
+		exit(-ENOMEM);
+
 	pr_notice("bootargs: %s\n", str);
-	len = len > CMDLINE_SIZE ? CMDLINE_SIZE : len;
+	len = len > CMDLINE_SIZE - 1 ? CMDLINE_SIZE - 1 : len;
 	strncpy(cmdline, str, len);
 	cmdline[len] = 0;
+	tmp = cmdline;
 
 	while ((bootarg = strsep(&tmp, " ")) != NULL)
 		bootarg_init_one(bootarg);

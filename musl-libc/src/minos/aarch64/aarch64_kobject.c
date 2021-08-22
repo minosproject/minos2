@@ -28,7 +28,7 @@ long kobject_read(int handle, void *data, size_t data_size,
 	aarch64_svc_call((unsigned long)handle, (unsigned long)data,
 			(unsigned long)data_size, (unsigned long)extra,
 			(unsigned long)extra_size, (unsigned long)timeout, 0,
-			SYS_kobject_send, &res);
+			SYS_kobject_recv, &res);
 
 	ret = (long)res.a0;
 
@@ -40,7 +40,6 @@ long kobject_read(int handle, void *data, size_t data_size,
 	return ret;
 }
 
-
 long kobject_write(int handle, void *data, size_t data_size,
 		void *extra, size_t extra_size, uint32_t timeout)
 {
@@ -51,10 +50,7 @@ long kobject_write(int handle, void *data, size_t data_size,
 
 int kobject_reply(int handle, long token, long err_code, int fd, int right)
 {
-	if ((err_code == 0) && (fd <= 0))
-		return -EINVAL;
-
-	return syscall(SYS_kobject_reply, token, err_code, fd, right);
+	return syscall(SYS_kobject_reply, handle, token, err_code, fd, right);
 }
 
 int kobject_reply_errcode(int handle, long token, long err_code)

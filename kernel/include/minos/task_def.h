@@ -81,7 +81,7 @@
 #define TASK_TIMEOUT_TRIGGER	0x2
 
 #define TASK_REQ_FLUSH_TLB	(1 << 0)
-#define TASK_REQ_EXIT		(1 << 1)
+#define TASK_REQ_STOP		(1 << 1)
 
 typedef int (*task_func_t)(void *data);
 

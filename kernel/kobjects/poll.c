@@ -226,11 +226,21 @@ static long poll_hub_read(struct kobject *kobj, void __user *data, size_t data_s
 
 static void poll_hub_release(struct kobject *kobj)
 {
+	struct poll_hub *peh = to_poll_hub(kobj);
+	struct poll_event_kernel *pek, *tmp;
+
 	/*
 	 * currently only kernel can access this kobject
 	 * now. so do not need to acquire the poll_hub's
 	 * spinlock here.
 	 */
+	list_for_each_entry_safe(pek, tmp, &peh->event_list, list) {
+		list_del(&pek->list);
+		if (pek->release)
+			free(pek);
+	}
+
+	free(peh);
 }
 
 static int poll_hub_close(struct kobject *kobj, right_t right)
@@ -256,7 +266,7 @@ static inline void add_new_pevent(struct poll_struct *ps, int ev, struct pevent_
 	struct pevent_item *head = ps->pevents[ev];
 
 	pi->next = head;
-	head = pi;
+	ps->pevents[ev] = pi;
 	mb();
 }
 
@@ -282,6 +292,30 @@ static struct pevent_item * find_and_del_pevent_item(struct poll_struct *ps,
 	}
 
 	return NULL;
+}
+
+void release_poll_struct(struct kobject *kobj)
+{
+	struct poll_struct *ps = kobj->poll_struct;
+	struct pevent_item *pi, *tmp;
+	struct poll_hub *ph;
+	int i;
+
+	if (ps)
+		return;
+
+	for (i = 0; i < EV_MAX; i++) {
+		pi = ps->pevents[i];
+		while (pi) {
+			tmp = pi->next;
+			ph = pi->poller;
+			free(pi);
+			kobject_put(&ph->kobj);
+			pi = tmp;
+		}
+	}
+
+	free(ps);
 }
 
 static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,

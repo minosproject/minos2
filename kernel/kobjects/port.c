@@ -143,7 +143,6 @@ static long port_recv(struct kobject *kobj, void __user *data,
 	 * as current pending task and waitting for port_rportly
 	 */
 	writer = (struct task *)pending->data;
-	ASSERT(writer->wait_event == (unsigned long)port);
 	ret = kobject_copy_ipc_payload(current, writer,
 			actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
@@ -236,8 +235,8 @@ static int port_reply(struct kobject *kobj, right_t right,
 	spin_lock(&port->lock);
 
 	list_for_each_entry_safe(wk, tmp, &port->processing_list, list) {
+		task = (struct task *)wk->data;
 		if (task->wait_event == token) {
-			task = (struct task *)wk->data;
 			list_del(&wk->list);
 			break;
 		}
@@ -245,8 +244,8 @@ static int port_reply(struct kobject *kobj, right_t right,
 
 	if (task) {
 		if (fd > 0) {
-			errno = kobject_send_handle(current_proc,
-				task->proc, fd, fd_right);
+			errno = send_handle(current_proc, task->proc,
+					fd, fd_right);
 		}
 		wake_up(task, errno);
 	}
@@ -264,6 +263,12 @@ static void port_release(struct kobject *kobj)
 	free(kobject_to_port(kobj));
 }
 
+static int port_poll(struct kobject *ksrc,
+		struct kobject *kdst, int event, bool enable)
+{
+	return ((event == EV_WOPEN) || event == EV_WCLOSE ? -EINVAL : 0);
+}
+
 static struct kobject_ops port_kobject_ops = {
 	.send		= port_send,
 	.recv		= port_recv,
@@ -271,6 +276,7 @@ static struct kobject_ops port_kobject_ops = {
 	.close		= port_close,
 	.reply		= port_reply,
 	.open		= port_open,
+	.poll		= port_poll,
 };
 
 static struct kobject *port_create(right_t right,

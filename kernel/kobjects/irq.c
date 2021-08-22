@@ -152,7 +152,7 @@ static struct kobject *irq_kobject_create(right_t right,
 	idesc->kobj = kobj;
 	idesc->poll_event->release = 0;
 	idesc->poll_event->event.events = POLLIN;
-	idesc->poll_event->event.data.type = POLLIN_IRQ;
+	idesc->poll_event->event.data.type = 0;
 	idesc->flags = flags;
 	idesc->hno = irqnum;
 	kobject_init(kobj, KOBJ_TYPE_IRQ, right, (unsigned long)idesc);

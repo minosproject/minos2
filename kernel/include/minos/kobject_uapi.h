@@ -7,18 +7,17 @@
 #define KOBJ_RIGHT_EXEC		0x0004		// can be exectued.
 #define KOBJ_RIGHT_MMAP		0x0008		// can be mmaped to current process's memory space
 #define KOBJ_RIGHT_CTL		0x0010		// can control the releated kobject
+#define KOBJ_RIGHT_MASK		0x001f
 
-#define KOBJ_RIGHT_SHARED	0x0020		// can be shared, for example PMA
-#define KOBJ_RIGHT_NONBLOCK	0x0040		// read and write is non-blocked
-#define KOBJ_RIGHT_HEAP_SELFCTL	0x0080		// the process will allocation memory itself, for system process.
-#define KOBJ_RIGHT_GRANT	0x0100		// this kobject can be changed owner.
-
-#define KOBJ_RIGHT_MASK		0x03ff
+#define KOBJ_RIGHT_SHARED	(1 << 16)	// can be shared, for example PMA
+#define KOBJ_RIGHT_NONBLOCK	(1 << 17)	// read and write is non-blocked
+#define KOBJ_RIGHT_HEAP_SELFCTL	(1 << 18)	// the process will allocation memory itself, for system process.
+#define KOBJ_RIGHT_GRANT	(1 << 19)	// this kobject can be changed owner.
 
 #define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
 #define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)
 #define KOBJ_RIGHT_RWX		(KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
-#define KOBJ_RIGHT_ROOT		0xffff		// super right, only root sevice can have it.
+#define KOBJ_RIGHT_ROOT		0xffffffff	// super right, only root sevice can have it.
 
 enum {
 	KOBJ_TYPE_NONE,
@@ -36,6 +35,10 @@ enum {
 	KOBJ_TYPE_POLL_HUB,	// hub for events need to send.
 	KOBJ_TYPE_PORT,
 	KOBJ_TYPE_MAX
+};
+
+enum {
+	KOBJ_GET_MMAP_ADDR = 0x100,
 };
 
 /*

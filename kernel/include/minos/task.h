@@ -59,6 +59,7 @@ static inline int task_need_resched(struct task *task)
 	return (task->ti.flags & TIF_NEED_RESCHED);
 }
 
+void task_stop(void);
 void release_task(struct task *task);
 void do_release_task(struct task *task);
 struct task *pid_to_task(int pid);

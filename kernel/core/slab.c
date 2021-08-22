@@ -468,14 +468,13 @@ void free(void *addr)
 	struct slab_header *header;
 	struct slab_pool *slab_pool;
 
-	if (!addr)
-		return;
+	ASSERT(addr != NULL);
 
 	/*
 	 * the address is a allocated as pages, use free_page to
 	 * release them, otherwise free them as slab
 	 */
-	if (free_pages(addr) <= 0)
+	if (free_pages(addr) == 0)
 		return;
 
 	header = ADDR_TO_SLAB_HEADER(addr);

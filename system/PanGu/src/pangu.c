@@ -27,6 +27,7 @@ static LIST_HEAD(request_entry_list);
 int proc_epfd;
 int fuxi_handle;
 extern struct process *rootfs_proc;
+extern void procfs_init(void);
 
 #define MAX_EVENT 16
 
@@ -57,7 +58,7 @@ int register_request_entry(int type, int handle, void *data)
 		return -ENOMEM;
 
 	event.events = EPOLLIN;
-	event.data.ptr = data;
+	event.data.ptr = re;
 
 	return epoll_ctl(proc_epfd, EPOLL_CTL_ADD, handle, &event);
 }
@@ -95,6 +96,7 @@ void pangu_main(void)
 	 * wake up all the process which created by PanGu itself.
 	 * currently only need to wake up the rootfs driver process.
 	 */
+	procfs_init();
 	wakeup_process(rootfs_proc);
 
 	for (;;) {

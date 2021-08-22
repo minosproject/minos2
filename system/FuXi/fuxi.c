@@ -9,13 +9,13 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <string.h>
-#include <sys/mount.h>
 
 #include <minos/list.h>
 #include <minos/proto.h>
 #include <minos/kobject.h>
 #include <minos/debug.h>
 #include <minos/types.h>
+#include <minos/service.h>
 
 #define VNODENAME_MAX 64
 #define VNODE_MAX 128
@@ -24,6 +24,7 @@
 
 struct vnode {
 	int type;
+	int open_cnt;
 	int handle;			// for service node.
 	int d_ino;
 	char name[VNODENAME_MAX];
@@ -51,6 +52,11 @@ static int epfd;
 
 static char string_buffer[FILENAME_MAX];
 static char filename[FILENAME_MAX];
+
+static void fuxi_info(char *str)
+{
+	kobject_write(2, str, strlen(str), NULL, 0, 0);
+}
 
 static struct vreq *alloc_vreq(void)
 {
@@ -210,7 +216,7 @@ static struct vnode *find_dir_node(struct vnode *root, char *buf)
 		while (*pathrem == '/')
 			pathrem++;
 
-		if (cur->type != DT_DIR)
+		if (cur->type != SRV_DIR)
 			break;
 
 		/*
@@ -235,107 +241,101 @@ static struct vnode *find_dir_node(struct vnode *root, char *buf)
 	return NULL;
 }
 
-static int __handle_unmount_request(struct vreq *vreq, struct proto *proto, char *buf)
+static int create_service_kobject(struct vnode *node, struct proto *proto)
 {
-	struct vnode *parent = vreq->node;
-	struct vnode *node;
-	char *source = buf + proto->mount.source_off;
-	char *target = buf + proto->mount.target_off;
-	int ret = 0;
+	int handle;
 
-	if (parent->d_ino != -1)
-		return -EPERM;
-
-	if (!check_string(buf, proto->mount.source_off, FILENAME_MAX))
-		return -EINVAL;
-
-	if (!check_string(buf, proto->mount.target_off, FILENAME_MAX))
-		return -EINVAL;
-
-	parent = find_dir_node(parent, source);
-	if (!parent)
-		return -ENOENT;
-
-	node = find_node(parent, target);
-	if (!node)
-		return -ENOENT;
-
-	if (!is_list_empty(&node->child))
-		return -ENOTEMPTY;
-
-	list_del(&node->list);
-	if (node->handle > 0)
-		kobject_close(node->handle);
-
-	node->handle = -1;
-	node->type = 0;
-
-	return ret;
-}
-
-static void handle_unmount_request(struct vreq *vreq, struct proto *proto, char *buf)
-{
-	int ret = __handle_unmount_request(vreq, proto, buf);
-
-	kobject_reply_errcode(vreq->handle, proto->token, ret);
-}
-
-static int __handle_mount_request(struct vreq *vreq, struct proto *proto, char *buf)
-{
-	struct vnode *parent = vreq->node;
-	struct vnode *node;
-	char *source = buf + proto->mount.source_off;
-	char *target = buf + proto->mount.target_off;
-
-	if (parent->d_ino != -1)
-		return -EPERM;
-
-	if (!check_string(buf, proto->mount.source_off, FILENAME_MAX))
-		return -EINVAL;
-
-	if (!check_string(buf, proto->mount.target_off, FILENAME_MAX))
-		return -EINVAL;
-
-	if (strlen(target) >= VNODENAME_MAX)
-		return -EINVAL;
-
-	parent = find_dir_node(parent, source);
-	if (!parent)
-		return -ENOENT;
-
-	node = alloc_node();
-	if (!node)
-		return -ENOSPC;
-
-	strcpy(node->name, target);
-	if (proto->mount.flags & MS_DIR) {
-		node->type = DT_DIR;
-		node->handle = 0;
-		init_list(&node->child);
-		list_add_tail(&parent->child, &node->list);
-		kobject_reply_errcode(vreq->handle, proto->token, 0);
-	} else {
-		node->type = DT_SRV;
-		node->handle = kobject_create_port(KR_RWCG, KR_WCG);
-		if (node->handle < 0)
-			release_node(node);
-		else
-			list_add_tail(&parent->child, &node->list);
-		return node->handle;
+	switch (proto->register_service.type) {
+	case SRV_PORT:
+		handle = kobject_create_port(KR_RWG, KR_WG);
+		break;
+	case SRV_NOTIFY:
+		handle = kobject_create_notify(KR_RWG, KR_G);
+		break;
+	default:
+		handle = -1;
+		break;
 	}
+
+	if (handle <= 0)
+		return handle;
+
+	node->handle = handle;
+	node->open_cnt = 0;
 
 	return 0;
 }
 
-static void handle_mount_request(struct vreq *vreq, struct proto *proto, char *buf)
+static struct vnode *__handle_register_service_request(struct vreq *vreq, struct proto *proto, char *buf)
 {
-	int ret = __handle_mount_request(vreq, proto, buf);
+	char *source = buf + proto->register_service.source_off;
+	char *target = buf + proto->register_service.target_off;
+	struct vnode *parent = vreq->node;
+	struct vnode *node;
 
-	kobject_reply_handle(vreq->handle, proto->token, ret, KR_WC);
+	if (parent->d_ino != -1)
+		return NULL;
+
+	if (!check_string(buf, proto->register_service.source_off, FILENAME_MAX))
+		return NULL;
+
+	if (!check_string(buf, proto->register_service.target_off, FILENAME_MAX))
+		return NULL;
+
+	if (strlen(target) >= VNODENAME_MAX)
+		return NULL;
+
+	parent = find_dir_node(parent, source);
+	if (!parent)
+		return NULL;
+
+	node = alloc_node();
+	if (!node)
+		return NULL;
+
+	strcpy(node->name, target);
+	node->type = proto->register_service.type;
+
+	if (node->type == SRV_DIR) {
+		node->handle = -1;
+		init_list(&node->child);
+		list_add_tail(&parent->child, &node->list);
+	} else {
+		if (create_service_kobject(node, proto)) {
+			release_node(node);
+			node = NULL;
+		} else {
+			list_add_tail(&parent->child, &node->list);
+		}
+	}
+
+	return node;
 }
 
-static int __handle_open_request(struct vreq *vreq,
-		struct proto *proto, char *buf, int *remote)
+static void handle_register_service_request(struct vreq *vreq, struct proto *proto, char *buf)
+{
+	struct vnode *node;
+
+	node = __handle_register_service_request(vreq, proto, buf);
+	if (!node) {
+		kobject_reply_errcode(vreq->handle, proto->token, -EINVAL);
+		return;
+	}
+
+	switch (node->type) {
+	case SRV_PORT:
+		kobject_reply_handle(vreq->handle, proto->token, node->handle, KR_R);
+		break;
+	case SRV_NOTIFY:
+		kobject_reply_handle(vreq->handle, proto->token, node->handle, KR_W);
+		break;
+	default:
+		kobject_reply_errcode(vreq->handle, proto->token, -EINVAL);
+		break;
+	}
+}
+
+static int __handle_open_request(struct vreq *vreq, struct proto *proto, char *buf, int *type)
 {
 	struct vnode *cur = vreq->node, *next;
 	struct vreq *new_vreq;
@@ -351,27 +351,31 @@ static int __handle_open_request(struct vreq *vreq,
 		 * one is directory, other is service.
 		 */
 		if (*pathrem == '\0') {
-			if (cur->type == DT_NOTIFY) {
-				if (!(proto->open.flags & O_DIRECTORY))
+			if (cur->type == SRV_NOTIFY) {
+				if (!(proto->open.flags & O_DIRECTORY)) {
+					*type = SRV_NOTIFY;
 					return cur->handle;
-				else
+				} else {
 					return -ENOENT;
+				}
 			}
 
-			if (!(proto->open.flags & O_DIRECTORY) && (cur->type != DT_DIR))
+			if (!(proto->open.flags & O_DIRECTORY) && (cur->type != SRV_DIR))
 				return -ENOENT;
 
 			/*
 			 * open a directly, create a new endpoint for the request.
 			 */
 			new_vreq = create_new_vreq(cur);
-			if (new_vreq != NULL)
+			if (new_vreq != NULL) {
+				*type = SRV_DIR;
 				handle = new_vreq->handle;
+			}
 
 			return handle;
 		}
 
-		if (cur->type != DT_DIR)
+		if (cur->type != SRV_DIR)
 			return -ENOENT;
 
 		end = strchrnul(pathrem, '/');
@@ -388,8 +392,8 @@ static int __handle_open_request(struct vreq *vreq,
 		/*
 		 * if this node is a service node, open it with remote call.
 		 */
-		if ((next->type == DT_SRV)) {
-			*remote = 1;
+		if ((next->type == SRV_PORT)) {
+			*type = SRV_PORT;
 			return open_remote_node(next, proto, pathrem);
 		}
 	}
@@ -399,13 +403,28 @@ static int __handle_open_request(struct vreq *vreq,
 
 static void handle_open_request(struct vreq *vreq, struct proto *proto, char *buf)
 {
-	int remote = 0;
+	int type = 0;
 	int handle;
+	int right;
 
-	handle = __handle_open_request(vreq, proto, buf, &remote);
-	kobject_reply_handle(vreq->handle, proto->token, handle, KR_WMG);
+	handle = __handle_open_request(vreq, proto, buf, &type);
 
-	if (handle > 0 && remote)
+	if (type == SRV_DIR)
+		right = KR_W;
+	else if (type == SRV_PORT)
+		right = KR_W;
+	else if (type == SRV_NOTIFY)
+		right = KR_R;
+	else
+		right = 0;
+
+	kobject_reply_handle(vreq->handle, proto->token, handle, right);
+
+	/*
+	 * close the handle if this handle is a remote handle. the
+	 * rights has been passed to the target process.
+	 */
+	if (handle > 0 && type == SRV_PORT)
 		kobject_close(handle);
 }
 
@@ -418,7 +437,7 @@ static void handle_getdent_request(struct vreq *vreq, struct proto *proto, char 
 	struct vnode *next;
 	int size_left = PAGE_SIZE;
 
-	if (node->type != DT_DIR) {
+	if (node->type != SRV_DIR) {
 		ret = -EBADF;
 		goto out;
 	}
@@ -479,11 +498,8 @@ static int handle_event(struct epoll_event *event)
 	case PROTO_GETDENT:
 		handle_getdent_request(vreq, &proto, string_buffer);
 		break;
-	case PROTO_MOUNT:
-		handle_mount_request(vreq, &proto, string_buffer);
-		break;
-	case PROTO_UNMOUNT:
-		handle_unmount_request(vreq, &proto, string_buffer);
+	case PROTO_REGISTER_SERVICE:
+		handle_register_service_request(vreq, &proto, string_buffer);
 		break;
 	case PROTO_READ:
 	case PROTO_WRITE:
@@ -496,13 +512,14 @@ static int handle_event(struct epoll_event *event)
 	return ret;
 }
 
-static int sns_loop(int handle)
+static int fuxi_loop(int handle)
 {
 	struct epoll_event events[MAX_EVENTS];
 	struct epoll_event *event = &events[0];
 	struct vreq *vreq;
 	int ret, i;
 
+	kobject_open(handle);
 	epfd = epoll_create(MAX_EVENTS);
 	if (epfd <= 0)
 		exit(-ENOSPC);
@@ -524,12 +541,16 @@ static int sns_loop(int handle)
 	 */
 	i_am_ok();
 
+	fuxi_info("fuxi: waitting request\n");
+
 	for (;;) {
 		ret = epoll_wait(epfd, events, MAX_EVENTS, -1);
-		if (ret) {
-			pr_err("vfs epoll failed\n");
+		if (ret <= 0) {
+			fuxi_info("vfs epoll failed\n");
 			continue;
 		}
+
+		fuxi_info("fuxi: receive service request\n");
 
 		for (i = 0; i < ret; i++) {
 			switch (events[i].events) {
@@ -551,7 +572,7 @@ static int sns_loop(int handle)
 static void root_vnode_init(void)
 {
 	strcpy(root_vnode.name, "/");
-	root_vnode.type = DT_DIR;
+	root_vnode.type = SRV_DIR;
 	root_vnode.d_ino = -1;
 	init_list(&root_vnode.child);
 }
@@ -577,8 +598,10 @@ static void vnodes_init(void)
  */
 int main(int handle, char **argv)
 {
+	fuxi_info("\n\nFuXi service start...\n\n");
+
 	vnodes_init();
 	vreqs_init();
 
-	exit(sns_loop(handle));
+	exit(fuxi_loop(handle));
 }

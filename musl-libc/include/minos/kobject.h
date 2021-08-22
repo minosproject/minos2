@@ -74,13 +74,11 @@ int grant(int proc, int handle, int right);
 
 int sys_connect_service(const char *path, int right);
 
-int sys_register_service(const char *name, int type, int right, int mutil_client);
-
-int sys_unregister_service(const char *name);
-
 int kobject_create_endpoint(int right, int right_req, size_t shmem_size);
 
 int kobject_create_port(int right, int right_req);
+
+int kobject_create_notify(int right, int right_req);
 
 static inline int kobject_reply_handle(int fd, long token,
 		int handle, int right)

@@ -44,7 +44,7 @@ $(TARGET) : $(OBJS) $(LDS)
 #	$(QUIET) $(CC) $^ -o $@ $(CFLAGS)
 #	$(QUIET) $(STRIP) -s $(TARGET)
 #	$(QUIET) $(LD) $(LDFLAGS) -o $(TARGET) $(OBJS)
-	$(CC) $(LDFLAGS) -o $(TARGET) $(OBJS)
+	$(CC) -o $(TARGET) $(OBJS) $(LDFLAGS)
 	$(QUIET) echo "Build FuXi Done ..."
 
 %.o : %.c

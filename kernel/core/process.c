@@ -55,21 +55,37 @@ static int alloc_pid(void)
 	return pid;
 }
 
-static void release_pid(int pid)
+void release_pid(int pid)
 {
 	ASSERT(!(pid > OS_NR_PROC));
 	clear_bit(pid, pid_map);
 }
 
-static void add_task_to_process(struct process *proc, struct task *task)
+static int pid_subsys_init(void)
 {
-	unsigned long flags;
+	set_bit(0, pid_map);
+	return 0;
+}
+subsys_initcall(pid_subsys_init);
 
-	spin_lock_irqsave(&proc->lock, flags);
+static int add_task_to_process(struct process *proc, struct task *task)
+{
+	int ret = 0;
+
+	spin_lock(&proc->lock);
+	if (proc->stopped) {
+		ret = 1;
+		goto out;
+	}
+
 	task->next = proc->head;
 	proc->tail = task;
 	proc->task_cnt++;
-	spin_unlock_irqrestore(&proc->lock, flags);
+	kobject_get(&proc->kobj);
+
+out:
+	spin_unlock(&proc->lock);
+	return ret;
 }
 
 struct task *create_task_for_process(struct process *proc,
@@ -78,7 +94,7 @@ struct task *create_task_for_process(struct process *proc,
 {
 	struct task *task;
 
-	if (proc->exit)
+	if (proc->stopped)
 		return NULL;
 
 	task = create_task(NULL, (task_func_t)func, user_sp,
@@ -87,7 +103,10 @@ struct task *create_task_for_process(struct process *proc,
 		return NULL;
 
 	task->pid = proc->pid;
-	add_task_to_process(proc, task);
+	if (add_task_to_process(proc, task)) {
+		do_release_task(task);
+		return NULL;
+	}
 
 	return task;
 }
@@ -112,7 +131,7 @@ struct process *create_process(task_func_t func,
 	if (ret)
 		goto handle_init_fail;
 
-	ret = vspace_init(&proc->vspace);
+	ret = vspace_init(proc);
 	if (ret)
 		goto vspace_init_fail;
 
@@ -128,11 +147,11 @@ struct process *create_process(task_func_t func,
 	 * if the process is not root service, then its right
 	 * will be given by root service, when create the process.
 	 */
+	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
+			KOBJ_RIGHT_CTL, (unsigned long)task);
 	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS,
 			KOBJ_RIGHT_RW | KOBJ_RIGHT_CTL,
 			(unsigned long)proc);
-	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
-			KOBJ_RIGHT_CTL, (unsigned long)task);
 
 	proc->head = task;
 	proc->tail = task;
@@ -144,13 +163,73 @@ struct process *create_process(task_func_t func,
 	return proc;
 
 task_create_fail:
-	vspace_deinit(&proc->vspace);
+	vspace_deinit(proc);
 vspace_init_fail:
-	deinit_proc_handles(proc);
+	process_handles_deinit(proc);
 handle_init_fail:
 	free(proc);
 proc_alloc_fail:
 	release_pid(pid);
 
 	return NULL;
+}
+
+static void task_exit_helper(void *data)
+{
+
+}
+
+static void request_process_stop(struct process *proc)
+{
+	struct task *tmp;
+	int old;
+
+	if (proc->pid == 1)
+		panic("root service hang, system crash\n");
+
+	/*
+	 * someone called exit() aready.
+	 */
+	old = cmpxchg(&proc->stopped, 0, 1);
+	if (old != 0)
+		return;
+
+	for_all_task_in_process(proc, tmp) {
+		/*
+		 * other task can not get the instance of this
+		 * task, but the task who already get the instance
+		 * of this task can sending data to it currently.
+		 */
+		clear_task_by_tid(tmp->tid);
+		tmp->request |= TASK_REQ_STOP;
+		if (tmp == current)
+			continue;
+
+		/*
+		 * make all the running taskes enter into kernel, so
+		 * when return to user, it can detected the task need
+		 * to exit.
+		 *
+		 * if the task is waitting for the root service, do not
+		 * wakeup it, since the root service will finnally wake
+		 * up this task.
+		 */
+		if (tmp->ti.flags & __TIF_IN_USER)
+			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
+#if 0
+		else if ((task->stat == TASK_STAT_WAIT_EVENT) &&
+				(task->wait_type != TASK_EVENT_ROOT_SERVICE))
+			wake_up(tmp, -EABORT);
+#endif
+	}
+}
+
+void process_die(void)
+{
+	request_process_stop(current_proc);
+}
+
+void kill_process(struct process *proc)
+{
+	request_process_stop(proc);
 }

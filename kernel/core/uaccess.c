@@ -114,7 +114,7 @@ int __copy_to_user(struct vspace *vdst, void __user *dst, void *src, size_t size
 			goto out;
 		}
 
-		memcpy(kdst, src, copy_size);
+		memcpy((void *)ptov(kdst), src, copy_size);
 		offset = 0;
 		size -= copy_size;
 		src += copy_size;
@@ -157,8 +157,8 @@ int copy_user_to_user(struct vspace *vdst, void __user *dst,
 			goto out;
 		}
 
-		ret = __copy_from_user(kdst, vsrc, src, copy_size);
-		if (ret)
+		ret = __copy_from_user((void *)ptov(kdst), vsrc, src, copy_size);
+		if (ret <= 0)
 			return ret;
 
 		size -= copy_size;

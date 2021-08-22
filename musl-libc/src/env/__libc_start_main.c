@@ -89,7 +89,7 @@ static int libc_start_main_stage2(int (*main)(int,char **,char **), int argc, ch
 	__libc_start_init();
 
 	if (libc.use_kmalloc) {
-		fprintf(stdout, "Use kmalloc api\n");
+		// fprintf(stdout, "Use kmalloc api\n");
 		kmalloc_init(libc.heap_start, libc.heap_end);
 	}
 

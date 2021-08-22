@@ -167,7 +167,6 @@ static long endpoint_recv(struct kobject *kobj, void __user *data,
 	 * as current pending task and waitting for endpoint_reply
 	 */
 	writer = (struct task *)pending->data;
-	ASSERT(writer->wait_event == (unsigned long)ep);
 	ret = kobject_copy_ipc_payload(current, writer,
 			actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
@@ -266,8 +265,8 @@ static int endpoint_reply(struct kobject *kobj, right_t right,
 	spin_lock(&ep->lock);
 
 	list_for_each_entry_safe(wk, tmp, &ep->processing_list, list) {
+		task = (struct task *)wk->data;
 		if (task->wait_event == token) {
-			task = (struct task *)wk->data;
 			list_del(&wk->list);
 			break;
 		}
@@ -275,8 +274,8 @@ static int endpoint_reply(struct kobject *kobj, right_t right,
 
 	if (task) {
 		if (fd > 0) {
-			errno = kobject_send_handle(current_proc,
-				task->proc, fd, fd_right);
+			errno = send_handle(current_proc, task->proc,
+					fd, fd_right);
 		}
 		wake_up(task, errno);
 	}

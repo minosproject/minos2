@@ -479,7 +479,7 @@ int load_root_service(void)
 	proc = create_root_process("pangu.srv", NULL, NULL,
 			OS_PRIO_SYSTEM, TASK_AFF_ANY,
 			TASK_FLAGS_SRV | TASK_FLAGS_NO_AUTO_START);
-	if (!proc || (proc->pid != 0)) {
+	if (!proc || (proc->pid != 1)) {
 		pr_err("can not load memory service, no memory\n");
 		goto out;
 	}

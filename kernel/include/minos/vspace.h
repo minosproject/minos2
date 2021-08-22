@@ -17,6 +17,11 @@
 #define va2pa(va)		vtop(va)
 #define pa2va(pa)		ptov(pa)
 
+#define UNMAP_RELEASE_NULL 0
+#define UNMAP_RELEASE_PAGE 1
+#define UNMAP_RELEASE_PAGE_TABLE 2
+#define UNMAP_RELEASE_ALL (UNMAP_RELEASE_PAGE | UNMAP_RELEASE_PAGE_TABLE)
+
 /*
  * 0    - (256G - 1) user space memory region
  * 256G - (512G - 1) shared memory mapping space.
@@ -68,9 +73,9 @@ void *io_remap(virt_addr_t vir, size_t size);
 
 int io_unmap(virt_addr_t vir, size_t size);
 
-int vspace_init(struct vspace *vs);
+int vspace_init(struct process *proc);
 
-void vspace_deinit(struct vspace *vs);
+void vspace_deinit(struct process *proc);
 
 int map_process_memory(struct process *proc,
 		       unsigned long vaddr,
@@ -90,6 +95,6 @@ int handle_page_fault(unsigned long virt, int write, unsigned long flags);
 
 void inc_vspace_usage(struct vspace *vs);
 void dec_vspace_usage(struct vspace *vs);
-void release_vspace_pages(struct vspace *vs);
+void add_released_page_to_vspace(struct vspace *vs, unsigned long addr);
 
 #endif

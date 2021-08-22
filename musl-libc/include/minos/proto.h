@@ -6,6 +6,7 @@
 
 enum {
 	PROTO_IAMOK = 0,
+	PROTO_REGISTER_SERVICE,
 	PROTO_MMAP,
 	PROTO_MUNMAP,
 	PROTO_MPROTECT,
@@ -17,8 +18,6 @@ enum {
 	PROTO_IOCTL,
 	PROTO_LSEEK,
 	PROTO_GETDENT,
-	PROTO_MOUNT,
-	PROTO_UNMOUNT,
 	PROTO_MAX,
 };
 
@@ -67,16 +66,11 @@ struct proto_lseek {
 	int whence;
 };
 
-struct proto_mount {
+struct proto_register_service {
+	int type;
+	int flags;
 	int source_off;
 	int target_off;
-	int flags;
-};
-
-struct proto_unmount {
-	int source_off;
-	int target_off;
-	int flags;
 };
 
 struct execv_extra {
@@ -100,8 +94,7 @@ struct proto {
 		struct proto_read read;
 		struct proto_write write;
 		struct proto_lseek lseek;
-		struct proto_mount mount;
-		struct proto_unmount unmount;
+		struct proto_register_service register_service;
 	};
 };
 

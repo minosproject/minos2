@@ -399,7 +399,10 @@ int free_pages(void *addr)
 	struct mem_section *section;
 	struct page *page;
 
-	ASSERT((addr != NULL) && IS_PAGE_ALIGN(addr));
+	ASSERT(addr != NULL);
+
+	if (!IS_PAGE_ALIGN(addr))
+		return -EINVAL;
 
 	/*
 	 * check whether this addr is in page section or
@@ -419,8 +422,12 @@ int free_pages(void *addr)
 	 * or can not release by now
 	 */
 	page = get_page_in_section(section, (unsigned long)addr);
-	free_pages_in_section(page, section);
+	if (page_flags(page) & PAGE_F_SLAB) {
+		spin_unlock(&section->lock);
+		return -EINVAL;
+	}
 
+	free_pages_in_section(page, section);
 	spin_unlock(&section->lock);
 
 	return 0;

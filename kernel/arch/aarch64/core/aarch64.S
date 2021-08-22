@@ -69,7 +69,7 @@ endfunc smc_call
 
 func aarch64_task_exit
 	mov	x0, x0
-	bl	task_exit
+	bl	task_stop
 1:
 	b	1b
 endfunc aarch64_task_exit

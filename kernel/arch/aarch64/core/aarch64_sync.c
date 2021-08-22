@@ -161,7 +161,16 @@ static int user_da_fault(gp_regs *regs, int ec, uint32_t esr)
 
 int user_ia_fault(gp_regs *regs, int ec, uint32_t esr)
 {
-	__panic(regs, "User instruction abort ESR:0x%x\n", esr);
+	struct task *task = current;
+
+	if (task->request & TASK_REQ_STOP) {
+		pr_info("task %d:%d exited\n", task->pid, task->tid);
+		task_stop();
+	} else {
+		pr_err("User instruction abort pid:%d tid:%d ESR:0x%x IP:0x%x\n",
+			task->pid, task->tid, esr, regs->pc);
+		process_die();
+	}
 
 	return 0;
 }

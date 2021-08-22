@@ -119,13 +119,12 @@ int task_ready(struct task *task, int preempt)
 	if (pcpu->pcpu_id != task->cpu) {
 		tpcpu = get_per_cpu(pcpu, task->cpu);
 		smp_percpu_task_ready(tpcpu, task, preempt);
-		return 0;
+		goto out;
 	}
 
 	percpu_task_ready(pcpu, task, preempt);
-
+out:
 	preempt_enable();
-
 	return 0;
 }
 
@@ -160,6 +159,9 @@ static struct task *pick_next_task(struct pcpu *pcpu)
 		list_del(&task->stat_list);
 		if (is_list_empty(&pcpu->ready_list[task->prio]))
 			pcpu->local_rdy_grp &= ~BIT(task->prio);
+
+		if (task->stat == TASK_STAT_STOPPED)
+			list_add_tail(&pcpu->stop_list, &task->stat_list);
 	}
 
 	/*
@@ -491,6 +493,7 @@ int __wake_up(struct task *task, int pend_state, void *data)
 	 */
 	if (task->stat != TASK_STAT_WAIT_EVENT) {
 		spin_unlock_irqrestore(&task->s_lock, flags);
+		preempt_enable();
 		return 0;
 	}
 

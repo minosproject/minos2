@@ -84,27 +84,32 @@ static int lookup_handle_desc(struct process *proc, handle_t handle,
 	return 0;
 }
 
-int release_handle(handle_t handle)
+int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
 {
 	struct process *proc = current_proc;
 	struct handle_desc *hd;
 	struct handle_table_desc *htd;
 	int ret = -ENOENT;
 
-	if (WRONG_HANDLE(handle))
-		return -EINVAL;
+	if (WRONG_HANDLE(handle) || !proc)
+		return -ENOENT;
 
 	spin_lock(&proc->kobj_lock);
 	ret = lookup_handle_desc(proc, handle, &hd, &htd);
 	if (ret)
 		goto out;
 
-	if (hd->kobj == NULL)
+	if (hd->kobj == NULL || hd->kobj == KOBJ_PLACEHOLDER) {
+		ret = -EPERM;
 		goto out;
+	}
 
-	htd->left++;
+	*kobj = hd->kobj;
+	*right = hd->right;
+
 	hd->kobj = NULL;
 	hd->right = KOBJ_RIGHT_NONE;
+	htd->left++;
 out:
 	spin_unlock(&proc->kobj_lock);
 
@@ -196,6 +201,106 @@ out:
 	return ret;
 }
 
+handle_t send_handle(struct process *proc, struct process *pdst,
+		handle_t handle, right_t right_send)
+{
+	struct handle_table_desc *htd;
+	struct handle_desc *hdesc;
+	struct kobject *kobj;
+	int right;
+	int ret;
+
+	if (WRONG_HANDLE(handle))
+		return -EINVAL;
+
+	spin_lock(&proc->kobj_lock);
+	ret = lookup_handle_desc(proc, handle, &hdesc, &htd);
+	if (ret)
+		goto out;
+
+	kobj = hdesc->kobj;
+	right = hdesc->right;
+	if (!kobj || (kobj == KOBJ_PLACEHOLDER) || !right) {
+		ret = -EPERM;
+		goto out;
+	}
+
+	/*
+	 * if the current process has the grant right of this kobject
+	 * it can send any right which this kobject has, the GRANT
+	 * right only can be get when create the kobject.
+	 *
+	 * otherwise it can only send the right which the process
+	 * has to other process.
+	 */
+	if (right & KOBJ_RIGHT_GRANT) {
+		right_send &= (KOBJ_RIGHT_MASK & kobj->right);
+	} else {
+		if ((right_send & (~right)) != 0) {
+			ret = -EPERM;
+			goto out;
+		}
+	}
+
+	ret =  __alloc_handle(pdst, kobj, right_send);
+	if (ret > 0)
+		hdesc->right = KOBJ_RIGHT_NONE;
+out:
+	spin_unlock(&proc->kobj_lock);
+
+	return ret;
+}
+
+handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
+{
+	struct kobject *kobj_proc, *kobj;
+	right_t right_proc, right_kobj;
+	handle_t handle_out = -1;
+	struct process *proc;
+	int ret;
+
+	/*
+	 * only the root service can call this function, other
+	 * process if need pass an kobject to another thread, may
+	 * have its owm proto
+	 */
+	if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
+		return -EPERM;
+
+	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(handle))
+		return -ENOENT;
+
+	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
+	if (ret)
+		return -ENOENT;
+
+	ret = get_kobject(handle, &kobj, &right_kobj);
+	if (ret) {
+		put_kobject(kobj_proc);
+		return -ENOENT;
+	}
+
+	if ((kobj_proc->type != KOBJ_TYPE_PROCESS) ||
+			!(kobj->right & KOBJ_RIGHT_GRANT)) {
+		handle_out = -EBADF;
+		goto out;
+	}
+
+	if ((kobj->right & right) != right) {
+		handle_out = -EPERM;
+		goto out;
+	}
+
+	proc = (struct process *)kobj_proc->data;
+	handle_out = __alloc_handle(proc, kobj, right);
+
+out:
+	put_kobject(kobj_proc);
+	put_kobject(kobj);
+
+	return handle_out;
+}
+
 int get_kobject_from_process(struct process *proc, handle_t handle,
 			struct kobject **kobj, right_t *right)
 {
@@ -236,7 +341,7 @@ int put_kobject(struct kobject *kobj)
 	return kobject_put(kobj);
 }
 
-void deinit_proc_handles(struct process *proc)
+void process_handles_deinit(struct process *proc)
 {
 	struct handle_desc *table = proc->handle_desc_table;
 	struct handle_table_desc *tdesc = to_handle_table_desc(table);
@@ -246,6 +351,32 @@ void deinit_proc_handles(struct process *proc)
 		tmp = tdesc->next;
 		tdesc = to_handle_table_desc(tmp);
 		free_pages(table);
+		table = tmp;
+	}
+}
+
+static void release_handle_table(struct handle_desc *table)
+{
+	struct handle_desc *hdesc = table;
+	int i;
+
+	for (i = 0; i < NR_DESC_PER_PAGE; i++) {
+		if ((hdesc->kobj) && (hdesc->kobj != KOBJ_PLACEHOLDER))
+			kobject_close(hdesc->kobj, hdesc->right);
+		hdesc++;
+	}
+}
+
+void release_proc_kobjects(struct process *proc)
+{
+	struct handle_desc *table = proc->handle_desc_table;
+	struct handle_table_desc *tdesc = to_handle_table_desc(table);
+	struct handle_desc *tmp;
+
+	while (table != NULL) {
+		tmp = tdesc->next;
+		tdesc = to_handle_table_desc(tmp);
+		release_handle_table(table);
 		table = tmp;
 	}
 }

@@ -119,7 +119,4 @@ long kobject_ctl(struct kobject *kobj, right_t right,
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right);
 
-handle_t kobject_send_handle(struct process *psrc, struct process *pdst,
-		handle_t handle, right_t right_send);
-
 #endif

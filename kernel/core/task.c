@@ -120,7 +120,6 @@ static void task_init(struct task *task, char *name,
 	task->run_time = TASK_RUN_TIME;
 	spin_lock_init(&task->s_lock);
 
-
 	if ((task->flags & TASK_FLAGS_VCPU) ||
 			(task->flags & TASK_FLAGS_NO_AUTO_START)) {
 		task->stat = TASK_STAT_WAIT_EVENT;
@@ -192,27 +191,39 @@ static void task_create_hook(struct task *task)
 	do_hooks((void *)task, NULL, OS_HOOK_CREATE_TASK);
 }
 
+void task_exit_from_user(void)
+{
+       struct task *task = current;
+
+       if (task->exit_from_user)
+               task->exit_from_user(task);
+}
+
+void task_stop(void)
+{
+	do_not_preempt();
+	current->stat = TASK_STAT_STOPPED;
+	sched();
+	ASSERT(0);
+}
+
 void task_return_to_user(void)
 {
 	struct task *task = current;
+
+	/*
+	 * force generate after the task return to user
+	 * if there is stop request pending.
+	 */
+	if (task->request & TASK_REQ_STOP)
+		task->user_gp_regs->pc = 0x0;
 
 	if (task->return_to_user)
 		task->return_to_user(task);
 }
 
-void task_exit_from_user(void)
-{
-	struct task *task = current;
-
-	if (task->exit_from_user)
-		task->exit_from_user(task);
-}
-
 void do_release_task(struct task *task)
 {
-	pr_notice("release task tid: %d name: %s\n",
-			task->tid, task->name);
-
 	/*
 	 * this function can not be called at interrupt
 	 * context, use release_task is more safe
@@ -221,56 +232,24 @@ void do_release_task(struct task *task)
 	atomic_dec(&os_task_nr);
 
 	arch_release_task(task);
-
 	free(task->stack_bottom);
 	free(task);
 }
 
 void release_task(struct task *task)
 {
-	unsigned long flags;
-	struct pcpu *pcpu = get_pcpu();
+	pr_notice("release task tid: %d name: %s\n",
+			task->tid, task->name);
 
 	/*
-	 * real time task and percpu time all link to
-	 * the stop list, and delete from the pcpu global
-	 * list, this function will always run ont the current
-	 * cpu, mask the idle_block_flag to avoid cpu enter into
-	 * idle state
+	 * if this task is belong to a process, just call
+	 * the kobject_put() to dec the process kobject
+	 * reference count.
 	 */
-	spin_lock_irqsave(&pcpu->lock, flags);
-	list_add_tail(&pcpu->stop_list, &task->list);
-	flag_set(&pcpu->fg, KWORKER_TASK_RECYCLE);
-	spin_unlock_irqrestore(&pcpu->lock, flags);
-}
-
-void task_exit(int result)
-{
-	struct task *task = current;
-
-	preempt_disable();
-
-	/*
-	 * set the task to stop stat, then call release_task
-	 * to release the task
-	 */
-	task->stat = TASK_STAT_STOPPED;
-
-	/*
-	 * to free the resource which the task obtain and releas
-	 * it in case to block other task
-	 */
-	release_task(task);
-
-	preempt_enable();
-
-	/*
-	 * nerver return after sched()
-	 */
-	sched();
-	pr_fatal("task exit failed should not be here\n");
-
-	while (1);
+	if (task->proc)
+		kobject_put(&task->proc->kobj);
+	else
+		do_release_task(task);
 }
 
 struct task *__create_task(char *name,
@@ -356,6 +335,8 @@ struct task *create_task(char *name,
 
 int create_idle_task(void)
 {
+	extern void kernel_task_sched_out(struct task *task);
+	extern void kernel_task_sched_in(struct task *task);
 	struct task *task;
 	char task_name[32];
 	int aff = smp_processor_id();
@@ -374,6 +355,8 @@ int create_idle_task(void)
 
 	task->stack_top = (void *)ptov(minos_stack_top) - (aff << CONFIG_TASK_STACK_SHIFT);
 	task->stack_bottom = task->stack_top - CONFIG_TASK_STACK_SIZE;
+	task->sched_out = kernel_task_sched_out;
+	task->sched_in = kernel_task_sched_in;
 
 	task->stat = TASK_STAT_RUNNING;
 	task->run_time = 0;
@@ -384,6 +367,7 @@ int create_idle_task(void)
 	/* call the hooks for the idle task */
 	task_create_hook(task);
 
+	list_add_tail(&pcpu->ready_list[task->prio], &task->stat_list);
 	pcpu->local_rdy_grp |= BIT(task->prio);
 	pcpu->idle_task = task;
 

@@ -5,7 +5,8 @@
 
 static inline int preempt_allowed(void)
 {
-	wmb();
+	mb();
+
 	return !get_current_task_info()->preempt_count;
 }
 

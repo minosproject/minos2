@@ -2,6 +2,7 @@
 #define _MINOS_ATOMIC_H_
 
 #include <asm/atomic.h>
+#include <asm/cmpxchg.h>
 
 #define ATOMIC_INIT(v) { (v) }
 

@@ -14,6 +14,7 @@ int epoll_wait(int epfd, struct epoll_event *events,
 {
 	size_t e, d;
 	ssize_t size;
+	int ret;
 
 	/*
 	 * currently only support EPOLLIN event
@@ -22,10 +23,10 @@ int epoll_wait(int epfd, struct epoll_event *events,
 		return -EINVAL;
 
 	size = maxevents * sizeof(struct epoll_event);
-	size = kobject_read(epfd, events, size, &d, NULL, 0, &e, timeout);
-	if (size < 0)
-		return size;
-	else if (size == 0)
+	ret = kobject_read(epfd, events, size, &d, NULL, 0, &e, timeout);
+	if (ret < 0)
+		return ret;
+	else if (d == 0)
 		return -EAGAIN;
 
 	return (d / sizeof(struct epoll_event));
@@ -39,8 +40,10 @@ int epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
-	if ((op != EPOLL_CTL_ADD) || (op != EPOLL_CTL_DEL)
-			|| (op != EPOLL_CTL_MOD) || (!event))
+	if (!event)
+		return -EINVAL;
+
+	if ((op != EPOLL_CTL_ADD) && (op != EPOLL_CTL_DEL) && (op != EPOLL_CTL_MOD))
 		return -EINVAL;
 
 	op += KOBJ_POLL_HUB_OP_BASE;

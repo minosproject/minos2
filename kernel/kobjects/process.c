@@ -22,6 +22,7 @@
 #include <minos/sched.h>
 #include <minos/poll.h>
 #include <minos/task.h>
+#include <minos/handle.h>
 
 #include "kobject_copy.h"
 
@@ -37,7 +38,7 @@ static long process_send(struct kobject *kobj,
 	 * ROOT service will always poll to the process's
 	 * request.
 	 */
-	ASSERT(proc != current_proc);
+	ASSERT(proc == current_proc);
 
 	spin_lock(&proc->request_lock);
 	list_add_tail(&proc->request_list, &current->kobj.list);
@@ -94,114 +95,12 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 		return -ENOENT;
 
 	if (fd > 0)
-		errno = kobject_send_handle(proc, target->proc, fd, fd_right);
+		errno = send_handle(proc, target->proc, fd, fd_right);
 
 	wake_up(proc->request_current, errno);
 	proc->request_current = NULL;
 
 	return 0;
-}
-
-static void wait_all_task_stop(struct process *proc)
-{
-	struct task *task;
-	int done;
-
-	/*
-	 * any better ways to know whether this thread has been
-	 * operate by other thread ?, the case will happed in
-	 * process IPC, such as endpoint, irq etc.
-	 */
-	for (;;) {
-		done = 0;
-		for_all_task_in_process(proc, task) {
-			if (task == current)
-				continue;
-			done |= (task->stat != TASK_STAT_STOPPED);
-		}
-
-		if (!done)
-			break;
-
-		sched();
-	}
-}
-
-static void process_release(struct kobject *kobj)
-{
-	struct process *proc = (struct process *)kobj->data;
-
-	/*
-	 * wait again, the calling task need to ensure is
-	 * alreay exited.
-	 */
-	wait_all_task_stop(proc);
-
-	/*
-	 * now can release the all process's resource now.
-	 * the important things is to close all the kobject
-	 * this thread has been opened. TBD
-	 */
-}
-
-static int send_process_exit_event(struct process *proc)
-{
-	struct poll_struct *ps = proc->kobj.poll_struct;
-
-	return poll_event_send_with_data(ps, EV_KERNEL, POLLIN_EXIT, 0, 0, 0);
-}
-
-static void task_exit_helper(void *data)
-{
-
-}
-
-static int process_exit(struct process *proc)
-{
-	struct task *task = current;
-	struct task *tmp;
-
-	ASSERT(task->pid != proc->pid);
-	proc->exit = 1;
-
-	for_all_task_in_process(proc, tmp) {
-		/*
-		 * other task can not get the instance of this
-		 * task, but the task who already get the instance
-		 * of this task can sending data to it currently.
-		 */
-		clear_task_by_tid(task->tid);
-
-		task->request |= TASK_REQ_EXIT;
-		if (tmp == task)
-			continue;
-
-		/*
-		 * make all the running taskes enter into kernel, so
-		 * when return to user, it can detected the task need
-		 * to exit.
-		 */
-		if (tmp->ti.flags & __TIF_IN_USER)
-			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
-		else if ((task->stat == TASK_STAT_WAIT_EVENT) &&
-				(task->wait_type != TASK_EVENT_ROOT_SERVICE))
-			wake_up(tmp, -EABORT);
-	}
-
-	/*
-	 * wait all task in this process going to stop stat
-	 */
-	wait_all_task_stop(proc);
-
-	/*
-	 * send a kernel event to the root service to indicate that
-	 * this process will exit() soon, before sending the message
-	 * to the root service, mask this task do_not_preempt(). since
-	 * this task will stopped soon.
-	 */
-	do_not_preempt();
-
-	return send_process_exit_event(proc);
 }
 
 static long process_ctl(struct kobject *kobj, int req, unsigned long data)
@@ -219,7 +118,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 		return 0;
 	case KOBJ_PROCESS_WAKEUP:
 		wake_up(proc->head, 0);
-		break;
+		return 0;
 	case KOBJ_PROCESS_VA2PA:
 		if (!(kobj->right & KOBJ_RIGHT_HEAP_SELFCTL))
 			return -1;
@@ -233,19 +132,48 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 		 * task will be sched out when in return to user.
 		 * if the REQUEST_EXIT bit is seted in task->request
 		 */
-		if (process_exit(proc)) {
-			pr_err("process-%d exit fail\n", proc->pid);
-			return -EABORT;
-		} else {
-			return 0;
-		}
-		break;
+		process_die();
+		return 0;
+	case KOBJ_PROCESS_SETUP_REG0:
+		arch_set_task_reg0(proc->head, data);
+		return 0;
 	default:
 		pr_err("%s unsupport ctl reqeust %d\n", __func__, req);
 		break;
 	}
 
 	return -EPROTONOSUPPORT;
+}
+
+static void process_release(struct kobject *kobj)
+{
+	struct process *proc = (struct process *)kobj->data;
+	struct task *task = proc->head, *tmp;
+
+	for_all_task_in_process(proc, tmp) {
+		if ((tmp->stat != TASK_STAT_STOPPED) || (tmp->cpu == -1))
+			panic("wrong task state detect in %s\n", __func__);
+	}
+
+	while (task) {
+		tmp = task->next;
+		do_release_task(task);
+		task = tmp;
+	}
+
+	/*
+	 * close all the kobject which has not been closed
+	 * by the task.
+	 */
+	release_proc_kobjects(proc);
+
+	/*
+	 * release the all resource of the process.
+	 */
+	vspace_deinit(proc);
+	process_handles_deinit(proc);
+	release_pid(proc->pid);
+	free(proc);
 }
 
 static struct kobject_ops proc_kobj_ops = {

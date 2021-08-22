@@ -32,6 +32,11 @@ void register_kobject_type(kobject_create_cb ops, int type)
 
 static void kobject_release(struct kobject *kobj)
 {
+	/*
+	 * release poll_struct if needed.
+	 */
+	release_poll_struct(kobj);
+
 	if (kobj->ops && kobj->ops->release)
 		kobj->ops->release(kobj);
 }
@@ -49,13 +54,13 @@ int kobject_get(struct kobject *kobj)
 	if (!kobj)
 		return 0;
 
-	old = atomic_cmpadd(&kobj->ref, 0, 1);
-	if (old == 0) {
-		pr_err("wrong refcount %d for 0x%p\n", old, kobj);
+	old = atomic_inc_if_postive(&kobj->ref);
+	if (old < 0) {
+		pr_err("%s: wrong refcount %d 0x%p\n", __func__, old, kobj);
 		return 0;
 	}
 
-	return old;
+	return 1;
 }
 
 int kobject_put(struct kobject *kobj)
@@ -65,9 +70,9 @@ int kobject_put(struct kobject *kobj)
 	if (!kobj)
 		return 0;
 
-	old = atomic_cmpsub(&kobj->ref, 0, 1);
-	if (old == 0) {
-		pr_err("wrong refcount %d for 0x%p\n", old, kobj);
+	old = atomic_dec_set_negtive_if_zero(&kobj->ref);
+	if (old <= 0) {
+		pr_err("%s: wrong refcount %d 0x%p\n", __func__, old, kobj);
 		return 0;
 	}
 
@@ -77,7 +82,7 @@ int kobject_put(struct kobject *kobj)
 	if (old == 1)
 		kobject_release(kobj);
 
-	return old;
+	return 1;
 }
 
 void kobject_init(struct kobject *kobj, int type, right_t right, unsigned long data)
@@ -119,14 +124,7 @@ int kobject_poll(struct kobject *ksrc, struct kobject *kdst, int event, bool ena
 	if (ksrc->ops && ksrc->ops->poll)
 		ret = ksrc->ops->poll(ksrc, kdst, event, enable);
 
-	if (enable) {
-		if (ret == 0)
-			kobject_get(kdst);
-	} else {
-		kobject_put(kdst);
-	}
-
-	return 0;
+	return ret;
 }
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)
@@ -152,16 +150,30 @@ int kobject_close(struct kobject *kobj, right_t right)
 {
 	int ret = 0;
 
+	/*
+	 * just put this kobject if the right is 0.
+	 */
+	if (right == KOBJ_RIGHT_NONE) {
+		kobject_put(kobj);
+		return 0;
+	}
+
 	if (!kobj->ops || !kobj->ops->close)
 		ret = kobj->ops->close(kobj, right);
 
 	/*
 	 * send the close event to the poller if need.
 	 */
-	if (right & KOBJ_RIGHT_WRITE)
+	if (right & KOBJ_RIGHT_WRITE) {
 		poll_event_send(kobj->poll_struct, EV_WCLOSE);
-	else
+		if (kobj->poll_struct)
+			kobj->poll_struct->poll_events &= ~(POLLIN | POLLWOPEN | POLLWCLOSE);
+	} else {
 		poll_event_send(kobj->poll_struct, EV_RCLOSE);
+		if (kobj->poll_struct)
+			kobj->poll_struct->poll_events &= ~(POLLOUT |
+					POLLROPEN | POLLRCLOSE | POLLKERNEL);
+	}
 
 	/*
 	 * dec the refcount which caused by kobject_init and
@@ -234,84 +246,6 @@ long kobject_ctl(struct kobject *kobj, right_t right,
 		return -EPERM;
 
 	return kobj->ops->ctl(kobj, req, data);
-}
-
-handle_t kobject_send_handle(struct process *psrc, struct process *pdst,
-		handle_t handle, right_t right_send)
-{
-	struct kobject *kobj;
-	right_t right;
-	int ret;
-
-	ret = get_kobject_from_process(psrc, handle, &kobj, &right);
-	if (ret)
-		return ret;
-
-	if (!(right & KOBJ_RIGHT_GRANT)) {
-		ret = -EPERM;
-		goto out;
-	}
-
-	if ((right_send & KOBJ_RIGHT_RW) == (right & KOBJ_RIGHT_RW)) {
-		ret = -EPERM;
-		goto out;
-	}
-
-	right_send &= KOBJ_RIGHT_RW;
-	ret =  __alloc_handle(pdst, kobj, right_send);
-out:
-	put_kobject(kobj);
-	return ret;
-}
-
-handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
-{
-	struct kobject *kobj_proc, *kobj;
-	right_t right_proc, right_kobj;
-	handle_t handle_out = -1;
-	struct process *proc;
-	int ret;
-
-	/*
-	 * only the root service can call this function, other
-	 * process if need pass an kobject to another thread, may
-	 * have its owm proto
-	 */
-	if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
-		return -EPERM;
-
-	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(handle))
-		return -ENOENT;
-
-	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
-	if (ret)
-		return -ENOENT;
-
-	ret = get_kobject(handle, &kobj, &right_kobj);
-	if (ret) {
-		put_kobject(kobj_proc);
-		return -ENOENT;
-	}
-
-	if ((kobj_proc->type != KOBJ_TYPE_PROCESS) ||
-			!(kobj->right & KOBJ_RIGHT_GRANT)) {
-		handle_out = -EBADF;
-		goto out;
-	}
-
-	if ((kobj->right & right) != right) {
-		handle_out = -EPERM;
-		goto out;
-	}
-
-	proc = (struct process *)kobj_proc->data;
-	handle_out = __alloc_handle(proc, kobj, right);
-
-out:
-	put_kobject(kobj_proc);
-	put_kobject(kobj);
-
-	return handle_out;
 }
 
 static int kobject_subsystem_init(void)

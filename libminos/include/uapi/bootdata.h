@@ -8,7 +8,7 @@
 #include <inttypes.h>
 #endif
 
-#define CMDLINE_SIZE	511
+#define CMDLINE_SIZE	512
 
 #define BOOTDATA_MAGIC  0xe4b990e6958f
 

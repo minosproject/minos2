@@ -14,12 +14,12 @@ struct process {
 	int task_cnt;
 	void *pdata;
 
+	int stopped;
+
 	struct task *head;
 	struct task *tail;
 	struct kobject kobj;
 	spinlock_t lock;
-
-	int exit;
 
 	struct vspace vspace;
 
@@ -47,5 +47,11 @@ struct process *create_process(task_func_t func,
 struct task *create_task_for_process(struct process *proc,
 		unsigned long func, void *usp, int prio,
 		int aff, unsigned long flags);
+
+void process_die(void);
+
+void kill_process(struct process *proc);
+
+void release_pid(int pid);
 
 #endif

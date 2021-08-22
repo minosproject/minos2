@@ -8,6 +8,9 @@ off_t __lseek(int fd, off_t off, int whence)
 {
 	struct proto proto;
 
+	if (fd <= 3)
+		return 0;
+
 	proto.proto_id = PROTO_LSEEK;
 	proto.lseek.off = off;
 	proto.lseek.whence = whence;

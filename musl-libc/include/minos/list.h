@@ -94,18 +94,18 @@ static inline struct list_head *list_prve(struct list_head *list)
 	list_entry((ptr)->next, type, member)
 
 #define list_next_entry(pos, member) \
-	list_entry((pos)->member.next, typeof(*(pos)), member)
+	list_entry((pos)->member.next, __typeof__(*(pos)), member)
 
 #define list_for_each(head, list)	\
 	for(list = (head)->next; list != (head); list = list->next)
 
 #define list_for_each_entry(pos, head, member)	\
-	for (pos = list_entry((head)->next, typeof(*pos), member); \
+	for (pos = list_entry((head)->next, __typeof__(*pos), member); \
 	     &pos->member != (head); \
-	     pos = list_entry(pos->member.next, typeof(*pos), member))
+	     pos = list_entry(pos->member.next, __typeof__(*pos), member))
 
 #define list_for_each_entry_safe(pos, n, head, member)			\
-	for (pos = list_first_entry(head, typeof(*pos), member),	\
+	for (pos = list_first_entry(head, __typeof__(*pos), member),	\
 		n = list_next_entry(pos, member);			\
 	     &pos->member != (head); 					\
 	     pos = n, n = list_next_entry(n, member))

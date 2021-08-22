@@ -105,13 +105,6 @@ void *map_self_memory(int pma_handle, size_t size, int perm)
 	return (void *)vma->start;
 }
 
-static void process_init(struct process *proc)
-{
-	proc->proc_handle = -1;
-	init_list(&proc->vma_free);
-	init_list(&proc->vma_used);
-}
-
 static int process_vspace_init(struct process *proc, struct elf_ctx *ctx)
 {
 	struct vma *vma;
@@ -163,7 +156,7 @@ static int create_process(char *name, unsigned long entry,
 		right |= KOBJ_RIGHT_HEAP_SELFCTL;
 
 	return kobject_create(KOBJ_TYPE_PROCESS, right,
-			KOBJ_RIGHT_CTL, (unsigned long)&args);
+			KR_RC, (unsigned long)&args);
 }
 
 static int prepare_driver_resource(struct process *proc)
@@ -190,7 +183,7 @@ static struct process *create_new_process(struct elf_ctx *ctx,
 	if (!proc)
 		return NULL;
 
-	process_init(proc);
+	proc->proc_handle = -1;
 	proc->flags = flags;
 	proc->pdata = pdata;
 
@@ -553,10 +546,11 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 	 */
 	struct vma *vma;
 
-	process_init(self);
-	list_add_tail(&process_list, &self->list);
-	self->pid = 0;
+	init_list(&self->vma_free);
+	init_list(&self->vma_used);
+	self->pid = 1;
 	self->proc_handle = 0;
+	list_add_tail(&process_list, &self->list);
 
 	vma = kzalloc(sizeof(struct vma));
 	if (!vma)
@@ -580,7 +574,7 @@ struct process *get_process_by_handle(int handle)
 }
 
 static long handle_process_page_fault(struct process *proc,
-		uint64_t virt_addr, uint64_t access_type)
+		uint64_t virt_addr, int access_type, int tid)
 {
 	unsigned long start = PAGE_ALIGN(virt_addr);
 	struct vma *vma;
@@ -597,11 +591,9 @@ static long handle_process_page_fault(struct process *proc,
 		goto out;
 	}
 
-	return kobject_reply_errcode(proc->proc_handle, 0, 0);
-
 out:
 	/*
-	 * kill this process, TBD
+	 * kill this process, TBD, use wake up
 	 */
 	pr_err("process %d access invalid address");
 	return -EFAULT;
@@ -695,7 +687,7 @@ static void handle_process_kernel_request(struct process *proc, struct epoll_eve
 	switch (event->data.type) {
 	case EPOLL_KEV_PAGE_FAULT:
 		handle_process_page_fault(proc, event->data.data0,
-				event->data.data1);
+				(int)event->data.data1, (int)event->data.data2);
 		break;
 	case EPOLL_KEV_PROCESS_EXIT:
 		handle_process_exit(proc, event->data.data0);

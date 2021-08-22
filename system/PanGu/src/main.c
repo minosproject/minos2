@@ -73,7 +73,7 @@ static int load_fuxi_service(void)
 	 * can commuicate with other process, this endpoint
 	 * will grant to fuxi service
 	 */
-	fuxi_handle = kobject_create_port(KR_RWCG, KR_WG);
+	fuxi_handle = kobject_create_port(KR_RWG, KR_WG);
 	if (fuxi_handle <= 0)
 		return fuxi_handle;
 
@@ -96,15 +96,29 @@ static int load_fuxi_service(void)
 	/*
 	 * start the fuxi service and wait it finish startup
 	 */
-	pr_info("Start Fuxi service and waitting ...\n");
+	pr_info("Start FuXi service and waitting ...\n");
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
-	kobject_read_simple(proc->proc_handle,
-			&proto, sizeof(struct proto), -1);
 
+	for (;;) {
+		ret = kobject_read_simple(proc->proc_handle,
+			&proto, sizeof(struct proto), -1);
+		if (ret == 0)
+			break;
+
+		if (ret != -EAGAIN)
+			break;
+	}
+
+	if (ret) {
+		pr_info("Get response from FuXi fail %d\n", ret);
+		return ret;
+	}
+
+	pr_info("Get response from FuXi service %d\n", proto.proto_id);
 	if (proto.proto_id != PROTO_IAMOK)
 		return -EPROTO;
 
-	kobject_reply_errcode(proc->proc_handle, proto.token, 0);
+	kobject_reply_errcode(proc->proc_handle, 0, 0);
 
 	return 0;
 }

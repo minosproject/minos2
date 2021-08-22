@@ -1,18 +1,5 @@
-/*
- * Copyright (C) 2018 Min Le (lemin9538@gmail.com)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+#ifndef __ASM_ATOMIC_H__
+#define __ASM_ATOMIC_H__
 
 #include <asm/aarch64_common.h>
 #include <minos/types.h>
@@ -162,23 +149,53 @@ static inline int atomic_cmpxchg(atomic_t *t, int old, int new)
 	return oldval;
 }
 
-static inline int atomic_cmpadd(atomic_t *t, int old, int value)
+static inline int atomic_inc_if_postive(atomic_t *t)
 {
 	unsigned long tmp;
 	int oldval;
+	int value;
 
 	smp_mb();
 
 	asm volatile(
 "1:	ldxr	%w1, %2\n"
-"	cmp	%w1, %w3\n"
-"	add	%w4, %w1, #1\n"
-"	b.eq	2f\n"
-"	stxr	%w0, %w4, %2\n"
+"	cmp	%w1, #0\n"
+"	b.lt	2f\n"
+"	add	%w3, %w1, #1\n"
+"	stxr	%w0, %w3, %2\n"
 "	cbnz	%w0, 1b\n"
 "2:			"
-	: "=&r" (tmp), "=&r" (oldval), "+Q" (t->value)
-	: "Ir" (old), "r" (value)
+	: "=&r" (tmp), "=&r" (oldval), "+Q" (t->value), "=&r" (value)
+	:
+	: "cc"
+	);
+
+	smp_mb();
+	return oldval;
+}
+
+static inline int atomic_dec_set_negtive_if_zero(atomic_t *t)
+{
+	unsigned long tmp;
+	int oldval;
+	int value;
+
+	smp_mb();
+
+	asm volatile(
+"1:	ldxr	%w1, %2\n"
+"	cmp	%w1, #0\n"
+"	b.le	2f\n"
+"	sub	%w3, %w1, #1\n"
+"	cmp	%w3, #0\n"
+"	b.ne	3f\n"
+"	sub	%w3, %w3, #1\n"	// set the value to -1 if new value is -1
+"3:		"
+"	stxr	%w0, %w3, %2\n"
+"	cbnz	%w0, 1b\n"
+"2:			"
+	: "=&r" (tmp), "=&r" (oldval), "+Q" (t->value), "=&r" (value)
+	:
 	: "cc"
 	);
 
@@ -196,7 +213,7 @@ static inline int atomic_cmpsub(atomic_t *t, int old, int value)
 	asm volatile(
 "1:	ldxr	%w1, %2\n"
 "	cmp	%w1, %w3\n"
-"	sub	%w4, %w1, #1\n"
+"	sub	%w4, %w1, %4\n"
 "	b.eq	2f\n"
 "	stxr	%w0, %w4, %2\n"
 "	cbnz	%w0, 1b\n"
@@ -356,5 +373,7 @@ __CMPXCHG_CASE(w, b,  mb_1, al, "memory")
 __CMPXCHG_CASE(w, h,  mb_2, al, "memory")
 __CMPXCHG_CASE(w,  ,  mb_4, al, "memory")
 __CMPXCHG_CASE(x,  ,  mb_8, al, "memory")
+
+#endif // CONFIG_ARM_ATOMIC_LSE
 
 #endif

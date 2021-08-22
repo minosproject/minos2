@@ -28,7 +28,7 @@ enum {
 	 POLLWOPEN | POLLWCLOSE | POLLKERNEL)
 
 #define POLL_READ_RIGHT_EVENT \
-	(POLLIN | POLLWOPEN | POLLWCLOSE)
+	(POLLIN | POLLWOPEN | POLLWCLOSE | POLLKERNEL)
 
 #define POLL_WRITE_RIGHT_EVENT \
 	(POLLOUT | POLLROPEN | POLLRCLOSE)
@@ -95,5 +95,7 @@ int poll_event_send_with_data(struct poll_struct *ps, int event, int type,
 		uint64_t data0, uint64_t data1, uint64_t data2);
 
 struct poll_event *alloc_poll_event(void);
+
+void release_poll_struct(struct kobject *kobj);
 
 #endif

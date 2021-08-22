@@ -18,6 +18,7 @@
 #include <minos/kobject.h>
 #include <minos/types.h>
 #include <minos/proto.h>
+#include <minos/service.h>
 
 #include <libminos/file.h>
 
@@ -189,15 +190,39 @@ void handle_procfs_request(struct epoll_event *event, struct request_entry *re)
 	}
 }
 
+static int register_procfs_service(const char *src, const char *target, int type, int flags)
+{
+	char string[FILENAME_MAX];
+	struct proto proto;
+	char *buf = string;
+	int len;
+
+	len = strlen(src) + strlen(target) + 2;
+	if (len >= FILENAME_MAX)
+		return -ENAMETOOLONG;
+
+	strcpy(buf, src);
+	buf += strlen(src) + 1;
+	strcpy(buf, target);
+
+	proto.proto_id = PROTO_REGISTER_SERVICE;
+	proto.register_service.type = type;
+	proto.register_service.flags = flags;
+	proto.register_service.source_off = 0;
+	proto.register_service.target_off = strlen(src) + 1;
+
+	return kobject_write(fuxi_handle, &proto,
+			sizeof(struct proto), string, len, -1);
+}
+
 void procfs_init(void)
 {
 	int rootfd = 0;
 
-	// rootfd = register_service("/", "proc", DT_SRV);
-	// if (rootfd <= 0)
-	//	exit(-ENOSPC);
+	rootfd = register_procfs_service("/", "proc", SRV_PORT, 0);
+	if (rootfd <= 0)
+		exit(-ENOSPC);
 
-	root_file.f_flags |= F_FLAGS_ROOT;
 	root_file.handle = rootfd;
 
 	if (register_request_entry(REQUEST_TYPE_PROCFS, rootfd, &root_file)) {

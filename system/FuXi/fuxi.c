@@ -113,21 +113,16 @@ static void release_node(struct vnode *node)
 	list_add(&node_list, &node->list);
 }
 
-static int handle_kernel_event(struct epoll_event *event)
+static int handle_close_event(struct epoll_event *event)
 {
 	struct vreq *vreq = (struct vreq *)event->data.ptr;
 	struct vnode *node = vreq->node;
 
-	switch (event->data.type) {
-	case POLLIN_KOBJ_CLOSE:
-		if (node->handle > 0)
-			kobject_close(node->handle);
-		release_node(node);
-		release_vreq(vreq);
-		break;
-	default:
-		break;
-	}
+	if (node->handle)
+		kobject_close(node->handle);
+
+	release_node(node);
+	release_vreq(vreq);
 
 	return 0;
 }
@@ -419,7 +414,7 @@ static void handle_getdent_request(struct vreq *vreq, struct proto *proto, char 
 	struct vnode *node = vreq->node;
 	unsigned char *tmp = vreq->buf;
 	struct dirent *de;
-	int ret, len;
+	int ret = 0, len;
 	struct vnode *next;
 	int size_left = PAGE_SIZE;
 
@@ -435,7 +430,7 @@ static void handle_getdent_request(struct vreq *vreq, struct proto *proto, char 
 
 	for (;;) {
 		if (vreq->pdata == &vreq->node->child)
-			ret = 0;
+			break;
 
 		next = list_entry(vreq->pdata, struct vnode, list);
 		if (next == NULL)
@@ -537,10 +532,16 @@ static int sns_loop(int handle)
 		}
 
 		for (i = 0; i < ret; i++) {
-			if (events[i].data.type != EPOLLIN_WRITE)
-				handle_kernel_event(&events[i]);
-			else
+			switch (events[i].events) {
+			case EPOLLIN:
 				handle_event(&events[i]);
+				break;
+			case EPOLLWCLOSE:
+				handle_close_event(&events[i]);
+				break;
+			default:
+				break;
+			}
 		}
 	}
 

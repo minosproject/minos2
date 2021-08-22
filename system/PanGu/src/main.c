@@ -29,6 +29,7 @@ extern void pangu_main(void);
 unsigned long heap_base, heap_end;
 
 static char *rootfs_default = "rootfs.drv";
+struct process *rootfs_proc;
 
 static void get_boot_opt(char *str)
 {
@@ -76,15 +77,14 @@ static int load_fuxi_service(void)
 	if (fuxi_handle <= 0)
 		return fuxi_handle;
 
-	ret = load_ramdisk_process("fuxi", 0, NULL, TASK_FLAGS_SRV, NULL);
-	if (ret)
-		return ret;
+	proc = load_ramdisk_process("fuxi.srv", 0, NULL, TASK_FLAGS_SRV, NULL);
+	if (proc == NULL)
+		return -ENOMEM;
 
 	/*
 	 * fuxi service will be the second process in the process
 	 * list after self_init()
 	 */
-	proc = list_entry(&process_list.next->next, struct process, list);
 	ret = grant(proc->proc_handle, fuxi_handle, KR_R);
 	if (ret <= 0)
 		return ret;
@@ -143,9 +143,9 @@ static int load_rootfs_driver(void)
 	if (ret)
 		goto out;
 
-	ret = load_ramdisk_process(drv_name, 0, NULL,
+	rootfs_proc = load_ramdisk_process(drv_name, 0, NULL,
 			TASK_FLAGS_DRV | TASK_FLAGS_DEDICATED_HEAP, res);
-	if (ret)
+	if (rootfs_proc == NULL)
 		goto err_release_resource;
 
 	return 0;
@@ -183,6 +183,16 @@ int main(int argc, char **argv)
 	ramdisk_init(bootdata->ramdisk_start, bootdata->ramdisk_end);
 	of_init(bootdata->dtb_start, bootdata->dtb_end);
 	self_init(bootdata->vmap_start, bootdata->vmap_end);
+
+	/*
+	 * create the epoll fd for pangu, pangu will use this handle
+	 * to handle all the request from other process.
+	 */
+	proc_epfd = epoll_create(0);
+	if (proc_epfd < 0) {
+		pr_err("can not create epoll fd\n");
+		exit(-ENOENT);
+	}
 
 	ret = load_fuxi_service();
 	if (ret)

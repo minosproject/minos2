@@ -40,6 +40,7 @@ src_c	+= src/elf_ramdisk.c
 src_c	+= src/elf_std.c
 src_c	+= src/vma.c
 src_c	+= src/process.c
+src_c	+= src/procfs.c
 src_c	+= src/resource.c
 
 OBJS	:= $(src_c:%.c=%.o)

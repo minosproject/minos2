@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Min Le (lemin9538@163.com)
+ * Copyright (c) 2021 上海网返科技
  */
 
 #include <stdio.h>
@@ -23,12 +24,13 @@
 #include <pangu/request.h>
 
 static LIST_HEAD(request_entry_list);
-static int proc_epfd;
+int proc_epfd;
 int fuxi_handle;
+extern struct process *rootfs_proc;
 
 #define MAX_EVENT 16
 
-struct request_entry *register_request_entry(int type, int handle, void *data)
+static struct request_entry *alloc_request_entry(int type, void *data)
 {
 	struct request_entry *re;
 
@@ -39,17 +41,30 @@ struct request_entry *register_request_entry(int type, int handle, void *data)
 	}
 
 	re->type = type;
-	re->handle = handle;
 	re->data = data;
 	list_add_tail(&request_entry_list, &re->list);
 
 	return re;
 }
 
+int register_request_entry(int type, int handle, void *data)
+{
+	struct request_entry *re;
+	struct epoll_event event;
+
+	re = alloc_request_entry(type, data);
+	if (!re)
+		return -ENOMEM;
+
+	event.events = EPOLLIN;
+	event.data.ptr = data;
+
+	return epoll_ctl(proc_epfd, EPOLL_CTL_ADD, handle, &event);
+}
+
 static void handle_event(struct epoll_event *event)
 {
 	struct request_entry *re = event->data.ptr;
-	int ret;
 
 	if (!re) {
 		pr_err("invalid event receive\n");
@@ -58,48 +73,29 @@ static void handle_event(struct epoll_event *event)
 
 	switch (re->type) {
 	case REQUEST_TYPE_PROCESS:
-		ret = handle_process_request(event, re);
+		handle_process_request(event, re);
+		break;
+	case REQUEST_TYPE_PROCFS:
+		handle_procfs_request(event, re);
 		break;
 	default:
 		pr_err("invalid request type %d\n", re->type);
-		ret = -EINVAL;
 		break;
 	}
-
-	if (ret < 0)
-		pr_err("handle request failed\n");
 }
 
 void pangu_main(void)
 {
 	struct epoll_event events[MAX_EVENT];
 	struct epoll_event *event = &events[0];
-	struct request_entry *re;
 	long ret;
 	int i;
 
-	proc_epfd = epoll_create(MAX_EVENT);
-	if (proc_epfd < 0) {
-		pr_err("can not create epoll fd\n");
-		exit(-ENOENT);
-	}
-
-	/*
-	 * poll the request entry which already register during pangu
-	 * boot stage.
-	 */
-	list_for_each_entry(re, &request_entry_list, list) {
-		event->events = EPOLLIN;
-		event->data.ptr = re;
-
-		if (epoll_ctl(proc_epfd, EPOLL_CTL_ADD, re->handle, event))
-			pr_err("epoll %d %d failed\n", re->type, re->handle);
-	}
-
 	/*
 	 * wake up all the process which created by PanGu itself.
+	 * currently only need to wake up the rootfs driver process.
 	 */
-	wakeup_all_process();
+	wakeup_process(rootfs_proc);
 
 	for (;;) {
 		ret = epoll_wait(proc_epfd, events, MAX_EVENT, -1);

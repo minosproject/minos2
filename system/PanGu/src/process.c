@@ -4,10 +4,12 @@
 
 #include <stdio.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/epoll.h>
 
@@ -33,6 +35,18 @@ extern int load_process_from_file(struct process *proc,
 		struct elf_ctx *ctx, FILE *file);
 
 extern int elf_init(struct elf_ctx *ctx, FILE *file);
+
+struct process *find_process_by_name(const char *name)
+{
+	struct process *proc;
+
+	list_for_each_entry(proc, &process_list, list) {
+		if (strcmp(proc->name, name) == 0)
+			return proc;
+	}
+
+	return NULL;
+}
 
 int unmap_self_memory(void *base)
 {
@@ -172,7 +186,7 @@ static struct process *create_new_process(struct elf_ctx *ctx,
 {
 	struct process *proc;
 
-	proc = kzalloc(sizeof(struct process));
+	proc = kzalloc(sizeof(struct process) + strlen(name) + 1);
 	if (!proc)
 		return NULL;
 
@@ -377,13 +391,19 @@ static void *prepare_process_argv(struct process *proc, char *name,
 	return stack;
 }
 
-static int setup_process(struct process *proc, char *name,
+static char *file_path_to_proc_name(char *path)
+{
+	return path;
+}
+
+static int setup_process(struct process *proc, char *path,
 		struct elf_ctx *ctx, int argc, char **argv)
 {
 	struct vma *stack_vma = proc->stack_vma;
 	void *stack, *origin, *tmp;
 	char **new_argv;
 	int i, ret = 0;
+	char *name;
 
 	if (argc > MAX_ARGC) {
 		pr_warn("argv is too long %d\n", argc);
@@ -404,6 +424,7 @@ static int setup_process(struct process *proc, char *name,
 	stack += PROCESS_STACK_INIT_SIZE;
 	origin = stack;
 
+	name = file_path_to_proc_name(path);
 	stack = prepare_process_argv(proc, name,
 			stack, &argc, argv, new_argv);
 	if (stack == NULL)
@@ -441,19 +462,13 @@ err_map_stack_mem:
 	return ret;
 }
 
-static char *file_path_to_proc_name(char *path)
-{
-	return path;
-}
-
 static int load_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
 	FILE *file = fopen(path, "r");
 	struct process *proc;
-	int ret;
-	char *name;
 	struct elf_ctx ctx;
+	int ret;
 
 	if (!file)
 		return -ENOENT;
@@ -462,8 +477,7 @@ static int load_process(char *path, int argc, char **argv,
 	if (ret)
 		return ret;
 
-	name = file_path_to_proc_name(path);
-	proc = create_new_process(&ctx, name, flags, pdata);
+	proc = create_new_process(&ctx, path, flags, pdata);
 	if (!proc)
 		return -ENOMEM;
 
@@ -474,7 +488,7 @@ static int load_process(char *path, int argc, char **argv,
 		return ret;
 	}
 
-	ret = setup_process(proc, name, &ctx, argc, argv);
+	ret = setup_process(proc, path, &ctx, argc, argv);
 	if (ret) {
 		fclose(file);
 		release_process(proc);
@@ -486,62 +500,50 @@ static int load_process(char *path, int argc, char **argv,
 	return 0;
 }
 
-int load_ramdisk_process(char *path, int argc, char **argv,
+struct process *load_ramdisk_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
 	struct process *proc;
 	struct ramdisk_file rfile;
 	int ret;
-	char *name;
 	struct elf_ctx ctx;
 
 	ret = ramdisk_open(path, &rfile);
 	if (ret)
-		return -ENOENT;
+		return NULL;
 
 	ret = elf_init_ramdisk(&ctx, &rfile);
 	if (ret)
-		return ret;
+		return NULL;
 
-	name = file_path_to_proc_name(path);
-	proc = create_new_process(&ctx, name, flags, pdata);
+	proc = create_new_process(&ctx, path, flags, pdata);
 	if (!proc)
-		return -ENOMEM;
+		return NULL;
 
 	ret = load_process_from_ramdisk(proc, &ctx, &rfile);
 	if (ret) {
 		release_process(proc);
-		return ret;
+		return NULL;
 	}
 
 	/*
 	 * all the resource is ok now, setup the process
 	 * to prepare run it.
 	 */
-	ret = setup_process(proc, name, &ctx, argc, argv);
+	ret = setup_process(proc, path, &ctx, argc, argv);
 	if (ret) {
 		release_process(proc);
-		return ret;
+		return NULL;
 	}
 
 	list_add_tail(&process_list, &proc->list);
 
-	return 0;
+	return proc;
 }
 
-void wakeup_all_process(void)
+void wakeup_process(struct process *proc)
 {
-	struct process *proc;
-
-	list_for_each_entry(proc, &process_list, list) {
-		if (proc->pid == 0)
-			continue;
-
-		/*
-		 * wakeup the process now
-		 */
-		kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
-	}
+	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 }
 
 void self_init(unsigned long vma_base, unsigned long vma_end)
@@ -622,17 +624,13 @@ static inline int execv_argv_is_ok(char *argv, int max_size)
 	return 0;
 }
 
-static long process_execv_handler(struct process *proc,
-		struct proto *proto, void *data, size_t size)
+static long process_execv_handler(struct process *proc, struct proto *proto, void *data)
 {
 	struct execv_extra *extra = data;
 	char **argv = extra->argv;
 	unsigned long limit;
 	char *string;
 	int i;
-
-	if (size < sizeof(struct execv_extra))
-		return -EINVAL;
 
 	limit = PAGE_SIZE - sizeof(struct execv_extra);
 	string = extra->buf;
@@ -655,8 +653,7 @@ out:
 	return -EINVAL;
 }
 
-static long process_mmap_handler(struct process *proc,
-		struct proto *proto, void *data, size_t size)
+static long process_mmap_handler(struct process *proc, struct proto *proto, void *data)
 {
 	size_t len = proto->mmap.len;
 	int prot = proto->mmap.prot;
@@ -688,37 +685,31 @@ out:
 	return (long)addr;
 }
 
-static long process_iamok_handler(struct process *proc,
-		struct proto *proto, void *data, size_t size)
+static long process_iamok_handler(struct process *proc, struct proto *proto, void *data)
 {
-	kobject_reply_errcode(proc->proc_handle, proto->token, 0);
-
 	return 0;
 }
 
-static long handle_process_kernel_request(struct process *proc,
-		struct epoll_event *event)
+static void handle_process_kernel_request(struct process *proc, struct epoll_event *event)
 {
 	switch (event->data.type) {
-	case EPOLLIN_PAGE_FAULT:
-		return handle_process_page_fault(proc, event->data.data0,
+	case EPOLL_KEV_PAGE_FAULT:
+		handle_process_page_fault(proc, event->data.data0,
 				event->data.data1);
-	case EPOLLIN_EXIT:
-		return handle_process_exit(proc, event->data.data0);
+		break;
+	case EPOLL_KEV_PROCESS_EXIT:
+		handle_process_exit(proc, event->data.data0);
+		break;
 	default:
 		pr_err("unknown request from kernel %d\n", event->data.type);
 		break;
 	}
-
-	return 0;
 }
 
-static long handle_process_write_request(struct process *proc,
-		struct epoll_event *event)
+static void handle_process_in_request(struct process *proc, struct epoll_event *event)
 {
 	struct proto proto;
 	static void *data = NULL;
-	size_t dsize, esize;
 	long ret;
 
 	if (data == NULL) {
@@ -727,63 +718,42 @@ static long handle_process_write_request(struct process *proc,
 			exit(-ENOMEM);
 	}
 
-	proto.token = kobject_read(proc->proc_handle, &proto,
-			sizeof(struct proto), &dsize, data,
-			PAGE_SIZE, &esize, 0);
-	if (proto.token < 0)
-		return proto.token;
+	ret = kobject_read_proto_with_string(proc->proc_handle,
+			&proto, data, PAGE_SIZE, 0);
+	if (ret < 0)
+		return;
 
 	switch (proto.proto_id) {
 	case PROTO_MMAP:
-		ret = process_mmap_handler(proc, &proto, data, esize);
+		ret = process_mmap_handler(proc, &proto, data);
 		break;
 	case PROTO_EXECV:
-		ret = process_execv_handler(proc, &proto, data, esize);
+		ret = process_execv_handler(proc, &proto, data);
 		break;
 	case PROTO_IAMOK:
-		ret = process_iamok_handler(proc, &proto, data, esize);
+		ret = process_iamok_handler(proc, &proto, data);
 		break;
 	default:
 		ret = -EPROTONOSUPPORT;
 		break;
 	}
 
-	return ret;
+	kobject_reply_errcode(proc->proc_handle, 0, ret);
 }
 
-long handle_process_request(struct epoll_event *event, struct request_entry *re)
+void handle_process_request(struct epoll_event *event, struct request_entry *re)
 {
-	struct process *proc = re->data;
-	long ret;
+	struct process *proc = (struct process *)re->data;
 
-	if (!proc) {
-		pr_err("can not find process\n");
-		return -ENOENT;
+	switch (event->events) {
+	case EPOLLIN:
+		handle_process_in_request(proc, event);
+		break;
+	case EPOLLKERNEL:
+		handle_process_kernel_request(proc, event);
+		break;
+	default:
+		pr_err("invalid event for process\n");
+		break;
 	}
-
-	if (event->data.type == EPOLLIN_WRITE)
-		ret = handle_process_write_request(proc, event);
-	else
-		ret = handle_process_kernel_request(proc, event);
-
-	return ret;
-}
-
-int handle_process_info_request(struct epoll_event *event, struct request_entry *re)
-{
-	struct list_head *list = re->data;
-	struct process *proc;
-	struct proc_info info;
-
-	if (list == &process_list) {
-		memset(&info, 0, sizeof(struct proc_info));
-	} else {
-		proc = list_entry(list, struct process, list);
-		re->data = (void *)list->next;
-
-		strcpy(info.name, proc->name);
-		info.pid = proc->pid;
-	}
-
-	return kobject_write(re->handle, &info, sizeof(struct proc_info), NULL, 0, 0);
 }

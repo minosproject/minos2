@@ -19,7 +19,6 @@
 
 #define PROCESS_NAME_SIZE 64
 
-struct service;
 struct request_entry;
 
 struct process {
@@ -39,11 +38,12 @@ struct process {
 
 	struct list_head list;		// link to all the process in the system.
 
-	char name[PROCESS_NAME_SIZE];
+	char name[0];
 };
 
 extern struct process *self;
 extern int fuxi_handle;
+extern int proc_epfd;
 extern struct list_head process_list;
 
 struct epoll_event;
@@ -58,11 +58,17 @@ void *map_self_memory(int pma_handle, size_t size, int perm);
 
 int unmap_self_memory(void *base);
 
-void wakeup_all_process(void);
+void wakeup_process(struct process *proc);
 
-long handle_process_request(struct epoll_event *event,
+void handle_process_request(struct epoll_event *event,
 		struct request_entry *re);
 
-int load_ramdisk_process(char *path, int argc, char **argv,
+void handle_procfs_request(struct epoll_event *event,
+		struct request_entry *re);
+
+struct process *load_ramdisk_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata);
+
+struct process *find_process_by_name(const char *name);
+
 #endif

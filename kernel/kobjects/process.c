@@ -211,24 +211,29 @@ static struct kobject *process_create(right_t right,
 	struct kobject *kobj = &current_proc->kobj;
 	struct process_create_arg args;
 	struct process *proc;
+	char name[256];
 	int ret;
 
 	/*
 	 * only root service can create process directly
 	 */
 	if (kobj->right != KOBJ_RIGHT_ROOT)
-		return ERROR_PTR(EPERM);
+		return ERROR_PTR(-EPERM);
 
 	ret = copy_from_user(&args, (void *)data,
 			sizeof(struct process_create_arg));
 	if (ret <= 0)
-		return NULL;
+		return ERROR_PTR(-EFAULT);
 
-	proc = create_process((task_func_t)args.entry,
+	ret = copy_string_from_user_safe(name, args.name, 256);
+	if (ret < 0)
+		name[0] = 0;
+
+	proc = create_process(name, (task_func_t)args.entry,
 			(void *)args.stack, args.aff,
 			args.prio, args.flags);
 	if (!proc)
-		return ERROR_PTR(ENOMEM);
+		return ERROR_PTR(-ENOMEM);
 
 	process_kobject_init(proc, right);
 

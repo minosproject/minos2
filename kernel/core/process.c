@@ -111,7 +111,7 @@ struct task *create_task_for_process(struct process *proc,
 	return task;
 }
 
-struct process *create_process(task_func_t func,
+struct process *create_process(char *name, task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt)
 {
 	struct process *proc = NULL;
@@ -138,7 +138,7 @@ struct process *create_process(task_func_t func,
 	/*
 	 * create a root task for this process
 	 */
-	task = create_task(NULL, func, usp, prio, aff, opt |
+	task = create_task(name, func, usp, prio, aff, opt |
 			TASK_FLAGS_NO_AUTO_START | TASK_FLAGS_ROOT, proc);
 	if (!task)
 		goto task_create_fail;

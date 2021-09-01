@@ -150,6 +150,7 @@ static int create_process(char *name, unsigned long entry,
 		.aff = aff,
 		.prio = prio,
 		.flags = flags & TASK_FLAGS_KERNEL_MASK,
+		.name = name;
 	};
 
 	if (flags & TASK_FLAGS_DEDICATED_HEAP)

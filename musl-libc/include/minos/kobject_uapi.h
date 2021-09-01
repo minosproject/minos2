@@ -59,6 +59,7 @@ struct process_create_arg {
 	int aff;
 	int prio;
 	unsigned long flags;
+	char *name;
 };
 
 /*

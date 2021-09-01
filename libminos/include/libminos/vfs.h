@@ -56,11 +56,15 @@ struct filesystem {
 	struct fnode *(*find_file)(struct fnode *parent, char *path);
 };
 
-int register_filesystem(struct filesystem *fs);
-
 int vfs_init(void);
 
-struct file *vfs_open(struct partition *part,
-		char *path, int flags, int mode);
+int register_filesystem(struct filesystem *fs);
+struct filesystem *lookup_filesystem(unsigned char type);
+
+struct file *vfs_open(struct file *parent, char *path,
+		int flags, int mode, void *pdata);
+
+ssize_t vfs_read(struct file *file, void *buf, size_t size);
+ssize_t vfs_write(struct file *file, void *buf, size_t size);
 
 #endif

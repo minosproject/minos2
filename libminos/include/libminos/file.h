@@ -6,8 +6,6 @@
 
 struct fnode;
 
-#define F_FLAGS_ROOT	(1 << 0)
-
 struct file {
 	int f_mode;
 	int f_flags;
@@ -16,6 +14,9 @@ struct file {
 
 	uint64_t offset;
 	void *sbuf;		// shared buf with the client.
+
+	uint8_t root;
+	uint8_t type;
 
 	union {
 		struct fnode *fnode;

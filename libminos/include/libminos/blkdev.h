@@ -52,12 +52,9 @@ struct partition {
 	int stat;
 	uint64_t sector_cnt;
 	uint64_t lba;
-	struct file *open_file;
 	struct blkdev *blkdev;
 	struct super_block *sb;
 	struct filesystem *fs;
-	int epfd;
-	int ctl_fd;
 };
 
 struct blkdev {

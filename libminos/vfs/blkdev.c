@@ -11,10 +11,13 @@
 #include <sys/epoll.h>
 #include <minos/kobject.h>
 #include <minos/proto.h>
+#include <minos/service.h>
 
 #include <libminos/blkdev.h>
 #include <libminos/vfs.h>
 #include "fs.h"
+
+#define MAX_EPFD 10
 
 hidden extern int parse_mbr(struct blkdev *blkdev);
 hidden extern struct filesystem *lookup_filesystem(unsigned char type);
@@ -93,25 +96,35 @@ static int handle_vfs_request(struct partition *part, struct epoll_event *event)
 	return 0;
 }
 
+static struct file root_file;
+
 static int partition_thread(void *data)
 {
-#define MAX_EPFD 10
 	struct epoll_event events[MAX_EPFD];
 	struct epoll_event *event = &events[0];
-	int epfd, cfd, cnt, i;
+	int cfd, cnt, i;
 	struct partition *part = data;
 	char srv_name[BLKDEV_NAME_SIZE + 3];
 
 	sprintf(srv_name, "%sp%d", part->blkdev->name, part->partid);
-#if 0
-	cfd = sys_register_srv(srv_name, SERVICE_TYPE_STORAGE, 1);
-	if (cfd < 0)
-		return cfd;
-#endif
+	cfd = register_service("/", srv_name, SRV_PORT, 0);
+	if (cfd <= 0) {
+		pr_err("register partion service failed\n");
+		exit(cfd);
+	}
 
-	epfd = epoll_create(1);
-	if (epfd < 0)
-		return epfd;
+	part->epfd = epoll_create(0);
+	if (part->epfd < 0) {
+		pr_err("create epoll file for partion failed\n");
+		exit(part->epfd);
+	}
+
+	root_file.handle = cfd;
+	root_file.sbuf = NULL;
+	root_file.pdata = NULL;
+	root_file.sbuf_size = 0;
+	root_file.root = 1;
+	vfs_add_file(part, &root_file);
 
 	event->events = EPOLLIN;
 
@@ -135,26 +148,9 @@ static int partition_thread(void *data)
 
 static int register_partition(struct partition *part)
 {
-	void *stack;
-	int ret;
-
-	if (part == NULL)
-		return -EINVAL;
-
 	/*
-	 * one more pages for tls memory, 1 page is enough ? TBD
+	 * only support one partition for test.
 	 */
-	stack = get_pages((BLKDEV_STACK_SIZE >> PAGE_SHIFT) + 1);
-	if (!stack)
-		return -ENOMEM;
-
-	stack += BLKDEV_STACK_SIZE;
-	ret = create_thread(partition_thread, stack, -1, -1, 0, stack, part);
-	if (ret) {
-		free_pages(stack);
-		pr_err("create partition failed\n");
-		return ret;
-	}
 
 	return 0;
 }

@@ -410,7 +410,7 @@ static int fat_create_super_block(struct partition *partition,
 	sb->max_file = (uint32_t)-1;	// TBD
 	sb->flags = 0;
 	sb->magic = 0;
-	sb->partition;
+	sb->partition = partition;
 	partition->sb = sb;
 	free_pages(buf);
 

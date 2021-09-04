@@ -32,7 +32,7 @@ int register_service(const char *src, const char *target, int type, int flags)
 			sizeof(struct proto), string, len, -1);
 }
 
-int unreigster_service(int fd)
+int unregister_service(int fd)
 {
 	return kobject_close(fd);
 }

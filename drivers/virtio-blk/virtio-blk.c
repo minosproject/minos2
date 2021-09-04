@@ -283,7 +283,7 @@ int virtio_blk_init(virtio_regs *regs, uint32_t intid)
 	WRITE32(regs->Status, READ32(regs->Status) | VIRTIO_STATUS_DRIVER_OK);
 	mb();
 
-	register_blkdev(&vdev->blkdev, 0, 0);
+	register_blkdev(&vdev->blkdev, NULL, 0, 0);
 
 	return 0;
 }

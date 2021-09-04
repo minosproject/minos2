@@ -46,6 +46,22 @@ static int fat_write_block(struct super_block *sb, char *buffer, uint32_t block)
 
 static struct buffer_head *fat_get_block(struct super_block *sb, uint32_t block)
 {
+	struct buffer_head *bh;
+	int ret;
+
+	bh = get_block(sb, block);
+	if (!bh)
+		return NULL;
+
+	if (buffer_uptodate(bh))
+		return bh;
+
+	ret = fat_read_block(sb, bh->data, block);
+	if (ret == 0) {
+		set_bit(BH_Uptodate, &bh->b_state);
+		return bh;
+	}
+
 	return NULL;
 }
 
@@ -193,7 +209,7 @@ static int fat_get_root_file(struct super_block *sb)
 	return 0;
 }
 
-static int fat_read_super(struct partition *partition, struct filesystem *fs)
+static struct super_block *fat_read_super(struct partition *partition, struct filesystem *fs)
 {
 	struct fat_super_block *fat_super;
 	struct super_block *sb;
@@ -202,17 +218,15 @@ static int fat_read_super(struct partition *partition, struct filesystem *fs)
 
 	buf = get_pages(partition->blkdev->pages_per_sector);
 	if (!buf)
-		return -ENOMEM;
+		return NULL;
 
 	ret = read_blkdev_sectors(partition->blkdev, buf, partition->lba, 1);
 	if (ret)
 		goto err_read_block;
 
 	fat_super = kzalloc(sizeof(struct fat_super_block));
-	if (!fat_super) {
-		ret = -ENOMEM;
+	if (!fat_super)
 		goto err_read_block;
-	}
 
 	sb = &fat_super->sb;
 	ret = fill_fat_super(fat_super, buf);
@@ -222,7 +236,6 @@ static int fat_read_super(struct partition *partition, struct filesystem *fs)
 	if (fat_super->byts_per_sec != partition->blkdev->sector_size) {
 		pr_err("fat sector size is not equal disk's %d\n",
 				fat_super->byts_per_sec);
-		ret = -EINVAL;
 		goto err_get_super_block;
 	}
 
@@ -255,19 +268,16 @@ static int fat_read_super(struct partition *partition, struct filesystem *fs)
 	sb->max_file = (uint32_t)-1;	// TBD
 	sb->flags = 0;
 	sb->magic = 0;
-	sb->partition = partition;
-	sb->fs = fs;
-	partition->sb = sb;
 	free_pages(buf);
 
-	return 0;
+	return sb;
 
 err_get_super_block:
 	kfree(sb);
 err_read_block:
 	free_pages(buf);
 
-	return ret;
+	return NULL;
 }
 
 static int fat_file_type(struct fat_dir_entry *entry)

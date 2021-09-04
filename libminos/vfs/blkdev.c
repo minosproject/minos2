@@ -34,7 +34,7 @@ static int start_blkdev_server(struct blkdev *blkdev, struct vfs_server_ops *vop
 			continue;
 
 		sprintf(name, "%sp%d", blkdev->name, i);
-		vs = create_vfs_server(name, vops, part);
+		vs = create_vfs_server(name, vops, part->sb);
 		if (!vs)
 			pr_err("create vfs fail for %s\n", name);
 		else
@@ -88,7 +88,7 @@ int register_blkdev(struct blkdev *blkdev, struct vfs_server_ops *vops,  int fla
 			continue;
 		}
 
-		ret = fs->read_super(part, fs);
+		ret = vfs_read_super(part, fs);
 		if (ret) {
 			part->stat = PARTITION_STAT_SB_FAIL;
 			pr_err("Create super block failed\n");

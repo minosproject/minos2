@@ -6,6 +6,8 @@
 #include <libminos/file.h>
 #include <minos/types.h>
 
+#define NR_HASH_LIST 10
+
 struct file;
 struct blkdev;
 struct super_block;
@@ -36,9 +38,17 @@ struct super_block {
 	size_t max_file;		/* max file count */
 	unsigned long flags;		/* flags */
 	unsigned long magic;		/* maigic number if has */
-	struct fnode *root_fnode;	/* root fnode of this partition */
 	struct partition *partition;	/* partition of this super block */
 	struct filesystem *fs;
+
+	/*
+	 * cache information for this partition, cache
+	 * some fnode and block buffer.
+	 */
+	struct fnode *root_fnode;	/* root fnode of this partition */
+	struct list_head buffer_hash_lists[NR_HASH_LIST];
+	struct list_head buffer_free_list;
+	struct list_head buffer_lru_list;
 };
 
 #define FS_NAME_SIZE 32
@@ -46,7 +56,7 @@ struct super_block {
 struct filesystem {
 	char name[FS_NAME_SIZE];
 	int (*match)(int type, char *name);
-	int (*read_super)(struct partition *partition, struct filesystem *fs);
+	struct super_block *(*read_super)(struct partition *partition, struct filesystem *fs);
 	ssize_t (*read)(struct fnode *fnode, char *buf, size_t size, off_t offset);
 	ssize_t (*write)(struct fnode *fnode, char *buf, size_t size, off_t offset);
 	int (*lookup)(struct fnode *parent, char *path, struct fnode **fnode);
@@ -79,6 +89,8 @@ struct filesystem *lookup_filesystem(unsigned char type);
 struct file *vfs_open(struct file *parent, char *path, int flags, int mode);
 ssize_t vfs_read(struct file *file, void *buf, size_t size);
 ssize_t vfs_write(struct file *file, void *buf, size_t size);
+
+int vfs_read_super(struct partition *part, struct filesystem *fs);
 
 void run_vfs_server(struct vfs_server *vs, int new_thread);
 

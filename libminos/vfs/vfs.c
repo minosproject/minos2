@@ -19,6 +19,8 @@
 #include <libminos/file.h>
 #include <libminos/blkdev.h>
 
+#include "buffer.h"
+
 #define MAX_FS	32
 
 static struct filesystem *fses[MAX_FS];
@@ -116,7 +118,7 @@ out:
 
 struct file *vfs_open(struct file *parent, char *path, int flags, int mode)
 {
-	struct fnode *fnode, *parent_fnode;
+	struct fnode *fnode;
 	struct file *file;
 	int ret = 0;
 
@@ -150,6 +152,22 @@ ssize_t vfs_read(struct file *file, void *buf, size_t size)
 
 ssize_t vfs_write(struct file *file, void *buf, size_t size)
 {
+	return 0;
+}
+
+int vfs_read_super(struct partition *part, struct filesystem *fs)
+{
+	struct super_block *sb;
+
+	sb = fs->read_super(part, fs);
+	if (!sb)
+		return -ENOMEM;
+
+	sb->partition = part;
+	sb->fs = fs;
+	part->sb = sb;
+	buffer_head_init(sb);
+
 	return 0;
 }
 

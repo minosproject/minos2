@@ -4,6 +4,7 @@
 #include <inttypes.h>
 
 #include <libminos/file.h>
+#include <minos/types.h>
 
 struct file;
 struct blkdev;
@@ -20,13 +21,12 @@ struct fnode {
 	uint32_t ctime;
 	size_t file_size;
 
-	uint64_t location;
-
 	struct list_head child; // all opened children in this directory
 	struct list_head list;	// list to the superblock f_opens;
 
+	struct super_block *sb;
+
 	char name[FILENAME_MAX];
-	struct partition *partition;
 };
 
 struct super_block {
@@ -38,6 +38,7 @@ struct super_block {
 	unsigned long magic;		/* maigic number if has */
 	struct fnode *root_fnode;	/* root fnode of this partition */
 	struct partition *partition;	/* partition of this super block */
+	struct filesystem *fs;
 };
 
 #define FS_NAME_SIZE 32
@@ -45,15 +46,29 @@ struct super_block {
 struct filesystem {
 	char name[FS_NAME_SIZE];
 	int (*match)(int type, char *name);
+	int (*read_super)(struct partition *partition, struct filesystem *fs);
+	ssize_t (*read)(struct fnode *fnode, char *buf, size_t size, off_t offset);
+	ssize_t (*write)(struct fnode *fnode, char *buf, size_t size, off_t offset);
+	int (*lookup)(struct fnode *parent, char *path, struct fnode **fnode);
+};
 
-	int (*create_super_block)(struct partition *partition,
-			struct filesystem *fs);
+struct vfs_server_ops {
+	int (*create)(struct file *file, char *fname);
+	struct file *(*open)(struct file *file, char *fname, int mode, int flag);
+	ssize_t (*read)(struct file *file, void *buf, size_t size);
+	ssize_t (*write)(struct file *file, void *buf, size_t size);
+	int (*lseek)(struct file *file, off_t off, int whence);
+};
 
-	ssize_t (*read)(struct fnode *fnode,
-			char *buf, size_t size, off_t offset);
-	ssize_t (*write)(struct fnode *fnode,
-			char *buf, size_t size, off_t offset);
-	struct fnode *(*find_file)(struct fnode *parent, char *path);
+/*
+ * a vfs server can be dedicate thread, or running on
+ * current thread.
+ */
+struct vfs_server {
+	int epfd;
+	struct file root_file;
+	struct vfs_server_ops *ops;
+	char buf[PAGE_SIZE];
 };
 
 int vfs_init(void);
@@ -61,10 +76,13 @@ int vfs_init(void);
 int register_filesystem(struct filesystem *fs);
 struct filesystem *lookup_filesystem(unsigned char type);
 
-struct file *vfs_open(struct file *parent, char *path,
-		int flags, int mode, void *pdata);
-
+struct file *vfs_open(struct file *parent, char *path, int flags, int mode);
 ssize_t vfs_read(struct file *file, void *buf, size_t size);
 ssize_t vfs_write(struct file *file, void *buf, size_t size);
+
+void run_vfs_server(struct vfs_server *vs, int new_thread);
+
+struct vfs_server *create_vfs_server(const char *name,
+			struct vfs_server_ops *ops, struct super_block *sb);
 
 #endif

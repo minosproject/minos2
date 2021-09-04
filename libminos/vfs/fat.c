@@ -15,157 +15,8 @@
 
 #include <libminos/vfs.h>
 #include <libminos/blkdev.h>
-
-#define FAT12				0
-#define FAT16				1
-#define FAT32				2
-
-#define FAT_NAME_TYPE_SHORT		0
-#define FAT_NAME_TYPE_LONG		1	
-#define FAT_NAME_TYPE_UNKNOWN		0xff
-
-#define FAT_LONG_NAME_MIN_MATCH_SIZE	6
-
-struct fs_info {
-	uint32_t lead_sig;		/* 0 */
-	uint32_t struct_sig;		/* 484 */
-	uint32_t free_count;		/* 488 */
-	uint32_t next_free;		/* 492 */
-};
-
-struct fat32_extra {
-	uint32_t fat32_sec_cnt;
-	uint16_t fat32_ext_flag;
-	uint16_t fs_ver;
-	uint32_t root_clus;
-	uint16_t fs_info;
-	uint16_t boot_sec;
-	char res[12];
-	uint8_t drv_num;
-	uint8_t res1;
-	uint8_t boot_sig;
-	uint32_t vol_id;
-	char vol_lab[11];
-	char file_system[8];		/* fat12 or fat16 or fat32 */
-};
-
-struct fat16_extra {
-	uint8_t drv_num;
-	uint8_t res;
-	uint8_t boot_sig;
-	uint32_t vol_id;
-	char vol_lab[11];
-	char file_system[8];		/* fat12 or fat16 or fat32 */
-};
-
-struct fat_super_block {
-	uint8_t jmp[3];
-	char oem_name[8];
-	uint16_t byts_per_sec;
-	uint8_t sec_per_clus;
-	uint16_t res_sec_cnt;
-	uint8_t fat_num;
-	uint16_t root_ent_cnt;
-	uint16_t total_sec16;
-	uint8_t media;
-	uint16_t fat16_sec_size;
-	uint16_t sec_per_trk;
-	uint16_t num_heads;
-	uint32_t hide_sec;
-	uint32_t total_sec32;
-	union _fat_extra {
-		struct fat32_extra fat32;
-		struct fat16_extra fat16;
-	} fat_extra;
-
-	/* to be done */
-	struct fs_info info;
-
-	uint32_t clus_size;		/* bytes_per_sec * sec_per_clus */
-	uint32_t first_data_sector;
-	uint32_t total_sec;
-	uint16_t fat_size;
-	uint32_t data_sec;
-	uint32_t clus_count;
-	uint8_t fat_type;
-	uint8_t fat_offset;
-	uint32_t root_dir_sectors;
-	uint16_t dentry_per_block;
-	uint16_t root_dir_start_sector;
-	uint16_t fat12_16_root_dir_blk;
-
-	/* for fat buffer only for read, if need write
-	 * need request a buffer pool from system buffer
-	 */
-	uint32_t buf_sector_base;
-	char *buf;
-
-	struct super_block sb;
-};
-
-struct fat_fnode {
-	uint32_t first_clus;
-	uint32_t first_sector;
-	uint32_t prev_clus;
-	uint32_t prev_sector;
-	uint32_t current_clus;
-	uint32_t current_sector;
-	uint32_t file_entry_clus;		/* information of the file entry */
-	uint16_t file_entry_pos;
-	struct fnode fnode;
-};
-
-struct fat_dir_entry {
-	char name[8];		/* name[0] = 0xe5 the dir is empty */
-	char externed[3];
-	uint8_t dir_attr;
-	uint8_t nt_res;
-	uint8_t crt_time_teenth;
-	uint16_t crt_time;
-	uint16_t crt_date;
-	uint16_t last_acc_date;
-	uint16_t fst_cls_high;
-	uint16_t write_time;
-	uint16_t write_date;
-	uint16_t fst_cls_low;
-	uint32_t file_size;
-} __attribute__((packed));
-
-struct fat_long_dir_entry {
-	uint8_t attr;
-	uint16_t name1[5];
-	uint8_t dir_attr;
-	uint8_t res;
-	uint8_t check_sum;
-	uint16_t name2[6];
-	uint16_t file_start_clus;
-	uint16_t name3[2];
-}__attribute__((packed));
-
-struct fat_name {
-	char short_name[11];
-	char is_long;
-	uint16_t *long_name;
-};
-
-#define FIRST_DATA_BLOCK	2
-
-#define FAT_ATTR_READ_ONLY	0x01
-#define FAT_ATTR_HIDDEN		0x02
-#define FAT_ATTR_SYSTEM		0X04
-#define FAT_ATTR_VOLUME_ID	0x08
-#define FAT_ATTR_DIRECTORY	0x10
-#define FAT_ATTR_ARCHIVE	0x20
-
-#define FAT_ATTR_LONG_NAME	\
-	(FAT_ATTR_READ_ONLY | FAT_ATTR_HIDDEN | \
-	FAT_ATTR_SYSTEM | FAT_ATTR_VOLUME_ID)
-
-#define FAT_ATTR_LONG_NAME_MASK	\
-	(FAT_ATTR_LONG_NAME | FAT_ATTR_DIRECTORY | FAT_ATTR_ARCHIVE)
-
-#define SB_TO_FAT_SB(_sb)	container_of(_sb, struct fat_super_block, sb)
-#define FNODE_TO_FAT_FNODE(node) container_of(node, struct fat_fnode, fnode)
+#include "fat.h"
+#include "buffer.h"
 
 static inline uint32_t get_first_sector(struct fat_super_block *fsb, uint32_t clus)
 {
@@ -177,7 +28,7 @@ static inline uint32_t get_first_sector(struct fat_super_block *fsb, uint32_t cl
 
 static int fat_read_block(struct super_block *sb, char *buffer, uint32_t block)
 {
-	struct fat_super_block *fsb = SB_TO_FAT_SB(sb);
+	struct fat_super_block *fsb = FAT_SB(sb);
 	uint32_t start_sector = get_first_sector(fsb, block);
 
 	return read_blkdev_sectors(sb->partition->blkdev, buffer,
@@ -186,11 +37,16 @@ static int fat_read_block(struct super_block *sb, char *buffer, uint32_t block)
 
 static int fat_write_block(struct super_block *sb, char *buffer, uint32_t block)
 {
-	struct fat_super_block *fsb = SB_TO_FAT_SB(sb);
+	struct fat_super_block *fsb = FAT_SB(sb);
 	uint32_t start_sector = get_first_sector(fsb, block);
 
 	return write_blkdev_sectors(sb->partition->blkdev, buffer,
 			start_sector, fsb->sec_per_clus);
+}
+
+static struct buffer_head *fat_get_block(struct super_block *sb, uint32_t block)
+{
+	return NULL;
 }
 
 static uint8_t get_fat_type(struct fat_super_block *fsb, char *tmp)
@@ -314,15 +170,15 @@ static int fill_fat_super(struct fat_super_block *fsb, char *buf)
 
 static int fat_get_root_file(struct super_block *sb)
 {
-	struct fat_super_block *fsb = SB_TO_FAT_SB(sb);
+	struct fat_super_block *fsb = FAT_SB(sb);
 	struct fnode *fnode;
 	struct fat_fnode *ffnode;
 
 	ffnode = kzalloc(sizeof(struct fat_fnode) + sizeof(struct fnode));
 	if (!ffnode)
 		return -ENOMEM;
-	fnode = &ffnode->fnode;
 
+	fnode = &ffnode->fnode;
 	if (fsb->fat_type == FAT32)
 		ffnode->first_clus = 2;
 	else
@@ -337,8 +193,7 @@ static int fat_get_root_file(struct super_block *sb)
 	return 0;
 }
 
-static int fat_create_super_block(struct partition *partition,
-		struct filesystem *fs)
+static int fat_read_super(struct partition *partition, struct filesystem *fs)
 {
 	struct fat_super_block *fat_super;
 	struct super_block *sb;
@@ -371,53 +226,42 @@ static int fat_create_super_block(struct partition *partition,
 		goto err_get_super_block;
 	}
 
-	/*
-	 * allocate one clus memory to buffer some important
-	 * data.
-	 */
-	fat_super->buf = get_pages(PAGE_NR(fat_super->clus_size));
-	if (!fat_super->buf) {
-		ret = -ENOMEM;
-		goto err_get_super_block;
-	}
-	fat_super->buf_sector_base = 0;
-
-	pr_debug("------Fat information-----\n");
-	pr_debug("clus size :%d\n", fat_super->clus_size);
-	pr_debug("first_data_sector: %d\n", fat_super->first_data_sector);
-	pr_debug("total_sec: %d\n", fat_super->total_sec);
-	pr_debug("fat_size: %d\n", fat_super->fat_size);
-	pr_debug("data_sec: %d\n", fat_super->data_sec);
-	pr_debug("clus_count: %d\n", fat_super->clus_count);
-	pr_debug("root_dir_sectors: %d\n", fat_super->root_dir_sectors);
-	pr_debug("dentry_per_block: %d\n", fat_super->dentry_per_block);
-	pr_debug("fat_type :%d\n", fat_super->fat_type);
-	pr_debug("fat_offset: %d\n", fat_super->fat_offset);
-	pr_debug("byts_per_sec: %d\n", fat_super->byts_per_sec);
-	pr_debug("sec_per_clus: %d\n", fat_super->sec_per_clus);
-	pr_debug("res_sec_cnt: %d\n", fat_super->res_sec_cnt);
-	pr_debug("root_ent_cnt: %d\n", fat_super->root_ent_cnt);
-	pr_debug("root_dir_start_secrot: %d\n", fat_super->root_dir_start_sector);
-	pr_debug("fat12_16_root_dir_blk: %d\n", fat_super->fat12_16_root_dir_blk);
-	pr_debug("------------------------\n");
+	pr_info("------Fat information-----\n");
+	pr_info("byts_per_sec: %d\n", fat_super->byts_per_sec);
+	pr_info("clus size :%d\n", fat_super->clus_size);
+	pr_info("first_data_sector: %d\n", fat_super->first_data_sector);
+	pr_info("total_sec: %d\n", fat_super->total_sec);
+	pr_info("fat_size: %d\n", fat_super->fat_size);
+	pr_info("data_sec: %d\n", fat_super->data_sec);
+	pr_info("clus_count: %d\n", fat_super->clus_count);
+	pr_info("root_dir_sectors: %d\n", fat_super->root_dir_sectors);
+	pr_info("dentry_per_block: %d\n", fat_super->dentry_per_block);
+	pr_info("fat_type :%d\n", fat_super->fat_type);
+	pr_info("fat_offset: %d\n", fat_super->fat_offset);
+	pr_info("byts_per_sec: %d\n", fat_super->byts_per_sec);
+	pr_info("sec_per_clus: %d\n", fat_super->sec_per_clus);
+	pr_info("res_sec_cnt: %d\n", fat_super->res_sec_cnt);
+	pr_info("root_ent_cnt: %d\n", fat_super->root_ent_cnt);
+	pr_info("root_dir_start_secrot: %d\n", fat_super->root_dir_start_sector);
+	pr_info("fat12_16_root_dir_blk: %d\n", fat_super->fat12_16_root_dir_blk);
+	pr_info("------------------------\n");
 
 	ret = fat_get_root_file(sb);
 	if (ret)
-		goto err_get_root_file;
+		goto err_get_super_block;
 
-	sb->block_size_bits = 12;
-	sb->block_size = 4096;
+	sb->block_size_bits = 12;	// TBD
+	sb->block_size = fat_super->clus_size;
 	sb->max_file = (uint32_t)-1;	// TBD
 	sb->flags = 0;
 	sb->magic = 0;
 	sb->partition = partition;
+	sb->fs = fs;
 	partition->sb = sb;
 	free_pages(buf);
 
 	return 0;
 
-err_get_root_file:
-	free_pages(fat_super->buf);
 err_get_super_block:
 	kfree(sb);
 err_read_block:
@@ -524,53 +368,26 @@ static int fat_fill_fnode(struct fat_fnode *ffnode, struct fat_super_block *fsb,
 	return 0;
 }
 
-static int sector_in_fat_buffer(struct fat_super_block *fsb, int i, int j)
-{
-	if (fsb->buf_sector_base == 0)
-		return 0;
-
-	if ((i >= fsb->buf_sector_base) && (i < fsb->buf_sector_base + fsb->sec_per_clus))
-		return ((i - fsb->buf_sector_base) * fsb->byts_per_sec) / fsb->fat_offset + j;
-
-	return 0;
-}
-
 static uint32_t fat_get_next_data_block(struct fat_super_block *fsb, uint32_t current_clus)
 {
-	char *buf = fsb->buf;
-	int i, j, k;
+	struct buffer_head *bh;
 	uint32_t next;
+	int i, j;
+	char *buf;
 
 	clus_in_fat(fsb, current_clus, &i, &j);
-	k = sector_in_fat_buffer(fsb, i, j);
-	pr_debug("%s i:%d j:%d k:%d\n", __func__, i, j, k);
+	bh = fat_get_block(&fsb->sb, i);
+	if (!bh)
+		return 0;
 
-	if (!k) {
-		if (fat_read_block(&fsb->sb, buf, i))
-			return 0;
-
-		fsb->buf_sector_base = i;
-		k = j;
-	} else {
-		/*
-		 * TBD
-		 */
-		if (fsb->fat_type == FAT12) {
-			if (k == 4095) {
-				if (fat_read_block(&fsb->sb, buf, i))
-					return 0;
-				fsb->buf_sector_base = i;
-				k = j;
-			}
-		}
-	}
-
+	pr_debug("%s i:%d j:%d k:%d\n", __func__, i, j);
+	buf = bh->data;
 	if (fsb->fat_type == FAT32)
-		next = *((uint32_t *)&buf[k]) & 0x0fffffff;
+		next = *((uint32_t *)&buf[j]) & 0x0fffffff;
 	else if (fsb->fat_type == FAT16)
-		next = *((uint16_t *)&buf[k]);
+		next = *((uint16_t *)&buf[j]);
 	else {
-		next = u8_to_u16(buf[k], buf[k + 1]);
+		next = u8_to_u16(buf[j], buf[j + 1]);
 		if (current_clus & 0x0001)
 			next >>= 4;
 		else
@@ -655,31 +472,30 @@ find_file:
 	return new_fat_fnode(fsb, parent, entry);
 }
 
-static struct fnode *fat_find_file(struct fnode *parent, char *name)
+static int fat_lookup(struct fnode *parent, char *name, struct fnode **fnode)
 {
-	struct fat_fnode *ffnode = FNODE_TO_FAT_FNODE(parent);
-	struct super_block *sb = parent->partition->sb;
-	struct fat_super_block *fsb = SB_TO_FAT_SB(sb);
+	struct fat_fnode *ffnode = FAT_FNODE(parent);
+	struct fat_super_block *fsb = FAT_SB(parent->sb);
 	uint32_t next_clus = ffnode->first_clus;
-	struct fnode *fnode = NULL;
-	char *buf;
+	struct fnode *tmp = NULL;
+	struct buffer_head *bh;
 	int ret;
-
-	buf = get_pages(PAGE_NR(fsb->clus_size));
-	if (!buf)
-		return NULL;
 
 	/*
 	 * list for all cluster data.
 	 */
 	while (next_clus != 0) {
-		ret = fat_read_block(sb, buf, next_clus);
-		if (ret)
+		bh = fat_get_block(parent->sb, next_clus);
+		if (!bh) {
+			ret = -ENOMEM;
 			break;
+		}
 
-		fnode = __fat_find_file(fsb, ffnode, buf, name);
-		if (fnode)
-			break;
+		tmp = __fat_find_file(fsb, ffnode, bh->data, name);
+		if (tmp) {
+			*fnode = tmp;
+			return 0;
+		}
 
 		if (fsb->fat_type == FAT32)
 			next_clus = fat_get_next_data_block(fsb, next_clus);
@@ -687,9 +503,7 @@ static struct fnode *fat_find_file(struct fnode *parent, char *name)
 			next_clus = fat16_get_next_data_block(fsb, next_clus);
 	}
 
-	kfree(buf);
-
-	return fnode;
+	return ret;
 }
 
 static int get_file_name_type(char *name, int f, int b)
@@ -864,14 +678,12 @@ static int fat_parse_name(char *name)
 	return 0;
 }
 
-static ssize_t fat_read(struct fnode *fnode, char *buf,
-		size_t size, off_t offset)
+static ssize_t fat_read(struct fnode *fnode, char *buf, size_t size, off_t offset)
 {
 	return 0;
 }
 
-static ssize_t fat_write(struct fnode *fnode, char *buf,
-		size_t size, off_t offset)
+static ssize_t fat_write(struct fnode *fnode, char *buf, size_t size, off_t offset)
 {
 	return 0;
 }
@@ -897,10 +709,10 @@ static int fat_match(int type, char *name)
 }
 
 hidden struct filesystem fat_fs = {
-	.name			= "msdos",
-	.match			= fat_match,
-	.find_file		= fat_find_file,
-	.read			= fat_read,
-	.write			= fat_write,
-	.create_super_block	= fat_create_super_block,
+	.name		= "msdos",
+	.match		= fat_match,
+	.lookup		= fat_lookup,
+	.read		= fat_read,
+	.write		= fat_write,
+	.read_super	= fat_read_super,
 };

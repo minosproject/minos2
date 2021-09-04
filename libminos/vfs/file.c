@@ -51,7 +51,6 @@ struct file *create_file(int flags, int mode)
 	f->handle = handle;
 	f->offset = 0;
 	f->pdata = 0;
-	f->next = NULL;
 
 	return f;
 }

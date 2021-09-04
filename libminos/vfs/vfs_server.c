@@ -3,36 +3,34 @@
  * Copyright (c) 2021 上海网返科技
  */
 
-/*
- * a vfs server can be dedicate thread, or running on
- * current thread.
- */
+#include <stdio.h>
+#include <unistd.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <dirent.h>
+#include <sys/mman.h>
+#include <sys/epoll.h>
+
+#include <minos/kobject.h>
+#include <minos/map.h>
+#include <minos/debug.h>
+#include <minos/list.h>
+#include <minos/kmalloc.h>
+#include <minos/proto.h>
+#include <minos/service.h>
+
+#include <libminos/vfs.h>
 
 #define VFS_MAX_EVENTS 16
-
-struct vfs_server_ops {
-	int (*init)(void *pdata);
-	int (*create)(struct file *file, char *fname, void *pdata);
-	int (*open)(struct file *file, char *fname, int mode, int flag, void *pdata);
-	ssize_t (*read)(struct file *file, void *buf, size_t size, void *pdata);
-	ssize_t (*write)(struct file *file, void *buf, size_t size, void *pdata);
-	int (*lseek)(struct file *file, off_t off, int whence, void *pdata);
-};
-
-struct vfs_server {
-	struct file *root_file;
-	void *data;
-	int epfd;
-	int new_thread;
-	char buf[PAGE_SIZE];
-};
 
 static int vfs_server_add_file(struct vfs_server *vs, struct file *file)
 {
 	struct epoll_event event;
 	int ret;
 
-	event.events = EPOLL_IN | EPOLL_WCLOSE;
+	event.events = EPOLLIN | EPOLLWCLOSE;
 	event.data.ptr = file;
 	ret = epoll_ctl(vs->epfd, EPOLL_CTL_ADD, file->handle, &event);
 	if (ret) {
@@ -44,8 +42,7 @@ static int vfs_server_add_file(struct vfs_server *vs, struct file *file)
 }
 
 struct vfs_server *create_vfs_server(const char *name,
-		struct vfs_server_ops *ops,
-		void *data, int new_thread)
+			struct vfs_server_ops *ops, struct super_block *sb)
 {
 	struct vfs_server *vserver;
 	int epfd, rfd;
@@ -72,12 +69,13 @@ struct vfs_server *create_vfs_server(const char *name,
 		return NULL;
 	}
 
-	vserver->data = data;
 	vserver->epfd = epfd;
+	vserver->ops = ops;
 
 	file = &vserver->root_file;
 	file->handle = rfd;
 	file->root = 1;
+	file->fnode = sb->root_fnode;
 
 	vfs_server_add_file(vserver, file);
 
@@ -93,17 +91,17 @@ static int __handle_vfs_open_request(struct vfs_server *vs, struct file *file,
 	if (file->type != DT_DIR)
 		return -ENOTDIR;
 
-	new_file = vs->ops->open(file, vs->buf, proto->open.flag,
-			proto->open.mode, vs->data);
+	new_file = vs->ops->open(file, vs->buf, proto->open.flags, proto->open.mode);
 	if (!new_file) {
 		pr_err("open new file failed %s\n", vs->buf);
-		return ret;
+		return -ENOENT;
 	}
 
 	ret = vfs_server_add_file(vs, new_file);
 	if (ret) {
 		pr_err("add new file failed %s\n");
 		release_file(new_file);
+		return ret;
 	}
 
 	*new = new_file;
@@ -187,28 +185,28 @@ static int handle_vfs_in_request(struct vfs_server *vs, struct file *file)
 	if (ret)
 		return ret;
 
-	switch (proto->proto_id) {
+	switch (proto.proto_id) {
 	case PROTO_OPEN:
-		ret = handle_vfs_open_request(vs, file, proto);
+		ret = handle_vfs_open_request(vs, file, &proto);
 		break;
 	case PROTO_READ:
-		ret = handle_vfs_read_request(vs, file, proto);
+		ret = handle_vfs_read_request(vs, file, &proto);
 		break;
 	case PROTO_WRITE:
-		ret = handle_vfs_write_request(vs, file, proto);
+		ret = handle_vfs_write_request(vs, file, &proto);
 		break;
 	case PROTO_GETDENT:
-		ret = handle_vfs_getdent_request(vs, file, proto);
+		ret = handle_vfs_getdent_request(vs, file, &proto);
 		break;
 	case PROTO_LSEEK:
-		ret = handle_vfs_lseek_request(vs, file, proto);
+		ret = handle_vfs_lseek_request(vs, file, &proto);
 		break;
 	case PROTO_IOCTL:
-		ret = handle_vfs_ioctl_request(vs, file, proto);
+		ret = handle_vfs_ioctl_request(vs, file, &proto);
 		break;
 	default:
 		ret = -EINVAL;
-		pr_err("unsupport vfs proto %d\n", proto->proto_id);
+		pr_err("unsupport vfs proto %d\n", proto.proto_id);
 		break;
 	}
 
@@ -218,7 +216,6 @@ static int handle_vfs_in_request(struct vfs_server *vs, struct file *file)
 static int handle_vfs_server_event(struct vfs_server *vs, struct epoll_event *event)
 {
 	struct file *file = event->data.ptr;
-	struct proto proto;
 
 	if (!file)
 		return -ENOENT;
@@ -248,9 +245,9 @@ static void vfs_server_thread(void *data)
 	}
 }
 
-void run_vfs_server(struct vfs_server *vs)
+void run_vfs_server(struct vfs_server *vs, int new_thread)
 {
-	if (vs->new_thread) {
+	if (new_thread) {
 		vfs_server_thread(vs);
 		return;
 	}

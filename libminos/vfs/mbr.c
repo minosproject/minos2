@@ -2,6 +2,7 @@
  * Copyright (c) 2020 - 2021 Min Le (lemin9538@163.com)
  */
 
+#include <stdlib.h>
 #include <errno.h>
 #include <minos/debug.h>
 #include <minos/list.h>
@@ -106,7 +107,11 @@ static int parse_partition(struct blkdev *bdev,
 	print_human_size((float)((uint64_t)sectors * 0x200));
 	printf("\n");
 
-	part = &bdev->partitions[bdev->nrpart];
+	part = libc_zalloc(sizeof(struct partition));
+	if (!part)
+		return -ENOMEM;
+
+	bdev->partitions[bdev->nrpart] = part;
 	part->partid = bdev->nrpart;
 	part->blkdev = bdev;
 	part->lba = lba + lba_rel;

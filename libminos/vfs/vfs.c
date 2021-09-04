@@ -7,6 +7,8 @@
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
+#include <dirent.h>
+
 #include <minos/list.h>
 #include <minos/debug.h>
 #include <minos/kmalloc.h>
@@ -38,8 +40,7 @@ struct filesystem *lookup_filesystem(unsigned char type)
 
 int register_filesystem(struct filesystem *fs)
 {
-	if (!fs || !fs->match || !fs->create_super_block ||
-			!fs->find_file || !fs->read)
+	if (!fs || !fs->match || !fs->read_super)
 		return -EINVAL;
 
 	fses[fs_index++] = fs;
@@ -58,9 +59,9 @@ static struct fnode *fs_find_file_in_opened(struct fnode *fnode, char *name)
 	return NULL;
 }
 
-static int fs_open(char *path, struct fnode *parent, struct fnode **out)
+static int fs_open(struct fnode *parent, char *path, struct fnode **out)
 {
-	struct partition *part = parent->partition;
+	struct super_block *sb = parent->sb;
 	struct fnode *cur = parent;
 	char *pathrem, *end, *name;
 	struct fnode *next;
@@ -98,11 +99,9 @@ static int fs_open(char *path, struct fnode *parent, struct fnode **out)
 		strlcpy(name, pathrem, end - pathrem + 1);
 		next = fs_find_file_in_opened(cur, name);
 		if (!next) {
-			next = part->fs->find_file(cur, name);
-			if (!next) {
+			ret = sb->fs->lookup(cur, name, &next);
+			if (ret)
 				ret = -ENOENT;
-				goto out;
-			}
 		}
 
 		strcpy(next->name, name);
@@ -115,44 +114,13 @@ out:
 	return ret;
 }
 
-static int fs_read(struct fnode *fnode, char *buf, size_t size, off_t offset)
+struct file *vfs_open(struct file *parent, char *path, int flags, int mode)
 {
-	long ret;
-
-	ret = fnode->partition->fs->read(fnode, buf, size, offset);
-	if (ret < 0)
-		return ret;
-
-	fnode->location = offset + ret;
-	return ret;
-}
-
-static int fs_write(struct fnode *fnode, char *buf, size_t size, off_t offset)
-{
-	long ret;
-
-	ret = fnode->partition->fs->write(fnode, buf, size, offset);
-	if (ret != size)
-		return -EIO;
-
-	fnode->location = offset + size;
-	return ret;
-}
-
-struct file *vfs_open(struct file *parent, char *path,
-		int flags, int mode, void *pdata)
-{
-	struct partition *part = (struct partition *)pdata;
 	struct fnode *fnode, *parent_fnode;
 	struct file *file;
 	int ret = 0;
 
-	if (parent->root)
-		parent_fnode = part->sb->root_fnode;
-	else
-		parent_fnode = file->fnode;
-
-	ret = fs_open(path, parent_fnode, &fnode);
+	ret = fs_open(parent->fnode, path, &fnode);
 	if (ret)
 		return NULL;
 
@@ -161,20 +129,18 @@ struct file *vfs_open(struct file *parent, char *path,
 		return NULL;
 
 	file->fnode = fnode;
-	part->open_file = file;
 	
 	return file;
 }
 
-ssize_t vfs_read(struct file *file, size_t size, void *pdata)
+ssize_t vfs_read(struct file *file, void *buf, size_t size)
 {
-	struct partition *part = (struct partition *)pdata;
 	ssize_t ret;
 
 	if (size > file->sbuf_size)
 		return -E2BIG;
 
-	ret = part->fs->read(file->fnode, file->sbuf, size, file->offset);
+	ret = file->fnode->sb->fs->read(file->fnode, file->sbuf, size, file->offset);
 	if (ret < 0)
 		return ret;
 
@@ -182,7 +148,7 @@ ssize_t vfs_read(struct file *file, size_t size, void *pdata)
 	return ret;
 }
 
-ssize_t vfs_write(struct file *file, size_t size, void *pdata)
+ssize_t vfs_write(struct file *file, void *buf, size_t size)
 {
 	return 0;
 }

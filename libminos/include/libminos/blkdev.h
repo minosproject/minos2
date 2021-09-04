@@ -40,9 +40,9 @@ struct blkdev_ops {
 	int (*status)(struct blkdev *dev);
 };
 
-#define BLKDEV_STAT_OK			0x0
-#define BLKDEV_STAT_SB_FAIL		0x1
-#define BLKDEV_STAT_FS_UNSUPPORT	0x2
+#define PARTITION_STAT_OK		0x0
+#define PARTITION_STAT_SB_FAIL		0x1
+#define PARTITION_STAT_FS_UNSUPPORT	0x2
 
 #define BLKDEV_NAME_SIZE 16
 
@@ -54,8 +54,10 @@ struct partition {
 	uint64_t lba;
 	struct blkdev *blkdev;
 	struct super_block *sb;
-	struct filesystem *fs;
 };
+
+struct vfs_server;
+struct vfs_server_ops;
 
 struct blkdev {
 	int id;
@@ -67,7 +69,8 @@ struct blkdev {
 	int pages_per_sector;
 	struct blkdev_ops *ops;
 	spinlock_t lock;
-	struct partition partitions[BLKDEV_MAX_PARTITIONS];
+	struct partition *partitions[BLKDEV_MAX_PARTITIONS];
+	struct vfs_server *vfs_servers[BLKDEV_MAX_PARTITIONS];
 
 	char name[BLKDEV_NAME_SIZE];
 };
@@ -86,6 +89,7 @@ int submit_blkreq_many(struct blkdev *bdev,
 
 int submit_blkreq_one(struct blkdev *bdev, struct blkreq *breq);
 
-int register_blkdev(struct blkdev *bdev, unsigned long flags, int gpt);
+int register_blkdev(struct blkdev *bdev,
+		struct vfs_server_ops *vops, int flags, int gpt);
 
 #endif

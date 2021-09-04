@@ -15,152 +15,54 @@
 
 #include <libminos/blkdev.h>
 #include <libminos/vfs.h>
-#include "fs.h"
 
 #define MAX_EPFD 10
 
 hidden extern int parse_mbr(struct blkdev *blkdev);
 hidden extern struct filesystem *lookup_filesystem(unsigned char type);
 
-static int handle_vfs_open(struct partition *part,
-		struct proto *proto, char *path, size_t size)
+static int start_blkdev_server(struct blkdev *blkdev, struct vfs_server_ops *vops)
 {
-	struct file *file;
-	struct epoll_event event;
+	char name[BLKDEV_NAME_SIZE * 2];
+	struct partition *part;
+	struct vfs_server *vs;
+	int i;
 
-	if (size >= FILENAME_MAX) {
-		kobject_reply(part->epfd, 0, -EINVAL, 0, 0);
-		return -EINVAL;
-	}
-
-	path[size] = 0;
-	file = vfs_open(part, path, proto->open.flags, proto->open.mode);
-	if (!file) {
-		kobject_reply(part->epfd, 0, -ENOMEM, 0, 0);
-		return -ENOMEM;
-	}
-
-	event.events = EPOLLIN;
-	event.data.ptr = file;
-
-	epoll_ctl(part->epfd, EPOLL_CTL_ADD, file->handle, &event);
-	kobject_reply(part->ctl_fd, 0, 0, file->handle,
-			KOBJ_RIGHT_WRITE | KOBJ_RIGHT_MMAP);
-
-	return 0;
-}
-
-static int handle_vfs_read(struct partition *part,
-		struct proto *proto)
-{
-	return 0;
-}
-
-static int handle_vfs_request(struct partition *part, struct epoll_event *event)
-{
-	struct proto proto;
-	char path[FILENAME_MAX];
-	long ret;
-	size_t ad, ae;
-
-	/*
-	 * get the request from the client. then handle the request
-	 * for open the flow should be like this:
-	 *
-	 * fd = sys_connect_service("vblk0p0", KOBJ_RIGHT_WRITE);
-	 * file_fd = kobject_write(fd, PROTO_OPEN, size, PATH, size, -1);
-	 *
-	 * then use file_fd to conmunicated with vfs service.
-	 */
-	ret = kobject_read(event->data.fd, &proto, sizeof(struct proto),
-			&ad, path, FILENAME_MAX, &ae, 0);
-	if (ret < 0)
-		return ret;
-
-	switch (proto.proto_id) {
-	case PROTO_OPEN:
-		handle_vfs_open(part, &proto, path, ae);
-		break;
-	case PROTO_READ:
-		handle_vfs_read(part, &proto);
-		break;
-	case PROTO_WRITE:
-		/*
-		 * TBD
-		 */
-		break;
-	default:
-		break;
-	}
-
-	return 0;
-}
-
-static struct file root_file;
-
-static int partition_thread(void *data)
-{
-	struct epoll_event events[MAX_EPFD];
-	struct epoll_event *event = &events[0];
-	int cfd, cnt, i;
-	struct partition *part = data;
-	char srv_name[BLKDEV_NAME_SIZE + 3];
-
-	sprintf(srv_name, "%sp%d", part->blkdev->name, part->partid);
-	cfd = register_service("/", srv_name, SRV_PORT, 0);
-	if (cfd <= 0) {
-		pr_err("register partion service failed\n");
-		exit(cfd);
-	}
-
-	part->epfd = epoll_create(0);
-	if (part->epfd < 0) {
-		pr_err("create epoll file for partion failed\n");
-		exit(part->epfd);
-	}
-
-	root_file.handle = cfd;
-	root_file.sbuf = NULL;
-	root_file.pdata = NULL;
-	root_file.sbuf_size = 0;
-	root_file.root = 1;
-	vfs_add_file(part, &root_file);
-
-	event->events = EPOLLIN;
-
-	if (epoll_ctl(epfd, EPOLL_CTL_ADD, cfd, event))
-		return -1;
-
-	part->epfd = epfd;
-	part->ctl_fd = cfd;
-
-	for (;;) {
-		cnt = epoll_wait(epfd, events, MAX_EPFD, -1);
-		if (cnt <= 0)
+	for (i = 0; i < blkdev->nrpart; i++) {
+		part = blkdev->partitions[i];
+		if (!part || part->stat != PARTITION_STAT_OK)
 			continue;
 
-		for (i = 0; i < cnt; i++)
-			handle_vfs_request(part, &events[i]);
+		sprintf(name, "%sp%d", blkdev->name, i);
+		vs = create_vfs_server(name, vops, part);
+		if (!vs)
+			pr_err("create vfs fail for %s\n", name);
+		else
+			blkdev->vfs_servers[i] = vs;
 	}
 
-	return -1;
-}
-
-static int register_partition(struct partition *part)
-{
-	/*
-	 * only support one partition for test.
-	 */
+	if (blkdev->nrpart == 1) {
+		if (blkdev->vfs_servers[0])
+			run_vfs_server(blkdev->vfs_servers[0], 0);
+		return -EIO;
+	} else {
+		for (i = 0; i < blkdev->nrpart; i++) {
+			if (blkdev->vfs_servers[i])
+				run_vfs_server(blkdev->vfs_servers[i], 1);
+		}
+	}
 
 	return 0;
 }
 
-int register_blkdev(struct blkdev *blkdev, unsigned long flags, int gpt)
+int register_blkdev(struct blkdev *blkdev, struct vfs_server_ops *vops,  int flags, int gpt)
 {
 	struct partition *part;
-	LIST_HEAD(blkreq_list);
 	struct filesystem *fs;
 	int i, ret;
+
+	if (!vops)
+		return -EINVAL;
 
 	/*
 	 * read the first block 
@@ -178,39 +80,23 @@ int register_blkdev(struct blkdev *blkdev, unsigned long flags, int gpt)
 	}
 
 	for (i = 0; i < blkdev->nrpart; i++) {
-		part = &blkdev->partitions[i];
+		part = blkdev->partitions[i];
 		fs = lookup_filesystem(part->type);
 		if (!fs) {
-			part->stat = BLKDEV_STAT_FS_UNSUPPORT;
+			part->stat = PARTITION_STAT_FS_UNSUPPORT;
 			pr_err("Filesystem %d not support\n", part->type);
 			continue;
 		}
 
-		ret = fs->create_super_block(part, fs);
+		ret = fs->read_super(part, fs);
 		if (ret) {
-			part->stat = BLKDEV_STAT_SB_FAIL;
+			part->stat = PARTITION_STAT_SB_FAIL;
 			pr_err("Create super block failed\n");
 			continue;
 		}
-
-		part->fs = fs;
 	}
 
-	if (blkdev->nrpart > 1) {
-		for (i = 0; i < blkdev->nrpart; i++) {
-			part = &blkdev->partitions[i];
-			if (part->stat != 0)
-				continue;
-
-			ret = register_partition(part);
-			pr_notice("Register partition %s\n",
-					ret ? "fail" : "success");
-		}
-	} else {
-		partition_thread(&blkdev->partitions[0]);
-	}
-
-	return 0;
+	return start_blkdev_server(blkdev, vops);
 }
 
 static int blkreq_wait_all(struct blkdev *bdev, struct list_head *breq_list)

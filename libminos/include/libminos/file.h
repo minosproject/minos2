@@ -22,8 +22,6 @@ struct file {
 		struct fnode *fnode;
 		void *pdata;
 	};
-
-	struct file *next;	// link all the opened file.
 };
 
 typedef struct file dir_t;

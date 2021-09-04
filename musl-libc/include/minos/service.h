@@ -12,7 +12,7 @@ extern "C" {
 
 int register_service(const char *src, const char *target, int type, int flags);
 
-int unreigster_service(int fd);
+int unregister_service(int fd);
 
 #ifdef __cplusplus
 }

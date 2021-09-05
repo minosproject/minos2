@@ -34,8 +34,7 @@ int request_device_resource(const char *name, struct resource **res_ret)
 	args.start = res->base;
 	args.end = res->end;
 	res->handle = kobject_create(KOBJ_TYPE_PMA,
-			RES_DEFAULT_RIGHT | KOBJ_RIGHT_GRANT,
-			KOBJ_RIGHT_RW, (unsigned long)&args);
+			KR_RWCMSG, KR_G, (unsigned long)&args);
 	pr_info("mmio handle %d\n", res->handle);
 	res->next = head;
 	head = res;

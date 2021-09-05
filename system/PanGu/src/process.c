@@ -150,7 +150,7 @@ static int create_process(char *name, unsigned long entry,
 		.aff = aff,
 		.prio = prio,
 		.flags = flags & TASK_FLAGS_KERNEL_MASK,
-		.name = name;
+		.name = name,
 	};
 
 	if (flags & TASK_FLAGS_DEDICATED_HEAP)
@@ -298,8 +298,11 @@ static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 	 * value, libc should check it ?
 	 */
 	if (fuxi_handle > 0) {
-		fuxi = grant(proc->proc_handle, fuxi_handle, KR_WC);
-		NEW_AUX_ENT(auxp, AT_ROOTFS_HANDLE, fuxi);
+		fuxi = grant(proc->proc_handle, fuxi_handle, KR_W);
+		if (fuxi <= 0)
+			pr_err("grant fuxi handle to process fail\n");
+		else
+			NEW_AUX_ENT(auxp, AT_ROOTFS_HANDLE, fuxi);
 	}
 
 	if (flags & TASK_FLAGS_DEDICATED_HEAP) {
@@ -596,7 +599,7 @@ out:
 	/*
 	 * kill this process, TBD, use wake up
 	 */
-	pr_err("process %d access invalid address");
+	pr_err("process %d access invalid address", proc->pid);
 	return -EFAULT;
 }
 

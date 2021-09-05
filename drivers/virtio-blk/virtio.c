@@ -27,7 +27,7 @@ static inline unsigned int virtq_size(unsigned int qsz)
 
 struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 {
-	int i;
+	int i, pma_handle;
 	void *page_virt = 0;
 	struct virtqueue *virtq;
 	uint32_t max_queue_size;
@@ -49,9 +49,15 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 	 */
 	memsize = virtq_size(len);
 	pr_info("virtio-blk virtq size %d\n", memsize);
-	page_virt = get_pages(PAGE_NR(memsize));
-	if (!page_virt) {
+
+	pma_handle = request_pma(memsize);
+	if (pma_handle <= 0)
+		return NULL;
+
+	page_virt = kobject_mmap(pma_handle);
+	if (page_virt == (void *)-1) {
 		kfree(virtq);
+		kobject_close(pma_handle);
 		return NULL;
 	}
 
@@ -66,6 +72,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 	if (virtq->vq_phys == -1) {
 		free_pages(page_virt);
 		kfree(virtq);
+		kobject_close(pma_handle);
 		return NULL;
 	}
 

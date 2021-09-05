@@ -158,9 +158,6 @@ static int pma_unmap(struct kobject *kobj, struct process *proc)
 
 static void *pma_mmap(struct kobject *kobj, right_t right)
 {
-	if (!(right & KOBJ_RIGHT_SHARED))
-		return (void *)-1;
-
 	return pma_map(kobj, current_proc, 0);
 }
 

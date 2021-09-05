@@ -93,7 +93,7 @@ void buffer_head_init(struct super_block *sb)
 {
 	int blocks_per_page = PAGE_SIZE / sb->block_size;
 	struct buffer_head *bh;
-	void *data;
+	char *data;
 	int i, j;
 
 	init_list(&sb->buffer_free_list);
@@ -111,7 +111,8 @@ void buffer_head_init(struct super_block *sb)
 			if (!bh)
 				return;
 
-			bh->data = data + i * sb->block_size;
+			bh->data = data;
+			bh->data = data + j * sb->block_size;
 			list_add(&sb->buffer_free_list, &bh->list);
 		}
 	}

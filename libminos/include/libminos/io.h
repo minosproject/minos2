@@ -17,7 +17,8 @@
 #define READ32(_reg) (*(volatile uint32_t *)&(_reg))
 #define READ64(_reg) (*(volatile uint64_t *)&(_reg))
 
-void *request_mmio(int handle);
-int request_irq(int handle);
+void *request_mmio_by_handle(int handle);
+int request_irq_by_handle(int handle);
+int request_pma(size_t memsize);
 
 #endif

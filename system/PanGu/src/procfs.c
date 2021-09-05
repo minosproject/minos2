@@ -61,7 +61,7 @@ static long procfs_handle_open_request(struct file *file,
 	struct process *proc;
 	char *pathrem = buf;
 
-	if (!(file->f_flags & F_FLAGS_ROOT))
+	if (!file->root)
 		return -ENOENT;
 
 	while (*pathrem == '/')
@@ -141,7 +141,7 @@ int handle_procfs_event(struct file *file, struct request_entry *re)
 	if (ret < 0)
 		return ret;
 
-	if ((file->f_flags & F_FLAGS_ROOT) && (proto.proto_id != PROTO_OPEN))
+	if (file->root && (proto.proto_id != PROTO_OPEN))
 		return -EPERM;
 
 	switch (proto.proto_id) {

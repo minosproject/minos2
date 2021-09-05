@@ -7,7 +7,7 @@
 #include <errno.h>
 #include <minos/kobject.h>
 
-void *request_mmio(int handle)
+void *request_mmio_by_handle(int handle)
 {
 	if (kobject_open(handle) < 0)
 		return (void *)-1;

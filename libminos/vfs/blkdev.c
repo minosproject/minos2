@@ -55,6 +55,12 @@ static int start_blkdev_server(struct blkdev *blkdev, struct vfs_server_ops *vop
 	return 0;
 }
 
+static struct vfs_server_ops default_vfs_ops = {
+	.open	= vfs_open,
+	.read	= vfs_read,
+	.write	= vfs_write,
+};
+
 int register_blkdev(struct blkdev *blkdev, struct vfs_server_ops *vops,  int flags, int gpt)
 {
 	struct partition *part;
@@ -62,7 +68,7 @@ int register_blkdev(struct blkdev *blkdev, struct vfs_server_ops *vops,  int fla
 	int i, ret;
 
 	if (!vops)
-		return -EINVAL;
+		vops = &default_vfs_ops;
 
 	/*
 	 * read the first block 

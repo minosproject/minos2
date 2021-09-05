@@ -43,11 +43,11 @@ int main(int argc, char **argv)
 		return -EINVAL;
 	}
 
-	mmio = request_mmio(mmio_handle);
+	mmio = request_mmio_by_handle(mmio_handle);
 	if (mmio == (void *)-1)
 		return -EACCES;
 
-	ret = request_irq(irq_handle);
+	ret = request_irq_by_handle(irq_handle);
 	if (ret) {
 		pr_err("failed to request virtio block irq\n");
 		return -EIO;

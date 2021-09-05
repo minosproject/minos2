@@ -23,6 +23,7 @@ extern "C" {
 #define KR_RWC (KR_R | KR_W | KR_C)
 #define KR_RWCG (KR_R | KR_W | KR_G | KR_C)
 #define KR_RWCMG (KR_R | KR_W | KR_G | KR_C | KR_M)
+#define KR_RWCMSG (KR_R | KR_W | KR_G | KR_C | KR_M | KR_S)
 #define KR_RMG (KR_R | KR_M | KR_G)
 #define KR_WMG (KR_W | KR_M | KR_G)
 #define KR_WCMG (KR_W | KR_C | KR_M | KR_G)
@@ -79,6 +80,8 @@ int kobject_create_endpoint(int right, int right_req, size_t shmem_size);
 int kobject_create_port(int right, int right_req);
 
 int kobject_create_notify(int right, int right_req);
+
+int kobject_create_pma(int right, int right_req, size_t memsize);
 
 static inline int kobject_reply_handle(int fd, long token,
 		int handle, int right)

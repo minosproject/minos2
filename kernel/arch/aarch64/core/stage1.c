@@ -560,9 +560,11 @@ static inline phy_addr_t stage1_va_to_pa(struct vspace *vs, unsigned long va)
 	}
 
 	ptep = stage1_pte_offset(ptov(stage1_pte_table_addr(*pmdp)), va);
-	phy = ((*ptep) & S1_PHYSICAL_MASK) + pte_offset;
+	phy = *ptep & S1_PHYSICAL_MASK;
+	if (phy == 0)
+		return 0;
 
-	return phy;
+	return phy + pte_offset;
 }
 
 phy_addr_t arch_translate_va_to_pa(struct vspace *vs, unsigned long va)

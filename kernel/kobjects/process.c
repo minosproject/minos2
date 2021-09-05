@@ -195,7 +195,7 @@ struct process *create_root_process(char *name, task_func_t func,
 {
 	struct process *proc;
 
-	proc = create_process(func, usp, prio, aff, opt);
+	proc = create_process(name, func, usp, prio, aff, opt);
 	if (!proc)
 		return NULL;
 

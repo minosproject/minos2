@@ -114,7 +114,7 @@ struct vma *__request_vma(struct process *proc, unsigned long base,
 	struct vma *vma, *old, *out = NULL;
 
 	if ((base != 0) && (!IS_PAGE_ALIGN(base))) {
-		pr_err("%s invalid request address 0x%lx\n", base);
+		pr_err("%s invalid request address 0x%lx\n", __func__, base);
 		return NULL;
 	}
 

@@ -100,13 +100,13 @@ static int elf_load_section(struct ramdisk_file *file, void *vaddr, Elf_Shdr *sh
 	 * bss section ?
 	 */
 	if (shdr->sh_type == SHT_NOBITS) {
-		pr_info("bzero elf section [0x%x 0x%x 0x%x 0x%x]\n",
+		pr_debug("bzero elf section [0x%lx 0x%lx 0x%lx %d]\n",
 			shdr->sh_offset, shdr->sh_addr, shdr->sh_size, shdr->sh_type);
 		memset(vaddr, 0, shdr->sh_size);
 		return 0;
 	}
 
-	pr_info("loading elf section [0x%x 0x%x 0x%x]\n",
+	pr_debug("loading elf section [0x%lx 0x%lx 0x%lx %d]\n",
 			shdr->sh_offset, shdr->sh_addr, shdr->sh_size, shdr->sh_type);
 	ramdisk_read(file, vaddr, shdr->sh_size, shdr->sh_offset);
 

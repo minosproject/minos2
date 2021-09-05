@@ -99,7 +99,7 @@ static int __handle_vfs_open_request(struct vfs_server *vs, struct file *file,
 
 	ret = vfs_server_add_file(vs, new_file);
 	if (ret) {
-		pr_err("add new file failed %s\n");
+		pr_err("add new file failed %s\n", __func__);
 		release_file(new_file);
 		return ret;
 	}

@@ -434,7 +434,7 @@ static int setup_process(struct process *proc, char *path,
 	for (i = 0; i < argc; i++) {
 		new_argv[i] = (char *)PROCESS_STACK_TOP -
 			((char *)origin - new_argv[i]);
-		pr_info("address is %p\n", new_argv[i]);
+		pr_debug("argv address is %p\n", new_argv[i]);
 	}
 
 	stack = setup_auxv(proc, stack, proc->flags);

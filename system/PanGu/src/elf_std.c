@@ -115,13 +115,13 @@ static int elf_load_section(FILE *file, void *vaddr, Elf_Shdr *shdr)
 	 * bss section ?
 	 */
 	if (shdr->sh_type == SHT_NOBITS) {
-		pr_info("bzero elf section [0x%x 0x%x 0x%x 0x%x]\n",
+		pr_info("bzero elf section [0x%lx 0x%lx 0x%lx %d]\n",
 			shdr->sh_offset, shdr->sh_addr, shdr->sh_size, shdr->sh_type);
 		memset(vaddr, 0, shdr->sh_size);
 		return 0;
 	}
 
-	pr_info("loading elf section [0x%x 0x%x 0x%x]\n",
+	pr_info("loading elf section [0x%lx 0x%lx 0x%lx %d]\n",
 			shdr->sh_offset, shdr->sh_addr, shdr->sh_size, shdr->sh_type);
 	elf_file_read(file, vaddr, shdr->sh_size, shdr->sh_offset);
 

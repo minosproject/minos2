@@ -102,7 +102,7 @@ void pangu_main(void)
 	for (;;) {
 		ret = epoll_wait(proc_epfd, events, MAX_EVENT, -1);
 		if (ret <= 0 || ret > MAX_EVENT) {
-			pr_err("failed wait for event try again %d?\n", ret);
+			pr_err("failed wait for event try again %ld?\n", ret);
 			continue;
 		}
 

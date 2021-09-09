@@ -123,6 +123,7 @@ objdirs:
 	$(Q) mkdir -p $(srctree)/out/ramdisk
 	$(Q) mkdir -p $(srctree)/out/rootfs/bin
 	$(Q) mkdir -p $(srctree)/out/rootfs/sbin
+	$(Q) mkdir -p $(srctree)/out/rootfs/driver
 	$(Q) mkdir -p $(srctree)/out/rootfs/etc
 
 PHONY += images ramdisk rootfs prepare

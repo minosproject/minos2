@@ -171,7 +171,14 @@ ramdisk: apps
 
 rootfs: apps
 	$(Q) echo "\n--->Packing Rootfs image ...\n"
-	$(Q)
+	$(Q) mkdir -p /tmp/minos-mnt
+	$(Q) dd if=/dev/zero of=/tmp/rootfs.img bs=1M count=64
+	$(Q) mkfs.vfat -n "ROOTFS" -F 32 /tmp/rootfs.img
+	$(Q) sudo mount /tmp/rootfs.img /tmp/minos-mnt
+	$(Q) sudo cp -r out/rootfs/* /tmp/minos-mnt
+	$(Q) sudo umount /tmp/minos-mnt
+	$(Q) cp -f /tmp/rootfs.img out/rootfs.img
+	$(Q) rm -rf /tmp/rootfs.img /tmp/minos-mnt
 
 prepare: objdirs
 	$(Q) cd user.libc; ./build.sh $(TARGET_OUT_DIR) $(TARGET_ARCH) $(TARGET_CROSS_COMPILE)

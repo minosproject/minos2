@@ -12,7 +12,6 @@ fat32.sh
 *.drv
 *.app
 .*
-*.bin
 *.o
 *.o.*
 *.a
@@ -27,6 +26,7 @@ fat32.sh
 *.order
 *.elf
 *.bin
+!user.bin/
 *.tar
 *.gz
 *.bz2

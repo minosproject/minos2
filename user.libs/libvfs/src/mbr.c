@@ -8,8 +8,8 @@
 #include <minos/list.h>
 #include <minos/kmalloc.h>
 
-#include <libminos/vfs.h>
-#include <libminos/blkdev.h>
+#include <vfs/vfs.h>
+#include <vfs/blkdev.h>
 
 #define MBR_SIG_SIZE 2
 #define BYTES_PER_RECORD 16

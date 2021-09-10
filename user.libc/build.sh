@@ -12,7 +12,7 @@ if [ -z "$LIBC_TAGET_ARCH" ]; then
 	LIBC_TAGET_ARCH="$(uname -m)"
 fi
 
-echo "Libc install dir ${INSTALL_DIR}"
+echo "LIBC INSTALL-DIR:${INSTALL_DIR} ARCH:${LIBC_TAGET_ARCH} CROSS:${LIBC_CROSS_COMPILE}"
 
 ./configure CROSS_COMPILE=${LIBC_CROSS_COMPILE} --disable-shared --target=${LIBC_TAGET_ARCH} \
 	--prefix=${INSTALL_DIR} --with-malloc=mallocng

@@ -3,7 +3,7 @@
 
 #include <inttypes.h>
 
-#include <libminos/file.h>
+#include <vfs/file.h>
 #include <minos/types.h>
 
 #define NR_HASH_LIST 10

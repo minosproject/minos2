@@ -9,10 +9,8 @@ ifndef BUILD_DEBUG
 endif
 
 ifeq ($(VERBOSE),1)
-  quiet =
   Q =
 else
-  quiet=quiet_
   Q = @
 endif
 
@@ -43,11 +41,12 @@ TARGET_NM	= $(TARGET_CROSS_COMPILE)nm
 TARGET_STRIP	= $(TARGET_CROSS_COMPILE)strip
 TARGET_OBJCOPY	= $(TARGET_CROSS_COMPILE)objcopy
 TARGET_OBJDUMP	= $(TARGET_CROSS_COMPILE)objdump
+TARGET_INSTALL = $(projtree)/tools/install.sh
+
 TARGET_INCLUDE_DIR = $(projtree)/out/include
 TARGET_LIBS_DIR = $(projtree)/out/lib
-TARGET_INSTALL = $(projtree)/out/bin/install.sh
-
 TARGET_OUT_DIR = $(projtree)/out
+UAPI_INCLUDE_DIR = $(projtree)/generic/include/
 
 HOST_LEX	= flex
 HOST_YACC	= bison
@@ -67,11 +66,12 @@ HOST_NM		= nm
 HOST_STRIP	= strip
 HOST_OBJCOPY	= objcopy
 HOST_OBJDUMP	= objdump
-MAKE		= make
 
-OUT_DIR := $(projtree)/out
+MAKE		= make
+MFLAGS		:= --no-print-directory
 
 export TARGET_AS TARGET_LD TARGET_CC TARGET_APP_CC TARGET_CPP TARGET_AR TARGET_NM TARGET_STRIP TARGET_OBJCOPY TARGET_OBJDUMP MAKE TARGET_INCLUDE_DIR TARGET_LIBS_DIR TARGET_INSTALL TARGET_OUT_DIR
+export UAPI_INCLUDE_DIR VERBOSE
 export HOST_LEX HOST_YACC HOST_AWK HOST_PERL HOST_PYTHON HOST_PYTHON2 HOST_PYTHON3 HOST_CHECK HOST_CC HOST_AS HOST_LD HOST_CC HOST_APP_CC HOST_CPP HOST_AR HOST_NM HOST_STRIP HOST_OBJCOPY HOST_OBJDUMP
 
 LIB_DIRS := user.libs
@@ -88,52 +88,93 @@ APP_TARGETS = $(filter-out $(APP_DIRS),$(APP_SUB_DIRS))
 PHONY += all
 _all: all
 
-all: libc libs apps kernel
+PHONY += libc libs apps kernel
+
+all: apps kernel
 
 libc libs apps kernel: objdirs
 
 apps: libs
 	$(Q) set -e;					\
 	for i in $(APP_TARGETS); do 			\
-		echo "Compiling libary $$i";		\
-		$(MAKE) -w -C $$i ;			\
-		$(MAKE) -w -C $$i install;		\
+		if [ -f $$i/Makefile ]; then		\
+			echo "\n---> Compiling App $$i ... \n";	\
+			$(MAKE) $(MFLAGS) -C $$i ;		\
+			$(MAKE) $(MFLAGS) -C $$i install;	\
+		fi					\
 	done
 
 libs: libc
 	$(Q) set -e;					\
 	for i in $(LIB_TARGETS); do 			\
-		echo "Compiling libary $$i";		\
-		$(MAKE) -w -C $$i ;			\
-		$(MAKE) -w -C $$i install;		\
+		if [ -f $$i/Makefile ]; then		\
+			echo "\n---> Compiling Lib $$i ... \n";	\
+			$(MAKE) $(MFLAGS) -C $$i ;		\
+			$(MAKE) $(MFLAGS) -C $$i install;	\
+		fi					\
 	done
 
 libc:
-	$(Q) $(MAKE) -C user.libc -j 16
-	$(Q) $(MAKE) -C user.libc install
+	$(Q) echo "\n--->Build LIBC ... \n"
+	$(Q) $(MAKE) $(MFLAGS) -C user.libc -j 16
+	$(Q) $(MAKE) $(MFLAGS) -C user.libc install
 
 kernel:
-	$(Q) $(MAKE) -w -C kernel
-	$(Q) $(MAKE) -w -C kernel install
+	$(Q) echo "\n--->Build Kernel ... \n"
+	$(Q) $(MAKE) $(MFLAGS) -C kernel
+	$(Q) $(MAKE) $(MFLAGS) -C kernel dtbs
+	$(Q) $(MAKE) $(MFLAGS) -C kernel install
 
 objdirs:
 	$(Q) mkdir -p $(srctree)/out
 	$(Q) mkdir -p $(srctree)/out/include
-	$(Q) mkdir -p $(srctree)/out/libs
+	$(Q) mkdir -p $(srctree)/out/lib
 	$(Q) mkdir -p $(srctree)/out/ramdisk
 	$(Q) mkdir -p $(srctree)/out/rootfs/bin
 	$(Q) mkdir -p $(srctree)/out/rootfs/sbin
 	$(Q) mkdir -p $(srctree)/out/rootfs/driver
 	$(Q) mkdir -p $(srctree)/out/rootfs/etc
 
-PHONY += images ramdisk rootfs prepare
+PHONY += images ramdisk rootfs prepare clean clean-libs clean-apps
 
-images: ramdisk rootfs
+clean-libs:
+	$(Q)set -e;					\
+	for i in $(LIB_TARGETS); do 			\
+		if [ -f $$i/Makefile ]; then		\
+			echo "Clean $$i";		\
+			$(MAKE) $(MFLAGS) -C $$i clean;	\
+		fi					\
+	done
+
+clean-apps:
+	$(Q)set -e;					\
+	for i in $(APP_TARGETS); do 			\
+		if [ -f $$i/Makefile ]; then		\
+			echo "Clean $$i";		\
+			$(MAKE) $(MFLAGS) -C $$i clean;	\
+		fi					\
+	done
+
+clean: clean-libs clean-apps
+	$(Q) echo "Clean libc"
+	$(Q) $(MAKE) $(MFLAGS) -C user.libc clean
+	$(Q) echo "Clean kernel"
+	$(Q) $(MAKE) $(MFLAGS) -C kernel clean
+	$(Q) rm -rf out
+	$(Q) echo "Clean done ..."
+
+images: ramdisk rootfs kernel
 
 ramdisk: apps
+	$(Q) echo "\n--->Packing Ramdisk image ...\n"
+	$(Q) tools/make_ramdisk.sh -o out/ramdisk.bin -- out/ramdisk/*
 
 rootfs: apps
+	$(Q) echo "\n--->Packing Rootfs image ...\n"
+	$(Q)
 
-prepare:
-	$(Q) cd user.libc; ./build.sh $(OUT_DIR) $(TARGET_ARCH) $(TARGET_CROSS_COMPILE)
+prepare: objdirs
+	$(Q) cd user.libc; ./build.sh $(TARGET_OUT_DIR) $(TARGET_ARCH) $(TARGET_CROSS_COMPILE)
 	$(Q) cd kernel; make $(TARGET_PLATFORM)_defconfig
+
+.PHONY: $(PHONY)

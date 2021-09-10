@@ -20,7 +20,7 @@
 #include <minos/proto.h>
 #include <minos/service.h>
 
-#include <libminos/file.h>
+#include <vfs/file.h>
 
 #include <pangu/request.h>
 #include <pangu/proc.h>

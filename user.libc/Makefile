@@ -229,9 +229,9 @@ musl-%.tar.gz: .git
 endif
 
 clean:
-	rm -rf obj lib
+	@ rm -rf obj lib
 
 distclean: clean
-	rm -f config.mak
+	@ rm -f config.mak
 
 .PHONY: all clean install install-libs install-headers install-tools

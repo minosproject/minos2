@@ -279,7 +279,18 @@ define filechk_version.h
 	echo '#define MINOS_VERSION_STR "v$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION) $(NAME)"' >> $@;)
 endef
 
-PHONY += scriptconfig iscriptconfig menuconfig guiconfig dumpvarsconfig
+PHONY += scriptconfig iscriptconfig menuconfig guiconfig dumpvarsconfig install
+
+ALL_DTS = $(notdir $(wildcard dtbs/*.dts))
+ALL_DTB = $(ALL_DTS:%.dts=$(TARGET_OUT_DIR)/%.dtb)
+
+$(TARGET_OUT_DIR)/kernel.bin: minos.bin
+	$(Q) cp minos.bin $(TARGET_OUT_DIR)/kernel.bin
+
+$(TARGET_OUT_DIR)/%.dtb: dtbs/%.dtb
+	$(Q) cp $< $@
+
+install: $(TARGET_OUT_DIR)/kernel.bin $(ALL_DTB)
 
 PYTHONCMD ?= python
 kpython := PYTHONPATH=$(srctree)/scripts/Kconfiglib:$$PYTHONPATH $(PYTHONCMD)

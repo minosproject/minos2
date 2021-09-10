@@ -10,6 +10,7 @@ ramdisk2.sh
 fat32.sh
 *.srv
 *.drv
+*.app
 .*
 *.bin
 *.o

@@ -12,8 +12,8 @@
 #include <minos/sched.h>
 #include <minos/kobject.h>
 
-#include <libminos/blkdev.h>
-#include <libminos/barrier.h>
+#include <vfs/blkdev.h>
+#include <drv/drv.h>
 
 #include "virtio.h"
 

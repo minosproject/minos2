@@ -15,9 +15,9 @@
 #include <minos/compiler.h>
 #include <minos/kobject.h>
 
-#include <libminos/vfs.h>
-#include <libminos/file.h>
-#include <libminos/blkdev.h>
+#include <vfs/vfs.h>
+#include <vfs/file.h>
+#include <vfs/blkdev.h>
 
 #include "buffer.h"
 

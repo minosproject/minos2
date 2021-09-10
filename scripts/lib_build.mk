@@ -15,7 +15,11 @@ STRIP		:= $(CROSS_COMPILE)strip
 
 PWD		:= $(shell pwd)
 
-QUIET ?= @
+ifeq ($(VERBOSE),1)
+  QUIET =
+else
+  QUIET = @
+endif
 
 ifeq ($(QUIET),@)
 PROGRESS = @echo Compiling $@ ...
@@ -31,28 +35,31 @@ ifeq ($(TARGET),)
   $(error "target is not defined")
 endif
 
-CLFAGS	:= $(LIB_CFLAGS)
-
-CFLAGS	+= -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE -MD \
+CFLAGS := -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE \
 	-Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing \
 	-fno-common -Werror-implicit-function-declaration -O$(O_LEVEL) \
-	-Wno-format-security -I$(PWD)/include -I$(TARGET_INCLUDE_DIR)
+	-Wno-format-security -I$(TARGET_INCLUDE_DIR) -I$(UAPI_INCLUDE_DIR)
+
+CFLAGS	+= $(LIB_CFLAGS)
+CFLAGS  += -MD -MP
 
 ifeq ($(ARCH),aarch64)
   CFLAGS += -march=armv8-a
 endif
 
-src_c	:= $(APP_SRC_C)
-src_s	:= $(APP_SRC_S)
+src_c	:= $(SRC_C)
+src_s	:= $(SRC_S)
 
 OBJS	:= $(src_c:%.c=%.o)
 OBJS	+= $(src_s:%.S=%.o)
-OBJS_D	= $(src_c:%.c=%.d)
-OBJS_D 	+= $(src_s:%.S=%.d)
 
-$(TARGET) : $(OBJS) $(LIBS_DEPS)
+OBJS_D	= $(OBJS:%.o=%.d)
+
+-include $(OBJS_D)
+
+$(TARGET) : $(OBJS)
 	$(PROGRESS)
-	$(QUIET) $(AR) crv $@ -o $^
+	$(QUIET) $(AR) crv $@ $^
 	$(QUIET) echo "Build $(TARGET) Done ..."
 
 %.o : %.c
@@ -65,17 +72,19 @@ $(TARGET) : $(OBJS) $(LIBS_DEPS)
 
 .PHONY: clean distclean install
 
+$(TARGET_INCLUDE_DIR)/%: $(PWD)/include/%
+	$(TARGET_INSTALL) -D -m 644 $< $@
+
+$(TARGET_LIBS_DIR)/%: %
+	$(TARGET_INSTALL) -D -m 644 $< $@
+
+install-headers: $(INSTALL_HEADERS:include/%=$(TARGET_INCLUDE_DIR)/%)
+install-libs: $(TARGET_LIBS_DIR)/$(TARGET)
+
+install: install-headers install-libs
+
 clean:
 	$(QUIET) rm -rf $(TARGET) $(OBJS) $(LDS) $(OBJS_D)
 
-$(TARGET_INCLUDE_DIR)/%: $(PWD)/include/%
-	$(INSTALL) -D -m 644 $< $@
-
-install-headers: $(TAGET_INSTALL_HEADERS:include/%=$(TARGET_INCLUDE_DIR)/%)
-
-install: install-headers
-
 distclean: clean
 	rm -rf cscope.in.out cscope.out cscope.po.out tags
-
--include $(OBJS_D)

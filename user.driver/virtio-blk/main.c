@@ -12,8 +12,8 @@
 #include <minos/debug.h>
 #include <minos/list.h>
 
-#include <libminos/driver.h>
-#include <libminos/vfs.h>
+#include <drv/drv.h>
+#include <vfs/vfs.h>
 #include "virtio.h"
 
 static int irq_handle, mmio_handle;

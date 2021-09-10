@@ -14,7 +14,7 @@
 #include <minos/compiler.h>
 #include <minos/kmalloc.h>
 
-#include <libminos/vfs.h>
+#include <vfs/vfs.h>
 
 #include "buffer.h"
 

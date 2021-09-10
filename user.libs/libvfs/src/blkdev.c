@@ -13,8 +13,8 @@
 #include <minos/proto.h>
 #include <minos/service.h>
 
-#include <libminos/blkdev.h>
-#include <libminos/vfs.h>
+#include <vfs/blkdev.h>
+#include <vfs/vfs.h>
 
 #define MAX_EPFD 10
 

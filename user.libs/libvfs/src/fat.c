@@ -13,8 +13,8 @@
 #include <minos/kmalloc.h>
 #include <minos/compiler.h>
 
-#include <libminos/vfs.h>
-#include <libminos/blkdev.h>
+#include <vfs/vfs.h>
+#include <vfs/blkdev.h>
 #include "fat.h"
 #include "buffer.h"
 

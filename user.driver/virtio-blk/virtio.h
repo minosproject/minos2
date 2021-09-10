@@ -7,9 +7,8 @@
 #include <stdint.h>
 #include <minos/list.h>
 
-#include <libminos/blkdev.h>
-#include <libminos/io.h>
-#include <libminos/barrier.h>
+#include <vfs/blkdev.h>
+#include <drv/drv.h>
 
 #define VIRTIO_MAGIC   0x74726976
 #define VIRTIO_VERSION 0x2

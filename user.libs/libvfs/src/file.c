@@ -15,7 +15,7 @@
 #include <minos/kobject.h>
 #include <minos/types.h>
 
-#include <libminos/file.h>
+#include <vfs/file.h>
 
 #define FILE_RIGHT \
 	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP)

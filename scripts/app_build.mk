@@ -15,7 +15,11 @@ STRIP		:= $(CROSS_COMPILE)strip
 
 PWD		:= $(shell pwd)
 
-QUIET ?= @
+ifeq ($(VERBOSE),1)
+  QUIET =
+else
+  QUIET = @
+endif
 
 ifeq ($(QUIET),@)
 PROGRESS = @echo Compiling $@ ...
@@ -32,39 +36,49 @@ ifeq ($(TARGET),)
 endif
 
 ifeq ($(APP_TAG),)
-  APP_TAG = $(target)
+  APP_TAG = $(TARGET)
+endif
+
+ifeq ($(APP_INSTALL_DIR),)
+  APP_INSTALL_DIR := $(TARGET_OUT_DIR/rootfs/bin)
 endif
 
 LINK_LIBS = $(addprefix -l, $(APP_LINK_LIBS))
-__LIBS_DEPS = $(addprefix $(TARGET_LIB_DIR)/lib, $(LINK_LIBS))
+__LIBS_DEPS = $(addprefix $(TARGET_LIBS_DIR)/lib, $(APP_LINK_LIBS))
 LIBS_DEPS = $(addsuffix .a, $(__LIBS_DEPS))
+LIBS_DEPS += $(TARGET_LIBS_DIR)/libc.a
 
-CLFAGS	:= $(APP_CFLAGS)
-
-CFLAGS	+= -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE -MD \
+CFLAGS := -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE \
 	-Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing \
 	-fno-common -Werror-implicit-function-declaration -O$(O_LEVEL) \
-	-Wno-format-security -I$(TARGET_INCLUDE_DIR) \
-	--static -L$(TARGET_LIBS_DIR) -D__APP_TAG__=$(APP_TAG) $(LINK_LIBS) \
+	-Wno-format-security -I$(TARGET_INCLUDE_DIR) -I$(UAPI_INCLUDE_DIR)
+
+LDFLAGS :=
+LDFLAGS += $(APP_LDFLAGS)
+
+CFLAGS	+= --static -L$(TARGET_LIBS_DIR) -D__APP_TAG__=$(APP_TAG) $(LINK_LIBS)
+CFLAGS	+= $(APP_CFLAGS)
+CFLAGS  += -MD -MP
 
 ifeq ($(ARCH),aarch64)
   CFLAGS += -march=armv8-a
 endif
 
-src_c	:= $(APP_SRC_C)
-src_s	:= $(APP_SRC_S)
+src_c	:= $(SRC_C)
+src_s	:= $(SRC_S)
 
 OBJS	:= $(src_c:%.c=%.o)
 OBJS	+= $(src_s:%.S=%.o)
-OBJS_D	= $(src_c:%.c=%.d)
-OBJS_D 	+= $(src_s:%.S=%.d)
+
+OBJS_D	= $(OBJS:%.o=%.d)
+
+-include $(OBJS_D)
 
 $(TARGET) : $(OBJS) $(LIBS_DEPS)
 	$(PROGRESS)
-	$(QUIET) $(CC) $^ -o $@ $(CFLAGS)
+	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
 #	$(QUIET) $(STRIP) -s $(TARGET)
 	$(QUIET) echo "Build $(TARGET) Done ..."
-	$(QUIET) cp $(TARGET) $(OUT_DIR)/$(APP_INSTALL_DIR)/
 
 %.o : %.c
 	$(PROGRESS)
@@ -76,13 +90,13 @@ $(TARGET) : $(OBJS) $(LIBS_DEPS)
 
 .PHONY: clean distclean install
 
+$(TARGET_OUT_DIR)/$(APP_INSTALL_DIR)/%: %
+	$(TARGET_INSTALL) -D -m 644 $< $@
+
+install: $(TARGET_OUT_DIR)/$(APP_INSTALL_DIR)/$(TARGET)
+
 clean:
 	$(QUIET) rm -rf $(TARGET) $(OBJS) $(LDS) $(OBJS_D)
 
-$(OUT_DIR)/$(APP_INSTALL_DIR)/%: %
-	$(TARGET_INSTALL) -D -m 644 $< $@
-
 distclean: clean
 	rm -rf cscope.in.out cscope.out cscope.po.out tags
-
--include $(OBJS_D)

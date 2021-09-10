@@ -21,7 +21,7 @@
 #include <minos/proto.h>
 #include <minos/service.h>
 
-#include <libminos/vfs.h>
+#include <vfs/vfs.h>
 
 #define VFS_MAX_EVENTS 16
 

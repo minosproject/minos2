@@ -177,4 +177,12 @@ prepare: objdirs
 	$(Q) cd user.libc; ./build.sh $(TARGET_OUT_DIR) $(TARGET_ARCH) $(TARGET_CROSS_COMPILE)
 	$(Q) cd kernel; make $(TARGET_PLATFORM)_defconfig
 
+bin/% sbin/% driver/% libs/%:
+	$(Q)set -e;					\
+	if [ -f user.$@/Makefile ]; then		\
+		$(MAKE) $(MFLAGS) -C user.$@;		\
+	else						\
+		echo "Target user.$@ not found";	\
+	fi
+
 .PHONY: $(PHONY)

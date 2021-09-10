@@ -72,8 +72,6 @@ OBJS	+= $(src_s:%.S=%.o)
 
 OBJS_D	= $(OBJS:%.o=%.d)
 
--include $(OBJS_D)
-
 $(TARGET) : $(OBJS) $(LIBS_DEPS)
 	$(PROGRESS)
 	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
@@ -100,3 +98,5 @@ clean:
 
 distclean: clean
 	rm -rf cscope.in.out cscope.out cscope.po.out tags
+
+-include $(OBJS_D)

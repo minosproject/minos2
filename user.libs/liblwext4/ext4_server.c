@@ -368,6 +368,8 @@ int run_ext4_file_server(struct ext4_blockdev *bdev)
 	if (!vs)
 		return -ENOMEM;
 
+	ext4_dmask_set(DEBUG_ALL);
+
 	r = ext4_mbr_scan(bdev, &bdevs);
 	if (r) {
 		pr_err("ext4 mbr scan failed\n");

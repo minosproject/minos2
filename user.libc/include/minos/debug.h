@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 #ifndef APP_TAG
-#define APP_TAG "unknown"
+#define APP_TAG "libc"
 #endif
 
 #if 0
@@ -42,7 +42,7 @@
 
 #define __pr_debug(...)					\
 	do {						\
-		printf("#APP_TAG" __VA_ARGS__);		\
+		printf(APP_TAG": " __VA_ARGS__);	\
 	} while (0)
 
 #ifdef __DEBUG__
@@ -53,22 +53,22 @@
 
 #define pr_err(...)					\
 	do {						\
-		printf("#APP_TAG" __VA_ARGS__);		\
+		printf(APP_TAG": " __VA_ARGS__);	\
 	} while (0)
 
 #define pr_notice(...)					\
 	do {						\
-		printf("#APP_TAG" __VA_ARGS__);		\
+		printf(APP_TAG": " __VA_ARGS__);	\
 	} while (0)
 
 #define pr_info(...)					\
 	do {						\
-		printf("#APP_TAG" __VA_ARGS__);		\
+		printf(APP_TAG": " __VA_ARGS__);	\
 	} while (0)
 
 #define pr_warn(...)					\
 	do {						\
-		printf("#APP_TAG" __VA_ARGS__);		\
+		printf(APP_TAG": " __VA_ARGS__);	\
 	} while (0)
 
 

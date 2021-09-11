@@ -188,6 +188,7 @@ bin/% sbin/% driver/% libs/%:
 	$(Q)set -e;					\
 	if [ -f user.$@/Makefile ]; then		\
 		$(MAKE) $(MFLAGS) -C user.$@;		\
+		$(MAKE) $(MFLAGS) -C user.$@ install;	\
 	else						\
 		echo "Target user.$@ not found";	\
 	fi

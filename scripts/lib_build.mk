@@ -35,13 +35,24 @@ ifeq ($(TARGET),)
   $(error "target is not defined")
 endif
 
-CFLAGS := -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE \
+ifeq ($(APP_TAG),)
+  APP_TAG = $(TARGET)
+endif
+
+DBG_TAG = $(basename $(APP_TAG))
+
+CFLAGS := -Wall -D_XOPEN_SOURCE -D_GNU_SOURCE \
 	-Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing \
 	-fno-common -Werror-implicit-function-declaration -O$(O_LEVEL) \
 	-Wno-format-security -I$(TARGET_INCLUDE_DIR) -I$(UAPI_INCLUDE_DIR)
 
 CFLAGS	+= $(LIB_CFLAGS)
 CFLAGS  += -MD -MP
+CFLAGS	+= -DAPP_TAG=\"$(DBG_TAG)\"
+
+ifeq ($(BUILD_DEBUG),1)
+  CFLAGS += -g
+endif
 
 ifeq ($(ARCH),aarch64)
   CFLAGS += -march=armv8-a

@@ -39,6 +39,8 @@ ifeq ($(APP_TAG),)
   APP_TAG = $(TARGET)
 endif
 
+DBG_TAG = $(basename $(APP_TAG))
+
 ifeq ($(APP_INSTALL_DIR),)
   APP_INSTALL_DIR := $(TARGET_OUT_DIR/rootfs/bin)
 endif
@@ -56,9 +58,13 @@ CFLAGS := -Wall -g -D_XOPEN_SOURCE -D_GNU_SOURCE \
 LDFLAGS :=
 LDFLAGS += $(APP_LDFLAGS)
 
-CFLAGS	+= --static -L$(TARGET_LIBS_DIR) -D__APP_TAG__=$(APP_TAG) $(LINK_LIBS)
+CFLAGS	+= --static -L$(TARGET_LIBS_DIR) -DAPP_TAG=\"$(DBG_TAG)\" $(LINK_LIBS)
 CFLAGS	+= $(APP_CFLAGS)
 CFLAGS  += -MD -MP
+
+ifeq ($(BUILD_DEBUG),1)
+  CFLAGS += -g
+endif
 
 ifeq ($(ARCH),aarch64)
   CFLAGS += -march=armv8-a

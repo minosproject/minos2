@@ -467,6 +467,7 @@ static void handle_getdent_request(struct vreq *vreq, struct proto *proto, char 
 		strcpy(de->d_name, next->name);
 
 		tmp += len;
+		size_left -= len;
 		vreq->pdata = vreq->pdata->next;
 	}
 

@@ -1,5 +1,6 @@
 TARGET 		:= virtio-blk.srv
-APP_LINK_LIBS 	:= vfs drv
+APP_LINK_LIBS 	:= lwext4 drv
+APP_CFLAGS	:= -DCONFIG_USE_DEFAULT_CFG
 
 SRC_C		:= $(wildcard *.c)
 

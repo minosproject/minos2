@@ -13,7 +13,6 @@
 #include <minos/list.h>
 
 #include <drv/drv.h>
-#include <vfs/vfs.h>
 #include "virtio.h"
 
 static int irq_handle, mmio_handle;
@@ -53,11 +52,5 @@ int main(int argc, char **argv)
 		return -EIO;
 	}
 
-	vfs_init();
-
-	virtio_dev_init((unsigned long)mmio, irq_handle);
-
-	while (1) {
-
-	}
+	return virtio_dev_init((unsigned long)mmio, irq_handle);
 }

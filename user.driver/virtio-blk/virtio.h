@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <minos/list.h>
 
-#include <vfs/blkdev.h>
 #include <drv/drv.h>
 
 #define VIRTIO_MAGIC   0x74726976
@@ -154,6 +153,23 @@ struct virtio_net_config {
 	uint16_t status;
 	uint16_t max_virtqueue_pairs;
 } __attribute__((packed));
+
+#define BLKREQ_READ	0x0
+#define BLKREQ_WRITE	0x1
+
+#define BLKREQ_INIT 0x0
+#define BLKREQ_OK 0x1
+#define BLKREQ_ERR 0x2
+
+struct blkreq {
+	int type;
+	uint64_t blkidx;		// which block need to read. default block size 4096
+	uint64_t size;			// blkreq buf size
+	uint8_t *buf;			// blkreq buf address.
+	int status;			// blkreq status.
+	void *pdata;			// the private data for the realy device req if has.
+	struct list_head list;
+};
 
 #define VIRTIO_BLK_REQ_HEADER_SIZE 16
 #define VIRTIO_BLK_REQ_FOOTER_SIZE 1

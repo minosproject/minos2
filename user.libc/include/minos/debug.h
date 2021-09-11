@@ -3,6 +3,10 @@
 
 #include <stdio.h>
 
+#ifndef APP_TAG
+#define APP_TAG "unknown"
+#endif
+
 #if 0
 #define __pr_debug(...)					\
 	do {						\
@@ -38,7 +42,7 @@
 
 #define __pr_debug(...)					\
 	do {						\
-		printf(__VA_ARGS__);		\
+		printf("#APP_TAG" __VA_ARGS__);		\
 	} while (0)
 
 #ifdef __DEBUG__
@@ -49,22 +53,22 @@
 
 #define pr_err(...)					\
 	do {						\
-		printf(__VA_ARGS__);		\
+		printf("#APP_TAG" __VA_ARGS__);		\
 	} while (0)
 
 #define pr_notice(...)					\
 	do {						\
-		printf(__VA_ARGS__);		\
+		printf("#APP_TAG" __VA_ARGS__);		\
 	} while (0)
 
 #define pr_info(...)					\
 	do {						\
-		printf(__VA_ARGS__);		\
+		printf("#APP_TAG" __VA_ARGS__);		\
 	} while (0)
 
 #define pr_warn(...)					\
 	do {						\
-		printf(__VA_ARGS__);		\
+		printf("#APP_TAG" __VA_ARGS__);		\
 	} while (0)
 
 

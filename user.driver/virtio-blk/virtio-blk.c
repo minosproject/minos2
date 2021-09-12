@@ -352,6 +352,8 @@ static int virtio_ext4_iface_bwrite(struct ext4_blockdev *bdev, const void *buf,
 
 static int virtio_ext4_iface_open(struct ext4_blockdev *bdev)
 {
+	bdev->bdif->ph_bcnt = bdev->part_size / bdev->bdif->ph_bsize;
+
 	return 0;
 }
 

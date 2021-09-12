@@ -1,4 +1,4 @@
-TARGET 		:= virtio-blk.srv
+TARGET 		:= virtio-blk.drv
 APP_LINK_LIBS 	:= lwext4 drv
 APP_CFLAGS	:= -DCONFIG_USE_DEFAULT_CFG
 

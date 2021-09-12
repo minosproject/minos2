@@ -17,6 +17,10 @@ ifndef MBUILD_VERBOSE
   MBUILD_VERBOSE = 0
 endif
 
+ifeq ($(VERBOSE),1)
+ MBUILD_VERBOSE = 1
+endif
+
 ifeq ($(MBUILD_VERBOSE),1)
   quiet =
   Q =
@@ -30,6 +34,10 @@ ifeq ("$(origin O)", "command line")
 endif
 ifndef O_LEVEL
 	O_LEVEL = 2
+endif
+
+ifeq ($(BUILD_DEBUG),1)
+  O_LEVEL = 0
 endif
 
 export quiet Q MBUILD_VERBOSE

@@ -14,12 +14,18 @@
 
 void *ext4_user_malloc(size_t size)
 {
-	return libc_malloc(size);
+	void *mem;
+
+	mem = libc_malloc(size);
+	if (mem)
+		memset(mem, 0, size);
+
+	return mem;
 }
 
 void *ext4_user_calloc(size_t numb, size_t size)
 {
-	return libc_malloc(numb * size);
+	return ext4_user_malloc(numb * size);
 }
 
 void ext4_user_free(void *mem)

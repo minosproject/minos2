@@ -393,7 +393,7 @@ static int __handle_open_request(struct vreq *vreq, struct proto *proto, char *b
 		 * if this node is a service node, open it with remote call.
 		 */
 		if ((next->type == SRV_PORT)) {
-			*type = SRV_PORT;
+			*type = SRV_REMOTE;
 			return open_remote_node(next, proto, pathrem);
 		}
 	}
@@ -408,23 +408,26 @@ static void handle_open_request(struct vreq *vreq, struct proto *proto, char *bu
 	int right;
 
 	handle = __handle_open_request(vreq, proto, buf, &type);
-
-	if (type == SRV_DIR)
-		right = KR_W;
-	else if (type == SRV_PORT)
-		right = KR_W;
-	else if (type == SRV_NOTIFY)
-		right = KR_R;
-	else
+	if (handle <= 0) {
 		right = 0;
-
-	kobject_reply_handle(vreq->handle, proto->token, handle, right);
+		fuxi_info("open file successful\n");
+	} else {
+		if (type == SRV_DIR)
+			right = KR_W;
+		else if (type == SRV_PORT)
+			right = KR_W;
+		else if (type == SRV_NOTIFY)
+			right = KR_R;
+		else
+			right = 0;
+	}
 
 	/*
 	 * close the handle if this handle is a remote handle. the
 	 * rights has been passed to the target process.
 	 */
-	if (handle > 0 && type == SRV_PORT)
+	kobject_reply_handle(vreq->handle, proto->token, handle, right);
+	if (handle > 0 && type == SRV_REMOTE)
 		kobject_close(handle);
 }
 

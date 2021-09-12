@@ -2,24 +2,25 @@
 #define __MINOS_ASM_CURRENT_H__
 
 #include <minos/compiler.h>
+#include <asm/barrier.h>
 
 static inline void *asm_get_current_task(void)
 {
-	register unsigned long __unused tsk asm ("x18");
-
-	return (void *)tsk;
+	void *tsk;
+	__asm__ volatile ("mov %0, x18" : "=r" (tsk));
+	return tsk;
 }
 
 static inline void *asm_get_current_task_info(void)
 {
-	register unsigned long tsk_info asm ("x18");
-
-	return (void *)tsk_info;
+	void *tsk_info;
+	__asm__ volatile ("mov %0, x18" : "=r" (tsk_info));
+	return tsk_info;
 }
 
 static inline void asm_set_current_task(void *task)
 {
-	register unsigned long __unused tsk asm ("x18") = (unsigned long)task;
+	__asm__ volatile ("mov x18, %0" : : "r" (task));
 }
 
 #endif

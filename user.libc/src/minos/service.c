@@ -12,7 +12,7 @@ int register_service(const char *src, const char *target, int type, int flags)
 	char string[FILENAME_MAX];
 	struct proto proto;
 	char *buf = string;
-	int len;
+	int len, handle;
 
 	len = strlen(src) + strlen(target) + 2;
 	if (len >= FILENAME_MAX)
@@ -28,8 +28,12 @@ int register_service(const char *src, const char *target, int type, int flags)
 	proto.register_service.source_off = 0;
 	proto.register_service.target_off = strlen(src) + 1;
 
-	return kobject_write(libc.rootfs_handle, &proto,
+	handle = kobject_write(libc.rootfs_handle, &proto,
 			sizeof(struct proto), string, len, -1);
+	if (handle > 0)
+		kobject_open(handle);
+
+	return handle;
 }
 
 int unregister_service(int fd)

@@ -227,7 +227,7 @@ long double sqrtl(long double x)
 	r = mul64(u, r) << 1;
 	/* |r sqrt(m) - 1| < 0x1.c001p-59, switch to 128bit */
 
-	static const u128 threel = {.hi=three<<32, .lo=0};
+	static const u128 threel = {.hi=0xc0000000<<32, .lo=0};
 	u128 rl, sl, dl, ul;
 	rl.hi = r;
 	rl.lo = 0;

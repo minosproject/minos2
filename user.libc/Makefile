@@ -43,7 +43,7 @@ LDFLAGS_AUTO =
 LIBCC = -lgcc
 CPPFLAGS =
 CFLAGS =
-CFLAGS_AUTO = -Os -pipe
+CFLAGS_AUTO = -pipe
 CFLAGS_C99FSE = -std=c99 -ffreestanding -nostdinc 
 
 CFLAGS_ALL = $(CFLAGS_C99FSE)
@@ -126,6 +126,12 @@ NOSSP_OBJS = $(CRT_OBJS) $(LDSO_OBJS) $(filter \
 	%/__set_thread_area.o %/memset.o %/memcpy.o \
 	, $(LIBC_OBJS))
 $(NOSSP_OBJS) $(NOSSP_OBJS:%.o=%.lo): CFLAGS_ALL += $(CFLAGS_NOSSP)
+
+ifeq ($(BUILD_DEBUG), 1)
+  CFLAGS += -O0 -g
+else
+  CFLAGS += -Os
+endif
 
 $(CRT_OBJS): CFLAGS_ALL += -DCRT
 

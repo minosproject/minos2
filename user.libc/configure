@@ -436,8 +436,8 @@ xno|x) printf "disabled\n" ; optimize=no ;;
 *) printf "custom\n" ;;
 esac
 
-test "$optimize" = no || tryflag CFLAGS_AUTO -Os || tryflag CFLAGS_AUTO -O2
-test "$optimize" = yes && optimize="internal,malloc,string"
+# test "$optimize" = no || tryflag CFLAGS_AUTO -Os || tryflag CFLAGS_AUTO -O2
+# test "$optimize" = yes && optimize="internal,malloc,string"
 
 if fnmatch 'no|size' "$optimize" ; then :
 else

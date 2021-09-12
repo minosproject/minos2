@@ -459,7 +459,7 @@ err_map_stack_mem:
 	return ret;
 }
 
-static int load_process(char *path, int argc, char **argv,
+static struct process *load_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
 	FILE *file = fopen(path, "r");
@@ -468,33 +468,33 @@ static int load_process(char *path, int argc, char **argv,
 	int ret;
 
 	if (!file)
-		return -ENOENT;
+		return NULL;
 
 	ret = elf_init(&ctx, file);
 	if (ret)
-		return ret;
+		return NULL;
 
 	proc = create_new_process(&ctx, path, flags, pdata);
 	if (!proc)
-		return -ENOMEM;
+		return NULL;
 
 	ret = load_process_from_file(proc, &ctx, file);
 	if (ret) {
 		fclose(file);
 		release_process(proc);
-		return ret;
+		return NULL;
 	}
 
 	ret = setup_process(proc, path, &ctx, argc, argv);
 	if (ret) {
 		fclose(file);
 		release_process(proc);
-		return ret;
+		return NULL;
 	}
 
 	list_add_tail(&process_list, &proc->list);
 
-	return 0;
+	return proc;
 }
 
 struct process *load_ramdisk_process(char *path, int argc, char **argv,
@@ -506,8 +506,10 @@ struct process *load_ramdisk_process(char *path, int argc, char **argv,
 	struct elf_ctx ctx;
 
 	ret = ramdisk_open(path, &rfile);
-	if (ret)
+	if (ret) {
+		pr_err("can not find %s in ramdisk\n", path);
 		return NULL;
+	}
 
 	ret = elf_init_ramdisk(&ctx, &rfile);
 	if (ret)
@@ -623,6 +625,7 @@ static inline int execv_argv_is_ok(char *argv, int max_size)
 static long process_execv_handler(struct process *proc, struct proto *proto, void *data)
 {
 	struct execv_extra *extra = data;
+	struct process *new;
 	char **argv = extra->argv;
 	unsigned long limit;
 	char *string;
@@ -643,7 +646,12 @@ static long process_execv_handler(struct process *proc, struct proto *proto, voi
 		argv[i] = string + (unsigned long)argv[i];
 	}
 
-	return load_process(extra->path, extra->argc, extra->argv, 0, NULL);
+	new = load_process(extra->path, extra->argc, extra->argv, 0, NULL);
+	if (!new)
+		return -ENOENT;
+
+	wakeup_process(new);
+	return 0;
 
 out:
 	return -EINVAL;
@@ -681,9 +689,26 @@ out:
 	return (long)addr;
 }
 
-static long process_iamok_handler(struct process *proc, struct proto *proto, void *data)
+static void load_init_process(void)
 {
-	return 0;
+	struct process *proc;
+
+	proc = load_process("/c/shell.app", 0, NULL, 0, NULL);
+	if (!proc) {
+		pr_err("load init process fail\n");
+		return;
+	}
+
+	wakeup_process(proc);
+}
+
+static void process_iamok_handler(struct process *proc, struct proto *proto, void *data)
+{
+	/*
+	 * start the init process, current start the shell process.
+	 */
+	if (proc == rootfs_proc)
+		load_init_process();
 }
 
 static void handle_process_kernel_request(struct process *proc, struct epoll_event *event)
@@ -722,19 +747,20 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 	switch (proto.proto_id) {
 	case PROTO_MMAP:
 		ret = process_mmap_handler(proc, &proto, data);
+		kobject_reply_errcode(proc->proc_handle, 0, ret);
 		break;
 	case PROTO_EXECV:
 		ret = process_execv_handler(proc, &proto, data);
+		kobject_reply_errcode(proc->proc_handle, 0, ret);
 		break;
 	case PROTO_IAMOK:
-		ret = process_iamok_handler(proc, &proto, data);
+		kobject_reply_errcode(proc->proc_handle, 0, 0);
+		process_iamok_handler(proc, &proto, data);
 		break;
 	default:
 		ret = -EPROTONOSUPPORT;
 		break;
 	}
-
-	kobject_reply_errcode(proc->proc_handle, 0, ret);
 }
 
 void handle_process_request(struct epoll_event *event, struct request_entry *re)

@@ -14,6 +14,7 @@
 #include <minos/kmalloc.h>
 #include <minos/kobject.h>
 #include <minos/proto.h>
+#include <minos/libc.h>
 
 #include <uapi/bootdata.h>
 
@@ -77,6 +78,7 @@ static int load_fuxi_service(void)
 	if (fuxi_handle <= 0)
 		return fuxi_handle;
 
+	libc_set_rootfs_handle(fuxi_handle);
 	proc = load_ramdisk_process("fuxi.srv", 0, NULL, TASK_FLAGS_SRV, NULL);
 	if (proc == NULL)
 		return -ENOMEM;
@@ -159,8 +161,10 @@ static int load_rootfs_driver(void)
 
 	rootfs_proc = load_ramdisk_process(drv_name, 0, NULL,
 			TASK_FLAGS_DRV | TASK_FLAGS_DEDICATED_HEAP, res);
-	if (rootfs_proc == NULL)
+	if (rootfs_proc == NULL) {
+		ret = -ENOENT;
 		goto err_release_resource;
+	}
 
 	return 0;
 

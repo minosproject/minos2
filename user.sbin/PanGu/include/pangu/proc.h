@@ -42,6 +42,7 @@ struct process {
 };
 
 extern struct process *self;
+extern struct process *rootfs_proc;
 extern int fuxi_handle;
 extern int proc_epfd;
 extern struct list_head process_list;

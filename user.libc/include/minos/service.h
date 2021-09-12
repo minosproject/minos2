@@ -9,6 +9,7 @@ extern "C" {
 #define SRV_DIR 1
 #define SRV_PORT 2
 #define SRV_NOTIFY 3
+#define SRV_REMOTE 4
 
 int register_service(const char *src, const char *target, int type, int flags);
 

@@ -213,6 +213,7 @@ static void handle_sync_exception(gp_regs *regs)
 	uint32_t ec_type;
 	struct sync_desc *ec;
 
+	current->user_gp_regs = regs;
 	esr_value = read_esr();
 	ec_type = ESR_ELx_EC(esr_value);
 	if (ec_type >= ESR_ELx_EC_MAX)

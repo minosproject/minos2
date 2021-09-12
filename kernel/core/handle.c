@@ -236,15 +236,18 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 	if (right & KOBJ_RIGHT_GRANT) {
 		right_send &= (KOBJ_RIGHT_MASK & kobj->right);
 	} else {
-		if ((right_send & (~right)) != 0) {
+		if (right_send == 0) {
+			right_send = right;
+		} else if ((right_send & (~right)) != 0) {
 			ret = -EPERM;
 			goto out;
 		}
 	}
 
 	ret =  __alloc_handle(pdst, kobj, right_send);
-	if (ret > 0)
-		hdesc->right = KOBJ_RIGHT_NONE;
+	// why need this ? mistake here, need double check.
+	// if (ret > 0)
+	//	hdesc->right = KOBJ_RIGHT_NONE;
 out:
 	spin_unlock(&proc->kobj_lock);
 

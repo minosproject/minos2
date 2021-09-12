@@ -25,7 +25,7 @@ ifeq ($(QUIET),@)
 PROGRESS = @echo Compiling $@ ...
 endif
 
-ifeq ($(BUILD_DEBUG),)
+ifeq ($(BUILD_DEBUG), 1)
   O_LEVEL=0
 else
   O_LEVEL=2

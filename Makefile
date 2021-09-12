@@ -1,10 +1,9 @@
 PHONY := _all
 _all:
 
-ifeq ("$(origin DEBUG)", "command line")
-  BUILD_DEBUG = $(DEBUG)
-endif
-ifndef BUILD_DEBUG
+ifeq ($(DEBUG),1)
+  BUILD_DEBUG = 1
+else
   BUILD_DEBUG = 0
 endif
 
@@ -20,7 +19,7 @@ src	 := $(srctree)
 
 VPATH	:= $(srctree)
 
-export BUILD_DEBUG srctree projtree
+export BUILD_DEBUG VERBOSE srctree projtree
 
 ARCH		?= aarch64
 CROSS_COMPILE	?= aarch64-linux-gnu-
@@ -70,8 +69,7 @@ HOST_OBJDUMP	= objdump
 MAKE		= make
 MFLAGS		:= --no-print-directory
 
-export TARGET_AS TARGET_LD TARGET_CC TARGET_APP_CC TARGET_CPP TARGET_AR TARGET_NM TARGET_STRIP TARGET_OBJCOPY TARGET_OBJDUMP MAKE TARGET_INCLUDE_DIR TARGET_LIBS_DIR TARGET_INSTALL TARGET_OUT_DIR
-export UAPI_INCLUDE_DIR VERBOSE
+export TARGET_AS TARGET_LD TARGET_CC TARGET_APP_CC TARGET_CPP TARGET_AR TARGET_NM TARGET_STRIP TARGET_OBJCOPY TARGET_OBJDUMP MAKE TARGET_INCLUDE_DIR TARGET_LIBS_DIR TARGET_INSTALL TARGET_OUT_DIR UAPI_INCLUDE_DIR
 export HOST_LEX HOST_YACC HOST_AWK HOST_PERL HOST_PYTHON HOST_PYTHON2 HOST_PYTHON3 HOST_CHECK HOST_CC HOST_AS HOST_LD HOST_CC HOST_APP_CC HOST_CPP HOST_AR HOST_NM HOST_STRIP HOST_OBJCOPY HOST_OBJDUMP
 
 LIB_DIRS := user.libs
@@ -124,6 +122,10 @@ kernel:
 	$(Q) $(MAKE) $(MFLAGS) -C kernel
 	$(Q) $(MAKE) $(MFLAGS) -C kernel dtbs
 	$(Q) $(MAKE) $(MFLAGS) -C kernel install
+
+clean-kernel:
+	$(Q) echo "\n--->Clean Kernel ... \n"
+	$(Q) $(MAKE) $(MFLAGS) -C kernel clean
 
 objdirs:
 	$(Q) mkdir -p $(srctree)/out

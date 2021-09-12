@@ -27,7 +27,7 @@ int __sys_open(const char *restrict filename, int flags, int mode)
 	proto.open.mode = mode;
 
 	return kobject_write(libc.rootfs_handle, &proto, sizeof(struct proto),
-			(char *)filename, len, -1);
+			(char *)filename, len, 5000);
 }
 
 FILE *fopen(const char *restrict filename, const char *restrict mode)

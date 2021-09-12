@@ -83,7 +83,8 @@ static struct lwext4_file *create_new_lwext4_file(int dir)
 	void *addr;
 	int size;
 
-	handle = kobject_create_endpoint(KR_RW | KR_M | KR_C, KR_R | KR_M, PAGE_SIZE);
+	handle = kobject_create_endpoint(KR_RW | KR_M | KR_C | KR_G,
+			KR_R | KR_M | KR_G, PAGE_SIZE);
 	if (handle <= 0)
 		return NULL;
 
@@ -95,9 +96,9 @@ static struct lwext4_file *create_new_lwext4_file(int dir)
 
 	size = sizeof(struct lwext4_file);
 	if (dir)
-		size += sizeof(struct ext4_file);
-	else
 		size += sizeof(struct ext4_dir);
+	else
+		size += sizeof(struct ext4_file);
 
 	file = libc_zalloc(size);
 	if (!file)
@@ -137,7 +138,7 @@ static int __handle_vfs_open_request(struct ext4_server *vs, struct lwext4_file 
 	if (dir)
 		ret = ext4_dir_open(LWEXT4_DIR(new_file), vs->buf);
 	else
-		ret = ext4_fopen(LWEXT4_FILE(new_file), vs->buf, "rw");
+		ret = ext4_fopen(LWEXT4_FILE(new_file), vs->buf, "r");
 	if (ret) {
 		pr_err("open %s failed\n", vs->buf);
 		release_file(new_file);
@@ -169,7 +170,8 @@ static int handle_vfs_open_request(struct ext4_server *vs,
 		return ret;
 	}
 
-	kobject_reply_handle(parent->handle, proto->token, file->handle, KR_WM);
+	kobject_reply_handle(parent->handle, proto->token,
+			file->handle, KR_WM | KR_C);
 
 	return 0;
 }
@@ -293,6 +295,11 @@ static int handle_vfs_in_request(struct ext4_server *vs, struct lwext4_file *fil
 		break;
 	}
 
+#if 0
+	if (ret)
+		dump_proto(&proto);
+#endif
+
 	return ret;
 }
 
@@ -322,7 +329,7 @@ static int run_ext4_server(struct ext4_server *vs)
 	/*
 	 * only support one partition now.
 	 */
-	rfd = register_service("/", "vd0", SRV_PORT, 0);
+	rfd = register_service("/", "c", SRV_PORT, 0);
 	if (rfd <= 0) {
 		pr_err("create service for virtio-block ext4 server failed\n");
 		return -ENOMEM;
@@ -344,7 +351,11 @@ static int run_ext4_server(struct ext4_server *vs)
 	memset(efile, 0, sizeof(struct lwext4_file));
 	efile->handle = rfd;
 	efile->root = 1;
+	efile->dir = 1;
 	ext4_server_listen(vs, efile);
+
+	i_am_ok();
+	pr_info("ext4 server start, waitting for request...\n");
 
 	for (; ;) {
 		cnt = epoll_wait(vs->epfd, events, VFS_MAX_EVENTS, -1);
@@ -362,6 +373,7 @@ int run_ext4_file_server(struct ext4_blockdev *bdev)
 {
 	struct ext4_mbr_bdevs bdevs;
 	int r, i, cnt = 0;
+	struct ext4_blockdev *ext4_blkdev = NULL;
 	struct ext4_server *vs;
 
 	vs = libc_malloc(sizeof(struct ext4_server));
@@ -391,10 +403,15 @@ int run_ext4_file_server(struct ext4_blockdev *bdev)
 		pr_info("\tsize:    0x%"PRIx64", %"PRIu64"MB\n",
 				bdevs.partitions[i].part_size,
 				bdevs.partitions[i].part_size / (1024 * 1024));
+
+		if (ext4_blkdev == NULL)
+			ext4_blkdev = &bdevs.partitions[i];
+		else if (bdevs.partitions[i].part_size > ext4_blkdev->part_size)
+			ext4_blkdev = &bdevs.partitions[i];
 		cnt++;
 	}
 
-	if (cnt == 0) {
+	if (cnt == 0 || ext4_blkdev == NULL) {
 		pr_err("no ext4 partition found\n");
 		return -ENODEV;
 	}
@@ -402,8 +419,7 @@ int run_ext4_file_server(struct ext4_blockdev *bdev)
 	if (cnt > 1)
 		pr_warn("only one partition will support\n");
 
-	memcpy(&vs->bdev, &bdevs.partitions[0], sizeof(struct ext4_blockdev));
-
+	memcpy(&vs->bdev, ext4_blkdev, sizeof(struct ext4_blockdev));
 	r = ext4_device_register(&vs->bdev, "vd0");
 	if (r) {
 		pr_err("register ext4 partition fail\n");

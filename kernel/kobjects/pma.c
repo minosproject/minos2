@@ -77,7 +77,7 @@ static void free_pma_memory(struct pma *p)
 
 	do {
 		tmp = page->next;
-		free_pages((void *)page_va(page));
+		__free_pages(page);
 		page = tmp;
 	} while (page != NULL);
 }
@@ -258,9 +258,78 @@ static void pma_release(struct kobject *kobj)
 	free(p);
 }
 
+static void free_pma_pages(struct page *head)
+{
+	struct page *tmp = head;
+	struct page *next;
+
+	while (tmp) {
+		next = tmp->next;
+		__free_pages(tmp);
+		tmp = next;
+	}
+}
+
+static int pma_add_pages(struct kobject *kobj, int pages)
+{
+	struct pma *p = (struct pma *)kobj->data;
+	struct page *page;
+	struct page *head = NULL;
+	struct page *tail = NULL;
+	int i;
+
+	if (pages <= 0)
+		return -EINVAL;
+	if (kobj->right & KOBJ_RIGHT_SHARED)
+		return -EPERM;
+
+	for (i = 0; i < pages; i++) {
+		page = alloc_pages(1, GFP_USER);
+		if (!page) {
+			free_pma_pages(head);
+			return -ENOMEM;
+		}
+
+		page->next = head;
+		head = page;
+
+		if (tail == NULL)
+			tail = page;
+	}
+
+	/*
+	 * insert the new pages to the pma
+	 */
+	spin_lock(&p->lock);
+	tail->next = p->page_list;
+	p->page_list = head;
+	p->psize += pages << PAGE_SHIFT;
+	spin_unlock(&p->lock);
+
+	return 0;
+}
+
+static long pma_ctl(struct kobject *kobj, int req, unsigned long data)
+{
+	int ret;
+
+	switch (req) {
+	case KOBJ_PMA_ADD_PAGES:
+		ret = pma_add_pages(kobj, (int)data);
+		break;
+	default:
+		ret = -ENOSYS;
+		pr_err("unknow action 0x%x for pma kobject\n", req);
+		break;
+	}
+
+	return ret;
+}
+
 static struct kobject_ops pma_ops = {
 	.mmap		= pma_mmap,
 	.munmap		= pma_munmap,
+	.ctl		= pma_ctl,
 	.release	= pma_release,
 };
 
@@ -366,11 +435,13 @@ static struct kobject *pma_create(right_t right,
 		p->pend = args.end;
 		p->psize = p->pend - p->pstart;
 	} else {
-		p->psize = args.cnt << PAGE_SHIFT;
-		ret = allocate_pma_memory(p, args.cnt, right_req, args.type);
-		if (ret) {
-			free(p);
-			return ERROR_PTR(ENOMEM);
+		if (args.cnt > 0) {
+			p->psize = args.cnt << PAGE_SHIFT;
+			ret = allocate_pma_memory(p, args.cnt, right_req, args.type);
+			if (ret) {
+				free(p);
+				return ERROR_PTR(ENOMEM);
+			}
 		}
 	}
 

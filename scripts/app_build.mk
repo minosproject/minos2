@@ -41,9 +41,7 @@ endif
 
 DBG_TAG = $(basename $(APP_TAG))
 
-ifeq ($(APP_INSTALL_DIR),)
-  APP_INSTALL_DIR := $(TARGET_OUT_DIR/rootfs/bin)
-endif
+APP_INSTALL_DIR ?= rootfs/bin
 
 LINK_LIBS = $(addprefix -l, $(APP_LINK_LIBS))
 __LIBS_DEPS = $(addprefix $(TARGET_LIBS_DIR)/lib, $(APP_LINK_LIBS))
@@ -82,12 +80,12 @@ ifeq (S(BUILD_DEBUG),1)
 $(TARGET) : $(OBJS) $(LIBS_DEPS)
 	$(PROGRESS)
 	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
-	$(QUIET) $(STRIP) -s $(TARGET)
 	$(QUIET) echo "Build $(TARGET) Done ..."
 else
 $(TARGET) : $(OBJS) $(LIBS_DEPS)
 	$(PROGRESS)
 	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
+	$(QUIET) $(STRIP) -s $(TARGET)
 	$(QUIET) echo "Build $(TARGET) Done ..."
 endif
 

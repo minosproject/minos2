@@ -72,6 +72,10 @@ enum {
 	PMA_TYPE_MAX
 };
 
+enum {
+	KOBJ_PMA_ADD_PAGES = 0x4000,
+};
+
 struct pma_create_arg {
 	int cnt;
 	int type;

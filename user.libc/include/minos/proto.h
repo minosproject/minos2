@@ -6,6 +6,7 @@
 
 enum {
 	PROTO_IAMOK = 0,
+	PROTO_ELF_INFO,
 	PROTO_REGISTER_SERVICE,
 	PROTO_MMAP,
 	PROTO_MUNMAP,
@@ -19,6 +20,15 @@ enum {
 	PROTO_LSEEK,
 	PROTO_GETDENT,
 	PROTO_MAX,
+};
+
+struct proto_elf_info {
+	int ret_code;
+	uint64_t token;
+	int pma_handle;
+	unsigned long entry;
+	unsigned long elf_base;
+	unsigned long elf_end;
 };
 
 struct proto_mprotect {

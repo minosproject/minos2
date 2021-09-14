@@ -30,8 +30,6 @@ int register_service(const char *src, const char *target, int type, int flags)
 
 	handle = kobject_write(libc.rootfs_handle, &proto,
 			sizeof(struct proto), string, len, -1);
-	if (handle > 0)
-		kobject_open(handle);
 
 	return handle;
 }

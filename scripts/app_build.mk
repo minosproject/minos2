@@ -68,6 +68,10 @@ ifeq ($(ARCH),aarch64)
   CFLAGS += -march=armv8-a
 endif
 
+ifneq ($(TEXT_START),)
+  CFLAGS += -Wl,-Ttext=$(TEXT_START)
+endif
+
 src_c	:= $(SRC_C)
 src_s	:= $(SRC_S)
 
@@ -76,7 +80,7 @@ OBJS	+= $(src_s:%.S=%.o)
 
 OBJS_D	= $(OBJS:%.o=%.d)
 
-ifeq (S(BUILD_DEBUG),1)
+ifeq ($(BUILD_DEBUG),1)
 $(TARGET) : $(OBJS) $(LIBS_DEPS)
 	$(PROGRESS)
 	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
@@ -100,7 +104,7 @@ endif
 .PHONY: clean distclean install
 
 $(TARGET_OUT_DIR)/$(APP_INSTALL_DIR)/%: %
-	$(TARGET_INSTALL) -D -m 644 $< $@
+	$(TARGET_INSTALL) -D -m 755 $< $@
 
 install: $(TARGET_OUT_DIR)/$(APP_INSTALL_DIR)/$(TARGET)
 

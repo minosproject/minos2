@@ -33,8 +33,8 @@
  * @brief Block device module.
  */
 
-#ifndef EXT4_BLOCKDEV_H_
-#define EXT4_BLOCKDEV_H_
+#ifndef EXT4_BLKDEV_H_
+#define EXT4_BLKDEV_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +42,8 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+
+struct ext4_blockdev;
 
 struct ext4_blockdev_iface {
     /**@brief   Open device function

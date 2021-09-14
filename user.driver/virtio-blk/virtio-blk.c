@@ -144,23 +144,25 @@ static void virtio_blk_send(struct virtio_blk *blk, struct virtio_blk_req *hdr)
 	WRITE32(blk->regs->QueueNotify, 0);
 }
 
+#if 0
 static int virtio_blk_status(struct virtio_blk *blkdev)
 {
-	printf("    Status=0x%x\n", READ32(blkdev->regs->Status));
-	printf("    DeviceID=0x%x\n", READ32(blkdev->regs->DeviceID));
-	printf("    VendorID=0x%x\n", READ32(blkdev->regs->VendorID));
-	printf("    InterruptStatus=0x%x\n",
+	pr_info("    Status=0x%x\n", READ32(blkdev->regs->Status));
+	pr_info("    DeviceID=0x%x\n", READ32(blkdev->regs->DeviceID));
+	pr_info("    VendorID=0x%x\n", READ32(blkdev->regs->VendorID));
+	pr_info("    InterruptStatus=0x%x\n",
 	       READ32(blkdev->regs->InterruptStatus));
-	printf("    MagicValue=0x%x\n", READ32(blkdev->regs->MagicValue));
-	printf("  Queue 0:\n");
-	printf("    avail.idx = %u\n", blkdev->virtq->avail->idx);
-	printf("    used.idx = %u\n", blkdev->virtq->used->idx);
+	pr_info("    MagicValue=0x%x\n", READ32(blkdev->regs->MagicValue));
+	pr_info("  Queue 0:\n");
+	pr_info("    avail.idx = %u\n", blkdev->virtq->avail->idx);
+	pr_info("    used.idx = %u\n", blkdev->virtq->used->idx);
 	WRITE32(blkdev->regs->QueueSel, 0);
 	mb();
-	printf("    ready = 0x%x\n", READ32(blkdev->regs->QueueReady));
+	pr_info("    ready = 0x%x\n", READ32(blkdev->regs->QueueReady));
 	virtq_show(blkdev->virtq);
 	return 0;
 }
+#endif
 
 static struct blkreq *virtio_blk_alloc(struct virtio_blk *dev)
 {
@@ -424,7 +426,7 @@ int virtio_blk_init(virtio_regs *regs, uint32_t intid)
 	} while (genbefore != genafter);
 
 	vdev->sector_cnt = vdev->config.capacity;
-	printf("vd0 capacity : %ldMB\n", vdev->config.capacity * VIRTIO_BLK_SECTOR_SIZE / 1024 / 1024);
+	pr_info("vd0 capacity : %ldMB\n", vdev->config.capacity * VIRTIO_BLK_SECTOR_SIZE / 1024 / 1024);
 
 	WRITE32(regs->Status, READ32(regs->Status) | VIRTIO_STATUS_DRIVER_OK);
 	mb();

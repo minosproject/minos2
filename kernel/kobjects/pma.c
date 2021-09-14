@@ -178,12 +178,13 @@ int sys_map(handle_t proc_handle, handle_t pma_handle,
 	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))
 		return -ENOENT;
 
-	if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
+	if ((proc_handle != 0) && (current_proc->kobj.right != KOBJ_RIGHT_ROOT))
 		return -EPERM;
 
 	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
 	if (ret)
 		return -ENOENT;
+
 	ret = get_kobject(pma_handle, &kobj_pma, &right_pma);
 	if (ret) {
 		put_kobject(kobj_proc);
@@ -214,7 +215,7 @@ int sys_unmap(handle_t proc_handle, handle_t pma_handle)
 	right_t right_proc, right_pma;
 	int ret;
 
-	if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
+	if ((proc_handle != 0) && (current_proc->kobj.right != KOBJ_RIGHT_ROOT))
 		return -EPERM;
 
 	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))

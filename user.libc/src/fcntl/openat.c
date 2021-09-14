@@ -32,7 +32,6 @@ int openat(int fd, const char *filename, int flags, ...)
 
 	handle = __openat(fd, filename, flags | O_LARGEFILE, mode);
 	if (handle > 0) {
-		kobject_open(handle);
 		if (kobject_mmap(handle) == (void *)-1) {
 			kobject_close(handle);
 			return -ENOMEM;

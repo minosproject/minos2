@@ -85,7 +85,7 @@ $(TARGET_INCLUDE_DIR)/%: $(PWD)/include/%
 	$(TARGET_INSTALL) -D -m 644 $< $@
 
 $(TARGET_LIBS_DIR)/%: %
-	$(TARGET_INSTALL) -D -m 644 $< $@
+	$(TARGET_INSTALL) -D -m 755 $< $@
 
 install-headers: $(INSTALL_HEADERS:include/%=$(TARGET_INCLUDE_DIR)/%)
 install-libs: $(TARGET_LIBS_DIR)/$(TARGET)

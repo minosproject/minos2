@@ -150,10 +150,6 @@ static struct vreq *create_new_vreq(struct vnode *node)
 	if (vreq->handle <= 0)
 		goto err_create_endpoint;
 
-	ret = kobject_open(vreq->handle);
-	if (ret)
-		goto err_open_endpoint;
-
 	vreq->buf = kobject_mmap(vreq->handle);
 	if (vreq->buf == (void *)-1)
 		goto err_open_endpoint;
@@ -523,7 +519,6 @@ static int fuxi_loop(int handle)
 	struct vreq *vreq;
 	int ret, i;
 
-	kobject_open(handle);
 	epfd = epoll_create(MAX_EVENTS);
 	if (epfd <= 0)
 		exit(-ENOSPC);

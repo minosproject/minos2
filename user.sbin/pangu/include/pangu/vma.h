@@ -44,13 +44,17 @@ struct vma {
 struct vma *__request_vma(struct process *proc, unsigned long base,
 		size_t size, unsigned int perm, int anon);
 
-struct vma *request_vma(struct process *proc, unsigned long base,
-		size_t size, unsigned int perm, int anon);
+struct vma *request_vma(struct process *proc, int pma_handle,
+		unsigned long base, size_t size,
+		unsigned int perm, int anon);
 
 void release_vma(struct process *proc, struct vma *vma);
 
 void vspace_init(struct process *proc);
 
 struct vma *find_vma(struct process *proc, unsigned long base);
+
+int create_pma(int type, int right, int right_req,
+		unsigned long base, size_t size);
 
 #endif

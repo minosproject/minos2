@@ -153,7 +153,6 @@ static int __handle_vfs_open_request(struct ext4_server *vs, struct lwext4_file 
 	}
 
 	*new = new_file;
-	kobject_open(new_file->handle);
 
 	return 0;
 }

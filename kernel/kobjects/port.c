@@ -27,7 +27,7 @@
 
 struct port {
 	struct task *recv_task;
-	int opened;
+	int closed;
 	uint32_t token;
 	struct kobject kobj;
 	spinlock_t lock;
@@ -36,18 +36,6 @@ struct port {
 };
 
 #define kobject_to_port(kobj) (struct port *)((kobj)->data)
-
-static int port_open(struct kobject *kobj, handle_t handle, right_t right)
-{
-	struct port *port = kobject_to_port(kobj);
-
-	if (right & KOBJ_RIGHT_READ) {
-		port->opened = 1;
-		smp_wmb();
-	}
-
-	return 0;
-}
 
 static void wake_all_port_writer(struct port *port, int errno)
 {
@@ -71,7 +59,7 @@ static int port_close(struct kobject *kobj, right_t right)
 	if (right & KOBJ_RIGHT_WRITE)
 		return 0;
 
-	port->opened = 1;
+	port->closed = 1;
 	smp_wmb();
 
 	spin_lock(&port->lock);
@@ -93,7 +81,7 @@ static long port_recv(struct kobject *kobj, void __user *data,
 	for (;;) {
 		spin_lock(&port->lock);
 
-		if (!port->opened) {
+		if (port->closed) {
 			spin_unlock(&port->lock);
 			return -EIO;
 		}
@@ -177,7 +165,7 @@ static long port_send(struct kobject *kobj, void __user *data, size_t data_size,
 
 	spin_lock(&port->lock);
 
-	if (!port->opened) {
+	if (port->closed) {
 		spin_unlock(&port->lock);
 		return -EOTHERSIDECLOSED;
 	}
@@ -275,7 +263,6 @@ static struct kobject_ops port_kobject_ops = {
 	.release	= port_release,
 	.close		= port_close,
 	.reply		= port_reply,
-	.open		= port_open,
 	.poll		= port_poll,
 };
 

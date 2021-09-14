@@ -333,11 +333,12 @@ mvm :
 	$(Q) echo "Build Minos userspace tools for Virtual Machine"
 
 clean: $(clean-dirs)
-	$(Q) echo "  CLEAN   all .o .*.d *.dtb built-in.o"
-	$(Q) echo "  CLEAN   allsymbols.o allsymbols.S linkmap.txt minos.s .tmp.minos.elf .tmp.minos.symbols minos.bin minos.elf"
+#	$(Q) echo "  CLEAN   all .o .*.d *.dtb built-in.o"
+#	$(Q) echo "  CLEAN   allsymbols.o allsymbols.S linkmap.txt minos.s .tmp.minos.elf .tmp.minos.symbols minos.bin minos.elf"
 	$(Q) rm -f allsymbols.o allsymbols.S linkmap.txt minos.s .tmp.minos.elf .tmp.minos.symbols minos.bin minos.elf
 	$(Q) rm -rf $(offset_h)
 	$(Q) rm -rf $(offset_s)
+	$(Q) echo "  Clean kernel done..."
 
 distclean: clean
 	$(Q) echo "  CLEAN   .config include/config"

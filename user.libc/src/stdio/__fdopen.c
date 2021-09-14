@@ -42,7 +42,6 @@ FILE *__fdopen(int fd, const char *mode)
 		f->flags |= F_APP;
 	}
 
-	kobject_open(fd);
 	f->buf = kobject_mmap(fd);
 	if (f->buf == (void *)-1) {
 		libc_free(f);

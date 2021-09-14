@@ -52,23 +52,25 @@ static int map_elf_memory(int pma_handle, size_t size, int perm)
 }
 
 static int __handle_elf_request(struct nvwa_proto *proto,
-		struct proto_elf_info *elf_proto)
+		struct proto *elf_proto)
 {
 	int pma_handle = proto->pma_handle;
 	struct elf_ctx ctx;
-	FILE *file;
+	FILE *file = NULL;
 	int ret;
 
-	if (proto->path[FILENAME_MAX - 1] != 0)
-		return -EINVAL;
+	if (proto->path[FILENAME_MAX - 1] != 0) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	file = fopen(proto->path, "r");
 	if (!file)
-		return -EIO;
+		ret = -EIO;
 
 	ret = elf_init(&ctx, file);
 	if (ret)
-		return ret;
+		goto out;
 
 	if (ctx.memsz > MAPPING_SIZE) {
 		ret = -EINVAL;
@@ -90,19 +92,21 @@ static int __handle_elf_request(struct nvwa_proto *proto,
 	if (ret)
 		goto out;
 
-	elf_proto->token = proto->token;
-	elf_proto->ret_code = 0;
-	elf_proto->elf_base = ctx.base_load_vbase;
-	elf_proto->elf_end = ctx.base_load_vend;
-	elf_proto->entry = ctx.ehdr.e_entry;
+	elf_proto->elf_info.token = proto->token;
+	elf_proto->elf_info.ret_code = 0;
+	elf_proto->elf_info.elf_base = ctx.base_load_vbase;
+	elf_proto->elf_info.elf_size = ctx.memsz;
+	elf_proto->elf_info.entry = ctx.ehdr.e_entry;
 out:
 	fclose(file);
+	kobject_close(pma_handle);
+
 	return ret;
 }
 
 static void handle_elf_request(struct nvwa_proto *proto)
 {
-	struct proto_elf_info elf_proto;
+	struct proto elf_proto;
 	int ret;
 
 	/*
@@ -112,12 +116,12 @@ static void handle_elf_request(struct nvwa_proto *proto)
 	ret = __handle_elf_request(proto, &elf_proto);
 	if (ret) {
 		pr_info("loading elf file %d fail\n", ret);
-		memset(&elf_proto, 0, sizeof(struct proto_elf_info));
-		elf_proto.ret_code = ret;
+		memset(&elf_proto, 0, sizeof(struct proto));
+		elf_proto.elf_info.ret_code = ret;
 	}
 
-	kobject_write(0, &elf_proto, sizeof(struct proto_elf_info),
-			NULL, 0, -1);
+	elf_proto.proto_id = PROTO_ELF_INFO;
+	kobject_write(0, &elf_proto, sizeof(struct proto), NULL, 0, -1);
 }
 
 static int nvwa_loop(void)
@@ -125,6 +129,7 @@ static int nvwa_loop(void)
 	long token;
 
 	pr_info("nvwa waitting elf load request with handle %d\n", nvwa_handle);
+	i_am_ok();
 
 	for (; ;) {
 		token = kobject_read_simple(nvwa_handle, &nvwa_proto,
@@ -141,32 +146,14 @@ static int nvwa_loop(void)
 	return 0;
 }
 
-static int get_nvwa_handle(const char *argv, int *handle)
-{
-	char *token = strchr(argv, '=');
-
-	if (token == NULL)
-		return -ENOENT;
-	token++;
-
-	if (*token == 0)
-		return -ENOENT;
-	*handle = atol(argv);
-
-	return 0;
-}
-
 int main(int argc, char **argv)
 {
 	int ret;
 
-	if (argc < 2) {
-		pr_err("argv not correct\n");
-		return -EINVAL;
-	}
+	printf("\n\nNvWa service start...\n\n");
 
-	ret = get_nvwa_handle(argv[1], &nvwa_handle);
-	if (ret) {
+	nvwa_handle = 5;
+	if (nvwa_handle <= 0) {
 		pr_err("can not get nvwa handle\n");
 		return -EINVAL;
 	}

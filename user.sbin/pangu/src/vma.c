@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Min Le (lemin9538@gmail.com)
+ * Copyright (c) 2021 上海网返科技
  */
 
 #include <stdio.h>
@@ -143,8 +144,8 @@ struct vma *__request_vma(struct process *proc, unsigned long base,
 	return out;
 }
 
-int create_pma(struct process *proc, int type, int right,
-		int right_req, unsigned long base, size_t size)
+int create_pma(int type, int right, int right_req,
+		unsigned long base, size_t size)
 {
 	struct pma_create_arg args = {
 		.cnt = size >> PAGE_SHIFT,
@@ -157,8 +158,9 @@ int create_pma(struct process *proc, int type, int right,
 			right_req, (unsigned long)&args);
 }
 
-struct vma *request_vma(struct process *proc, unsigned long base,
-		size_t size, unsigned int perm, int anon)
+struct vma *request_vma(struct process *proc, int pma_handle,
+			unsigned long base, size_t size,
+			unsigned int perm, int anon)
 {
 	struct vma *vma;
 	int ret;
@@ -172,18 +174,23 @@ struct vma *request_vma(struct process *proc, unsigned long base,
 	 * else allocate a pma for this mapping to share with
 	 * other process or orther usage.
 	 */
-	if (anon)
+	if (anon && pma_handle <= 0)
 		return vma;
 
-	vma->pma_handle = create_pma(proc, PMA_TYPE_NORMAL, perm, perm, 0, size);
-	if (vma->pma_handle < 0) {
-		release_vma(proc, vma);
-		return NULL;
+	if (pma_handle <= 0) {
+		vma->pma_handle = create_pma(PMA_TYPE_NORMAL, perm, perm, 0, size);
+		if (vma->pma_handle < 0) {
+			release_vma(proc, vma);
+			return NULL;
+		}
+	} else {
+		vma->pma_handle = pma_handle;
 	}
 
 	ret = sys_map(proc->proc_handle, vma->pma_handle, base, size, perm);
 	if (ret) {
-		kobject_close(vma->pma_handle);
+		if (pma_handle <= 0)
+			kobject_close(vma->pma_handle);
 		release_vma(proc, vma);
 		return NULL;
 	}

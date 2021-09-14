@@ -25,10 +25,9 @@ enum {
 struct proto_elf_info {
 	int ret_code;
 	uint64_t token;
-	int pma_handle;
 	unsigned long entry;
 	unsigned long elf_base;
-	unsigned long elf_end;
+	unsigned long elf_size;
 };
 
 struct proto_mprotect {
@@ -85,7 +84,7 @@ struct proto_register_service {
 
 struct execv_extra {
 	char path[FILENAME_MAX];
-	char **argv;
+	int argv[32];
 	int argc;
 	int padding;
 	char buf[0];
@@ -104,6 +103,7 @@ struct proto {
 		struct proto_read read;
 		struct proto_write write;
 		struct proto_lseek lseek;
+		struct proto_elf_info elf_info;
 		struct proto_register_service register_service;
 	};
 };

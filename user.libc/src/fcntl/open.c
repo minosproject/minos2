@@ -17,7 +17,6 @@ int open(const char *filename, int flags, ...)
 
 	int fd = __sys_open(filename, flags, mode);
 	if (fd > 0) {
-		kobject_open(fd);
 		if (kobject_mmap(fd) == (void *)-1) {
 			kobject_close(fd);
 			return -ENOMEM;

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Min Le (lemin9538@gmail.com)
+ * Copyright (c) 2021 上海网返科技
  */
 
 #include <stdio.h>
@@ -12,6 +13,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/epoll.h>
+#include <assert.h>
 
 #include <minos/kobject.h>
 #include <minos/map.h>
@@ -27,14 +29,28 @@
 #include <pangu/resource.h>
 #include <pangu/request.h>
 
+struct execv_request {
+	int pma_handle;
+	char *name;
+	struct process *parent;
+	uint64_t token;
+	uint64_t reply_token;
+	void *data;
+	struct list_head list;
+};
+
+struct nvwa_proto {
+	char path[FILENAME_MAX];
+	uint64_t token;
+	int pma_handle;
+};
+
+static LIST_HEAD(execv_request_list);
+static char proto_buf[PAGE_SIZE];
+
 static struct process proc_self;
 struct process *self = &proc_self;
 LIST_HEAD(process_list);
-
-extern int load_process_from_file(struct process *proc,
-		struct elf_ctx *ctx, FILE *file);
-
-extern int elf_init(struct elf_ctx *ctx, FILE *file);
 
 struct process *find_process_by_name(const char *name)
 {
@@ -105,18 +121,18 @@ void *map_self_memory(int pma_handle, size_t size, int perm)
 	return (void *)vma->start;
 }
 
-static int process_vspace_init(struct process *proc, struct elf_ctx *ctx)
+static int process_vspace_init(struct process *proc, int elf_pma,
+		unsigned long elf_base, size_t elf_size)
 {
 	struct vma *vma;
 
 	vspace_init(proc);
 
-	proc->elf_vma = request_vma(proc, ctx->base_load_vbase,
-			ctx->memsz, KOBJ_RIGHT_RWX, 0);
+	proc->elf_vma = request_vma(proc, elf_pma, elf_base, elf_size, KOBJ_RIGHT_RWX, 0);
 	if (!proc->elf_vma)
 		return -ENOMEM;
 
-	proc->stack_vma = request_vma(proc, PROCESS_STACK_INIT_BASE,
+	proc->stack_vma = request_vma(proc, 0, PROCESS_STACK_INIT_BASE,
 			PROCESS_STACK_INIT_SIZE, KOBJ_RIGHT_RW, 0);
 	if (!proc->stack_vma)
 		return ENOMEM;
@@ -124,7 +140,7 @@ static int process_vspace_init(struct process *proc, struct elf_ctx *ctx)
 	/*
 	 * request other stack region, which will page faulted.
 	 */
-	vma = request_vma(proc, PROCESS_STACK_BASE,
+	vma = request_vma(proc, 0, PROCESS_STACK_BASE,
 			PROCESS_STACK_SIZE - PROCESS_STACK_INIT_SIZE,
 			KOBJ_RIGHT_RW, 1);
 	if (!vma)
@@ -138,7 +154,7 @@ void release_process(struct process *proc)
 
 }
 
-static int create_process(char *name, unsigned long entry,
+static int sys_create_process(char *name, unsigned long entry,
 		unsigned long stack, int aff,
 		int prio, unsigned long flags)
 {
@@ -156,8 +172,7 @@ static int create_process(char *name, unsigned long entry,
 	if (flags & TASK_FLAGS_DEDICATED_HEAP)
 		right |= KOBJ_RIGHT_HEAP_SELFCTL;
 
-	return kobject_create(KOBJ_TYPE_PROCESS, right,
-			KR_RC, (unsigned long)&args);
+	return kobject_create(KOBJ_TYPE_PROCESS, right, KR_RC, (unsigned long)&args);
 }
 
 static int prepare_driver_resource(struct process *proc)
@@ -175,8 +190,9 @@ static int prepare_driver_resource(struct process *proc)
 	return 0;
 }
 
-static struct process *create_new_process(struct elf_ctx *ctx,
-		char *name, int flags, void *pdata)
+static struct process *create_new_process(char *name, unsigned long entry,
+			int elf_pma, unsigned long elf_base,
+			size_t elf_size, int flags, void *pdata)
 {
 	struct process *proc;
 
@@ -187,16 +203,17 @@ static struct process *create_new_process(struct elf_ctx *ctx,
 	proc->proc_handle = -1;
 	proc->flags = flags;
 	proc->pdata = pdata;
+	strcpy(proc->name, name);
 
-	proc->proc_handle = create_process(name, ctx->ehdr.e_entry, 
-			PROCESS_STACK_BASE, -1, -1, flags);
+	proc->proc_handle = sys_create_process(name, entry, PROCESS_STACK_BASE, -1, -1, flags);
 	if (proc->proc_handle <= 0) {
 		kfree(proc);
 		return NULL;
 	}
+
 	proc->pid = kobject_ctl(proc->proc_handle, KOBJ_PROCESS_GET_PID, 0);
 
-	if (process_vspace_init(proc, ctx))
+	if (process_vspace_init(proc, elf_pma, elf_base, elf_size))
 		goto err_out;
 
 	if (flags & TASK_FLAGS_DRV) {
@@ -390,11 +407,15 @@ static void *prepare_process_argv(struct process *proc, char *name,
 
 static char *file_path_to_proc_name(char *path)
 {
-	return path;
+	char *name = strrchr(path, '/');
+
+	if (name == NULL)
+		return path;
+	else
+		return name + 1;
 }
 
-static int setup_process(struct process *proc, char *path,
-		struct elf_ctx *ctx, int argc, char **argv)
+static int setup_process(struct process *proc, char *path, int argc, char **argv)
 {
 	struct vma *stack_vma = proc->stack_vma;
 	void *stack, *origin, *tmp;
@@ -422,8 +443,7 @@ static int setup_process(struct process *proc, char *path,
 	origin = stack;
 
 	name = file_path_to_proc_name(path);
-	stack = prepare_process_argv(proc, name,
-			stack, &argc, argv, new_argv);
+	stack = prepare_process_argv(proc, name, stack, &argc, argv, new_argv);
 	if (stack == NULL)
 		goto err_setup_argv;
 
@@ -459,44 +479,6 @@ err_map_stack_mem:
 	return ret;
 }
 
-static struct process *load_process(char *path, int argc, char **argv,
-		unsigned long flags, void *pdata)
-{
-	FILE *file = fopen(path, "r");
-	struct process *proc;
-	struct elf_ctx ctx;
-	int ret;
-
-	if (!file)
-		return NULL;
-
-	ret = elf_init(&ctx, file);
-	if (ret)
-		return NULL;
-
-	proc = create_new_process(&ctx, path, flags, pdata);
-	if (!proc)
-		return NULL;
-
-	ret = load_process_from_file(proc, &ctx, file);
-	if (ret) {
-		fclose(file);
-		release_process(proc);
-		return NULL;
-	}
-
-	ret = setup_process(proc, path, &ctx, argc, argv);
-	if (ret) {
-		fclose(file);
-		release_process(proc);
-		return NULL;
-	}
-
-	list_add_tail(&process_list, &proc->list);
-
-	return proc;
-}
-
 struct process *load_ramdisk_process(char *path, int argc, char **argv,
 		unsigned long flags, void *pdata)
 {
@@ -515,7 +497,8 @@ struct process *load_ramdisk_process(char *path, int argc, char **argv,
 	if (ret)
 		return NULL;
 
-	proc = create_new_process(&ctx, path, flags, pdata);
+	proc = create_new_process(path, ctx.ehdr.e_entry, 0,
+			ctx.base_load_vbase, ctx.memsz, flags, pdata);
 	if (!proc)
 		return NULL;
 
@@ -529,7 +512,7 @@ struct process *load_ramdisk_process(char *path, int argc, char **argv,
 	 * all the resource is ok now, setup the process
 	 * to prepare run it.
 	 */
-	ret = setup_process(proc, path, &ctx, argc, argv);
+	ret = setup_process(proc, path, argc, argv);
 	if (ret) {
 		release_process(proc);
 		return NULL;
@@ -622,39 +605,111 @@ static inline int execv_argv_is_ok(char *argv, int max_size)
 	return 0;
 }
 
+static inline struct execv_request *alloc_execv_request(void *data)
+{
+	struct execv_request *er;
+
+	er = kzalloc(sizeof(struct execv_request));
+	if (!er)
+		return NULL;
+
+	er->data = get_pages(1);
+	if (!er->data) {
+		kfree(er);
+		return NULL;
+	}
+
+	memcpy(er->data, data, PAGE_SIZE);
+
+	return er;
+}
+
+static inline void free_execv_request(struct execv_request *er)
+{
+	free_pages(er->data);
+	free(er);
+}
+
+static int send_elf_load_request(struct process *proc, const char *path, struct execv_request *er)
+{
+	struct nvwa_proto proto;
+	static uint64_t nvwa_token = 0;
+	int ret;
+
+	/*
+	 * create an empty PMA handle for the target process, then
+	 * grant the pma handle to the nvwa process, so that nvwa
+	 * can allocate memory for the elf file.
+	 */
+	er->pma_handle = create_pma(PMA_TYPE_NORMAL, KR_RWCG | KR_X,
+			KR_RWCG | KR_X, 0, 0);
+	if (er->pma_handle <= 0)
+		return er->pma_handle;
+
+	proto.pma_handle = grant(nvwa_proc->proc_handle, er->pma_handle, KR_RWC);
+	if (proto.pma_handle <= 0) {
+		kobject_close(er->pma_handle);
+		return proto.pma_handle;
+	}
+
+	strcpy(proto.path, path);
+	er->parent = proc;
+	er->token = proto.token = nvwa_token++;
+
+	ret = kobject_write(nvwa_handle, &proto,
+			sizeof(struct nvwa_proto), NULL, 0, 2000);
+	if (ret == 0)
+		list_add_tail(&execv_request_list, &er->list);
+
+	return ret;
+}
+
 static long process_execv_handler(struct process *proc, struct proto *proto, void *data)
 {
 	struct execv_extra *extra = data;
-	struct process *new;
-	char **argv = extra->argv;
+	int *argv_off = extra->argv;
+	struct execv_request *er;
 	unsigned long limit;
+	int i, ret = -EINVAL;
 	char *string;
-	int i;
 
 	limit = PAGE_SIZE - sizeof(struct execv_extra);
 	string = extra->buf;
 	extra->path[FILENAME_MAX - 1] = 0;
 
 	for (i = 0; i < extra->argc; i++) {
-		if ((unsigned long)argv[i] >= limit)
+		if (argv_off[i] >= limit)
 			goto out;
-
-		if (!execv_argv_is_ok(string + (unsigned long)argv[i],
-					limit - (unsigned long)argv[i]))
+		if (!execv_argv_is_ok(string + argv_off[i], limit - argv_off[i]))
 			goto out;
-
-		argv[i] = string + (unsigned long)argv[i];
 	}
 
-	new = load_process(extra->path, extra->argc, extra->argv, 0, NULL);
-	if (!new)
-		return -ENOENT;
+	/*
+	 * the execv value is correct, then send the elf load
+	 * request to nvwa process.
+	 */
+	er = alloc_execv_request(data);
+	if (!er) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
-	wakeup_process(new);
+	/*
+	 * copy the reply token, so after the elf image has
+	 * been loaded, can be reply to the task correctly.
+	 */
+	er->reply_token = proto->token;
+
+	ret = send_elf_load_request(proc, extra->path, er);
+	if (ret)
+		goto out_release_er;
+
 	return 0;
 
+out_release_er:
+	free_execv_request(er);
 out:
-	return -EINVAL;
+	return ret;
 }
 
 static long process_mmap_handler(struct process *proc, struct proto *proto, void *data)
@@ -681,7 +736,7 @@ static long process_mmap_handler(struct process *proc, struct proto *proto, void
 		pr_warn("request memory with no right\n");
 
 	len = BALIGN(len, PAGE_SIZE);
-	vma = request_vma(proc, 0, len, perm, 1);
+	vma = request_vma(proc, 0, 0, len, perm, 1);
 	if (vma)
 		addr = (void *)vma->start;
 
@@ -691,15 +746,14 @@ out:
 
 static void load_init_process(void)
 {
-	struct process *proc;
+	struct execv_extra *extra = (struct execv_extra *)proto_buf;
+	struct proto proto;
 
-	proc = load_process("/c/shell.app", 0, NULL, 0, NULL);
-	if (!proc) {
-		pr_err("load init process fail\n");
-		return;
-	}
+	memset(&proto, 0, sizeof(struct proto));
+	memset(extra, 0, sizeof(struct execv_extra));
+	strcpy(extra->path, "/c/shell.app");
 
-	wakeup_process(proc);
+	assert(!process_execv_handler(self, &proto, extra));
 }
 
 static void process_iamok_handler(struct process *proc, struct proto *proto, void *data)
@@ -727,40 +781,119 @@ static void handle_process_kernel_request(struct process *proc, struct epoll_eve
 	}
 }
 
+static int __do_execv(struct proto *proto, struct execv_request *er)
+{
+	struct execv_extra *extra = er->data;
+	int i, ret = -EINVAL;
+	struct process *new;
+	char *string;
+	char **argv;
+
+	argv = kmalloc(sizeof(char *) * extra->argc);
+	if (!argv)
+		return -ENOMEM;
+
+	/*
+	 * do not need to check again, since these content
+	 * has been checked in handle execv function.
+	 */
+	string = extra->buf;
+	for (i = 0; i < extra->argc; i++)
+		argv[i] = string + (unsigned long)argv[i];
+
+	new = create_new_process(extra->path, proto->elf_info.entry,
+			er->pma_handle, proto->elf_info.elf_base,
+			proto->elf_info.elf_size, 0, NULL);
+	if (!new)
+		return -ENOMEM;
+
+	ret = setup_process(new, extra->path, extra->argc, argv);
+	if (ret)
+		release_process(new);
+	else
+		list_add_tail(&process_list, &new->list);
+
+	kfree(argv);
+	wakeup_process(new);
+
+	return new->pid;
+}
+
+static int do_execv(struct proto *proto, struct execv_request *er)
+{
+	int ret = __do_execv(proto, er);
+
+	if (er->parent == self)
+		return 0;
+
+	return kobject_reply_errcode(er->parent->proc_handle, er->reply_token, ret);
+}
+
+static int handle_nvwa_request(struct process *proc, struct proto *proto, void *data)
+{
+	struct execv_request *er, *next;
+
+	if (proc != nvwa_proc) {
+		pr_err("not nvwa proc %s\n", proc->name);
+		kobject_reply_errcode(proc->proc_handle, proto->token, -EPERM);
+		return -EPERM;
+	}
+
+	/*
+	 * do handle the execv request.
+	 */
+	list_for_each_entry_safe(er, next, &execv_request_list, list) {
+		if (er->token != proto->elf_info.token)
+			continue;
+
+		list_del(&er->list);
+		return do_execv(proto, er);
+	}
+
+	kobject_reply_errcode(proc->proc_handle, proto->token, -ENOENT);
+	return -ENOENT;
+}
+
 static void handle_process_in_request(struct process *proc, struct epoll_event *event)
 {
 	struct proto proto;
-	static void *data = NULL;
 	long ret;
 
-	if (data == NULL) {
-		data = get_pages(1);
-		if (data == NULL)
-			exit(-ENOMEM);
-	}
-
 	ret = kobject_read_proto_with_string(proc->proc_handle,
-			&proto, data, PAGE_SIZE, 0);
+			&proto, proto_buf, PAGE_SIZE, 0);
 	if (ret < 0)
 		return;
 
 	switch (proto.proto_id) {
 	case PROTO_MMAP:
-		ret = process_mmap_handler(proc, &proto, data);
+		ret = process_mmap_handler(proc, &proto, proto_buf);
 		kobject_reply_errcode(proc->proc_handle, 0, ret);
 		break;
 	case PROTO_EXECV:
-		ret = process_execv_handler(proc, &proto, data);
-		kobject_reply_errcode(proc->proc_handle, 0, ret);
+		ret = process_execv_handler(proc, &proto, proto_buf);
+		if (ret)
+			kobject_reply_errcode(proc->proc_handle, proto.token, ret);
 		break;
 	case PROTO_IAMOK:
-		kobject_reply_errcode(proc->proc_handle, 0, 0);
-		process_iamok_handler(proc, &proto, data);
+		kobject_reply_errcode(proc->proc_handle, proto.token, 0);
+		process_iamok_handler(proc, &proto, proto_buf);
+		break;
+	case PROTO_ELF_INFO:
+		/*
+		 * reply the nvwa first, and do the left work later
+		 */
+		handle_nvwa_request(proc, &proto, proto_buf);
 		break;
 	default:
-		ret = -EPROTONOSUPPORT;
+		pr_err("unknown event for process %d\n", event->events);
 		break;
 	}
+}
+
+static void handle_process_exit_request(struct process *proc,
+		struct epoll_event *event)
+{
+
 }
 
 void handle_process_request(struct epoll_event *event, struct request_entry *re)
@@ -773,6 +906,9 @@ void handle_process_request(struct epoll_event *event, struct request_entry *re)
 		break;
 	case EPOLLKERNEL:
 		handle_process_kernel_request(proc, event);
+		break;
+	case EPOLLWCLOSE:
+		handle_process_exit_request(proc, event);
 		break;
 	default:
 		pr_err("invalid event for process\n");

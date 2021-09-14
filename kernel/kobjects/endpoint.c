@@ -27,8 +27,8 @@
 #define EP_WRITER 1
 #define EP_NULL 2
 
-#define EP_STAT_CLOSED 0
-#define EP_STAT_OPENED 1
+#define EP_STAT_CLOSED 1
+#define EP_STAT_OPENED 0
 
 #define EP_RIGHT (KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_CTL)
 
@@ -53,17 +53,6 @@ struct endpoint {
 
 #define EP_DIR(right)	\
 	(right & KOBJ_RIGHT_READ) ? EP_READER : EP_WRITER
-
-static int endpoint_open(struct kobject *kobj,
-			handle_t handle, right_t right)
-{
-	struct endpoint *ep = kobject_to_endpoint(kobj);
-
-	ep->status[EP_DIR(right)] = EP_STAT_OPENED;
-	smp_wmb();
-
-	return 0;
-}
 
 static void wake_all_ep_writer(struct endpoint *ep, int errno)
 {
@@ -334,7 +323,6 @@ static struct kobject_ops endpoint_kobject_ops = {
 	.mmap		= endpoint_mmap,
 	.munmap		= endpoint_munmap,
 	.reply		= endpoint_reply,
-	.open		= endpoint_open,
 };
 
 static struct kobject *endpoint_create(right_t right, right_t right_req, unsigned long data)
@@ -363,10 +351,12 @@ static struct kobject *endpoint_create(right_t right, right_t right_req, unsigne
 	if (!ep)
 		return ERROR_PTR(-ENOMEM);
 
-	ep->shmem = get_free_pages(shmem_size >> PAGE_SHIFT, GFP_USER);
-	if (!ep->shmem) {
-		free(ep);
-		return ERROR_PTR(-ENOMEM);
+	if (shmem_size > 0) {
+		ep->shmem = get_free_pages(shmem_size >> PAGE_SHIFT, GFP_USER);
+		if (!ep->shmem) {
+			free(ep);
+			return ERROR_PTR(-ENOMEM);
+		}
 	}
 
 	ep->shmem_size = shmem_size;

@@ -74,7 +74,7 @@ int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
 	int ret = 0;
 
 	if (!ps)
-		return -ENOENT;
+		return -EAGAIN;
 
 	events = ps->poll_events;
 	pi = ps->pevents[ev];
@@ -114,24 +114,18 @@ static int copy_poll_event_to_user(struct poll_event __user *events,
 		struct list_head *head, int cnt)
 {
 	struct poll_event_kernel *pevent, *tmp;
-	int ret;
+	int ret, num = 0;
 
 	list_for_each_entry_safe(pevent, tmp, head, list) {
 		list_del(&pevent->list);
-		ret = copy_to_user(events, &pevent->event,
+		ret = copy_to_user(&events[num++], &pevent->event,
 				sizeof(struct poll_event));
 		/*
 		 * free the epoll event's memory
 		 */
 		if (pevent->release)
 			free(pevent);
-
-		/*
-		 * what should to do if copy is fail ?
-		 * the event will lost.
-		 */
-		if (ret <= 0)
-			return ret;
+		ASSERT(ret > 0);
 	}
 
 	return cnt;

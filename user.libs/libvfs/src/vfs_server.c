@@ -105,7 +105,6 @@ static int __handle_vfs_open_request(struct vfs_server *vs, struct file *file,
 	}
 
 	*new = new_file;
-	kobject_open(new_file->handle);
 
 	return 0;
 }

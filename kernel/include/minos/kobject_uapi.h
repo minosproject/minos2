@@ -11,8 +11,7 @@
 
 #define KOBJ_RIGHT_SHARED	(1 << 16)	// can be shared, for example PMA
 #define KOBJ_RIGHT_NONBLOCK	(1 << 17)	// read and write is non-blocked
-#define KOBJ_RIGHT_HEAP_SELFCTL	(1 << 18)	// the process will allocation memory itself, for system process.
-#define KOBJ_RIGHT_GRANT	(1 << 19)	// this kobject can be changed owner.
+#define KOBJ_RIGHT_GRANT	(1 << 18)	// this kobject can be changed owner.
 
 #define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
 #define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)

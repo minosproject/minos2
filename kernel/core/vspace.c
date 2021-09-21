@@ -400,7 +400,7 @@ int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 	gp_regs *regs= current_regs;
 	int ret;
 
-	if (kobj->right & KOBJ_RIGHT_HEAP_SELFCTL)
+	if (kobj->right == KOBJ_RIGHT_ROOT)
 		ret = handle_page_fault_internal(proc, virt, write);
 	else
 		ret = handle_page_fault_ipc(proc, virt, write);

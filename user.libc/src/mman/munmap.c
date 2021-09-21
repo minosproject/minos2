@@ -16,8 +16,8 @@ int __munmap(void *start, size_t len)
 	proto.munmap.len = len;
 	__vm_wait();
 
-	return kobject_write(0, &proto,
-			sizeof(struct proto), NULL, 0, -1);
+	return __syscall_ret(kobject_write(0, &proto,
+				sizeof(struct proto), NULL, 0, -1));
 }
 
 weak_alias(__munmap, munmap);

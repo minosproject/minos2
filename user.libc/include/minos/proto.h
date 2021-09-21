@@ -7,11 +7,15 @@
 enum {
 	PROTO_IAMOK = 0,
 	PROTO_ELF_INFO,
-	PROTO_REGISTER_SERVICE,
 	PROTO_MMAP,
 	PROTO_MUNMAP,
 	PROTO_MPROTECT,
+	PROTO_BRK,
 	PROTO_EXECV,
+	PROTO_PROC_END,
+};
+
+enum {
 	PROTO_OPEN,
 	PROTO_OPENAT,
 	PROTO_READ,
@@ -19,8 +23,19 @@ enum {
 	PROTO_IOCTL,
 	PROTO_LSEEK,
 	PROTO_GETDENT,
-	PROTO_MAX,
+	PROTO_REGISTER_SERVICE,
+	PROTO_VFS_END,
 };
+
+#define PROC_PROTO_BASE PROTO_IAMOK
+#define PROC_PROTO_END	PROTO_PROTO_EXECV
+#define PROC_PROTO_CNT	(PROTO_PROC_END - PROTO_IAMOK)
+#define PROC_PROTO_MAX	(PROTO_PROTO_EXECV - PROTO_IAMOK)
+
+#define VFS_PROTO_BASE	PROTO_OPEN
+#define VFS_PROTO_END	PROTO_GETDENT
+#define VFS_PROTO_CNT	(PROTO_VFS_END - PROTO_OPEN)
+#define VFS_PROTO_MAX	(PROTO_GETDENT - PROTO_OPEN)
 
 struct proto_elf_info {
 	int ret_code;
@@ -34,6 +49,10 @@ struct proto_mprotect {
 	void *addr;
 	size_t len;
 	int prot;
+};
+
+struct proto_brk {
+	void *addr;
 };
 
 struct proto_mmap {
@@ -104,6 +123,7 @@ struct proto {
 		struct proto_write write;
 		struct proto_lseek lseek;
 		struct proto_elf_info elf_info;
+		struct proto_brk brk;
 		struct proto_register_service register_service;
 	};
 };

@@ -61,13 +61,13 @@ struct meta *alloc_meta(void)
 			int need_guard = 0;
 			if (!ctx.brk) {
 				need_guard = 1;
-				ctx.brk = brk(0);
+				ctx.brk = __brk(0);
 				// some ancient kernels returned _ebss
 				// instead of next page as initial brk.
 				ctx.brk += -ctx.brk & (pagesize-1);
 				new = ctx.brk + 2*pagesize;
 			}
-			if (brk(new) != new) {
+			if (__brk(new) != new) {
 				ctx.brk = -1;
 			} else {
 				if (need_guard) mmap((void *)ctx.brk, pagesize,
@@ -390,4 +390,12 @@ int is_allzero(void *p)
 	struct meta *g = get_meta(p);
 	return g->sizeclass >= 48 ||
 		get_stride(g) < UNIT*size_classes[g->sizeclass];
+}
+
+void *zalloc(size_t size)
+{
+	void *mem = malloc(size);
+	if (mem)
+		memset(mem, 0, size);
+	return mem;
 }

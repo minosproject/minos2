@@ -31,7 +31,7 @@
 #define assert(x) do { if (!(x)) a_crash(); } while(0)
 #endif
 
-#define brk(p) p
+extern uintptr_t __brk(uintptr_t ptr);
 
 #define mmap __mmap
 #define madvise __madvise

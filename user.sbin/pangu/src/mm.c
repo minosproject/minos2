@@ -303,15 +303,15 @@ out:
 
 long process_brk_handler(struct process *proc, struct proto *proto, void *data)
 {
-	if (proto->brk.addr == NULL)
+	unsigned long addr = (unsigned long)proto->brk.addr;
+
+	if (addr == 0)
 		return (long)proc->brk_cur;
+	if ((addr < proc->brk_start) || (addr >= proc->brk_end))
+		return -1;
+	proc->brk_cur = addr;
 
-	if ((unsigned long)proto->brk.addr >= proc->brk_end)
-		return -ENOMEM;
-
-	proc->brk_cur = (unsigned long)proto->brk.addr;
-
-	return proc->brk_cur;
+	return addr;
 }
 
 long process_mprotect_handler(struct process *proc, struct proto *proto, void *data)

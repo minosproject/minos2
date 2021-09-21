@@ -98,7 +98,7 @@ apps: libs
 	$(Q) set -e;					\
 	for i in $(APP_TARGETS); do 			\
 		if [ -f $$i/Makefile ]; then		\
-			echo "\n---> Compiling App $$i ... \n";	\
+			echo "\n\033[32m ---> Compiling App $$i ... \033[0m \n";	\
 			$(MAKE) $(MFLAGS) -C $$i ;		\
 			$(MAKE) $(MFLAGS) -C $$i install;	\
 		fi					\
@@ -108,25 +108,25 @@ libs: libc
 	$(Q) set -e;					\
 	for i in $(LIB_TARGETS); do 			\
 		if [ -f $$i/Makefile ]; then		\
-			echo "\n---> Compiling Lib $$i ... \n";	\
+			echo "\n\033[32m ---> Compiling Lib $$i ... \033[0m \n";	\
 			$(MAKE) $(MFLAGS) -C $$i ;		\
 			$(MAKE) $(MFLAGS) -C $$i install;	\
 		fi					\
 	done
 
 libc:
-	$(Q) echo "\n--->Build LIBC ... \n"
+	$(Q) echo "\n\033[32m--->Build LIBC ... \033[0m \n"
 	$(Q) $(MAKE) $(MFLAGS) -C user.libc -j 16
 	$(Q) $(MAKE) $(MFLAGS) -C user.libc install
 
 kernel:
-	$(Q) echo "\n--->Build Kernel ... \n"
+	$(Q) echo "\n\033[32m --->Build Kernel ... \033[0m \n"
 	$(Q) $(MAKE) $(MFLAGS) -C kernel
 	$(Q) $(MAKE) $(MFLAGS) -C kernel dtbs
 	$(Q) $(MAKE) $(MFLAGS) -C kernel install
 
 clean-kernel:
-	$(Q) echo "\n--->Clean Kernel ... \n"
+	$(Q) echo "\n\033[32m --->Clean Kernel ... \033[0m \n"
 	$(Q) $(MAKE) $(MFLAGS) -C kernel clean
 
 objdirs:
@@ -145,7 +145,7 @@ clean-libs:
 	$(Q)set -e;					\
 	for i in $(LIB_TARGETS); do 			\
 		if [ -f $$i/Makefile ]; then		\
-			echo "Clean $$i";		\
+			echo "\033[32m Clean $$i \033[0m";		\
 			$(MAKE) $(MFLAGS) -C $$i clean;	\
 		fi					\
 	done
@@ -154,27 +154,27 @@ clean-apps:
 	$(Q)set -e;					\
 	for i in $(APP_TARGETS); do 			\
 		if [ -f $$i/Makefile ]; then		\
-			echo "Clean $$i";		\
+			echo "\033[32m Clean $$i \033[0m";		\
 			$(MAKE) $(MFLAGS) -C $$i clean;	\
 		fi					\
 	done
 
 clean: clean-libs clean-apps
-	$(Q) echo "Clean libc"
+	$(Q) echo "\033[32m Clean libc \033[0m"
 	$(Q) $(MAKE) $(MFLAGS) -C user.libc clean
-	$(Q) echo "Clean kernel"
+	$(Q) echo "\033[32m Clean kernel \033[0m"
 	$(Q) $(MAKE) $(MFLAGS) -C kernel clean
 	$(Q) rm -rf out
-	$(Q) echo "Clean done ..."
+	$(Q) echo "\033[32m Clean done ... \033[0m"
 
 images: ramdisk rootfs kernel
 
 ramdisk: apps
-	$(Q) echo "\n--->Packing Ramdisk image ...\n"
+	$(Q) echo "\n\033[32m --->Packing Ramdisk image ... \033[0m \n"
 	$(Q) tools/make_ramdisk.sh -o out/ramdisk.bin -- out/ramdisk/*
 
 rootfs: apps
-	$(Q) echo "\n--->Packing Rootfs image ...\n"
+	$(Q) echo "\n\033[32m --->Packing Rootfs image ... \033[0m \n"
 	$(Q) mkdir -p /tmp/minos-mnt
 	$(Q) dd if=/dev/zero of=/tmp/rootfs.img bs=1M count=64
 	$(Q) mkfs.vfat -n "ROOTFS" -F 32 /tmp/rootfs.img

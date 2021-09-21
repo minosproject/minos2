@@ -11,7 +11,6 @@
 #include <string.h>
 #include <errno.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/kobject.h>
 #include <minos/types.h>
 
@@ -40,7 +39,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 		len = max_queue_size;
 	}
 
-	virtq = kzalloc(sizeof(struct virtqueue) + sizeof(void *) * len);
+	virtq = zalloc(sizeof(struct virtqueue) + sizeof(void *) * len);
 	if (!virtq)
 		return NULL;
 
@@ -56,7 +55,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 
 	page_virt = kobject_mmap(pma_handle);
 	if (page_virt == (void *)-1) {
-		kfree(virtq);
+		free(virtq);
 		kobject_close(pma_handle);
 		return NULL;
 	}
@@ -70,8 +69,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 	virtq->vq_virt = (unsigned long)page_virt;
 	virtq->vq_phys = kobject_ctl(0, KOBJ_PROCESS_VA2PA, (unsigned long)page_virt);
 	if (virtq->vq_phys == -1) {
-		free_pages(page_virt);
-		kfree(virtq);
+		free(virtq);
 		kobject_close(pma_handle);
 		return NULL;
 	}

@@ -3,11 +3,11 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
 #include <errno.h>
 
-#include <minos/kmalloc.h>
 #include <minos/debug.h>
 #include <minos/list.h>
 #include <minos/types.h>
@@ -168,7 +168,7 @@ static struct blkreq *virtio_blk_alloc(struct virtio_blk *dev)
 {
 	struct virtio_blk_req *vblkreq;
 	
-	vblkreq = kzalloc(sizeof(struct virtio_blk_req));
+	vblkreq = zalloc(sizeof(struct virtio_blk_req));
 	if (!vblkreq)
 		return NULL;
 
@@ -178,7 +178,7 @@ static struct blkreq *virtio_blk_alloc(struct virtio_blk *dev)
 static void virtio_blk_free(struct virtio_blk *blk, struct blkreq *req)
 {
 	struct virtio_blk_req *vblkreq = get_vblkreq(req);
-	kfree(vblkreq);
+	free(vblkreq);
 }
 
 static int virtio_blk_submit(struct virtio_blk *blk, struct blkreq *req)
@@ -189,14 +189,6 @@ static int virtio_blk_submit(struct virtio_blk *blk, struct blkreq *req)
 	if (req->type == BLKREQ_READ) {
 		hdr->type = VIRTIO_BLK_T_IN;
 		datamode = VIRTQ_DESC_F_WRITE; /* mark page writeable */
-		/*
-		 * touch the req memory buf, to ensure it has been mapped
-		 * by the kernel, so we can get the right physical memory
-		 * address later. this buffer may in different page, so need
-		 * twice. TBD
-		 */
-		memset(req->buf, 0, 4);
-		memset(req->buf + VIRTIO_BLK_SECTOR_SIZE - 4, 0, 4);
 	} else {
 		hdr->type = VIRTIO_BLK_T_OUT;
 	}

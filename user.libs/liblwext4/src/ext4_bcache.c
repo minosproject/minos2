@@ -121,7 +121,7 @@ ext4_buf_alloc(struct ext4_bcache *bc, uint64_t lba)
 {
     void *data;
     struct ext4_buf *buf;
-    data = ext4_malloc(bc->itemsize);
+    data = ext4_alloc_bcache(bc->itemsize);
     if (!data)
         return NULL;
 

@@ -1317,7 +1317,7 @@ static void jbd_journal_flush_trans(struct jbd_trans *trans)
     struct jbd_buf *jbd_buf, *tmp;
     struct jbd_journal *journal = trans->journal;
     struct ext4_fs *fs = journal->jbd_fs->inode_ref.fs;
-    void *tmp_data = ext4_malloc(journal->block_size);
+    void *tmp_data = ext4_alloc_bcache(journal->block_size);
     ext4_assert(tmp_data);
 
     TAILQ_FOREACH_SAFE(jbd_buf, &trans->buf_queue, buf_node,

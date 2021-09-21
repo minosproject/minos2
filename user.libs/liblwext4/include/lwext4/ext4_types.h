@@ -825,12 +825,14 @@ struct jbd_sb {
 extern void *ext4_user_malloc(size_t size);
 extern void *ext4_user_calloc(size_t numb, size_t size);
 extern void *ext4_user_free(void *mem);
-extern void *ext4_realloc(void *ptr, size_t size);
+extern void *ext4_user_realloc(void *ptr, size_t size);
+extern void *ext4_user_alloc_bcache(size_t size);
 
 #define ext4_malloc  ext4_user_malloc
 #define ext4_calloc  ext4_user_calloc
 #define ext4_realloc ext4_user_realloc
 #define ext4_free    ext4_user_free
+#define ext4_alloc_bcache ext4_user_alloc_bcache
 
 #else
 
@@ -838,6 +840,7 @@ extern void *ext4_realloc(void *ptr, size_t size);
 #define ext4_calloc  calloc
 #define ext4_realloc realloc
 #define ext4_free    free
+#define ext4_alloc_bcache malloc
 
 #endif
 

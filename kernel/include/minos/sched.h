@@ -24,9 +24,9 @@ int task_ready(struct task *task, int preempt);
 
 int wake_up_process(struct process *proc);
 
-int __wake_up(struct task *task, int pend_state, void *data);
+int __wake_up(struct task *task, long pend_state, void *data);
 
-static inline int wake_up(struct task *task, int errno)
+static inline int wake_up(struct task *task, long errno)
 {
 	return __wake_up(task, errno, NULL);
 }

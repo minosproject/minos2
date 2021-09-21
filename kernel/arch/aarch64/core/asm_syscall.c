@@ -80,7 +80,7 @@ static void __sys_kobject_reply(gp_regs *regs)
 	regs->x0 = sys_kobject_reply(
 			(int)regs->x0,
 			(unsigned long)regs->x1,
-			(int)regs->x2,
+			(long)regs->x2,
 			(handle_t)regs->x3,
 			(right_t)regs->x4);
 }

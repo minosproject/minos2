@@ -95,8 +95,8 @@ int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
 		pe->data.pdata = pi->data;
 		pe->data.type = type;
 		pe->data.data0 = data0;
-		pe->data.data0 = data1;
-		pe->data.data0 = data2;
+		pe->data.data1 = data1;
+		pe->data.data2 = data2;
 
 		ret += poll_event_send_static(pi, (struct poll_event_kernel *)pe);
 		pi = pi->next;

@@ -291,6 +291,11 @@ static struct page *alloc_pages_from_section(int pages, int align, int flags)
 	return NULL;
 }
 
+static void bzero_pages(struct page *page, int pages)
+{
+	memset((void *)page_va(page), 0, pages << PAGE_SHIFT);
+}
+
 struct page *__alloc_pages(int pages, int align, int flags)
 {
 	struct page *page;
@@ -310,8 +315,10 @@ void *__get_free_pages(int pages, int align, int flags)
 	struct page *page = NULL;
 
 	page = __alloc_pages(pages, align, flags);
-	if (page)
+	if (page) {
+		bzero_pages(page, pages);
 		return (void *)page_va(page);
+	}
 
 	return NULL;
 }
@@ -357,7 +364,6 @@ static int free_pages_in_section(struct page *page, struct mem_section *ms)
 	 */
 	count = page_count(page);
 	pstart = page_va(page);
-	memset((void *)pstart, 0, count << PAGE_SHIFT);
 
 	start = (pstart - ms->vir_base) >> PAGE_SHIFT;
 	bitmap_clear(ms->bitmap, start, count);

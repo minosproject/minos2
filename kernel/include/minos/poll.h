@@ -72,7 +72,7 @@ struct poll_data {
 };
 
 struct poll_event {
-	int events;
+	uint32_t events;
 	struct poll_data data;
 };
 

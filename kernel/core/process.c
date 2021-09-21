@@ -184,9 +184,6 @@ static void request_process_stop(struct process *proc)
 	struct task *tmp;
 	int old;
 
-	if (proc->pid == 1)
-		panic("root service hang, system crash\n");
-
 	/*
 	 * someone called exit() aready.
 	 */
@@ -216,16 +213,21 @@ static void request_process_stop(struct process *proc)
 		 */
 		if (tmp->ti.flags & __TIF_IN_USER)
 			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
-#if 0
-		else if ((task->stat == TASK_STAT_WAIT_EVENT) &&
-				(task->wait_type != TASK_EVENT_ROOT_SERVICE))
+		else if ((tmp->stat == TASK_STAT_WAIT_EVENT) &&
+				(tmp->wait_type == TASK_EVENT_ROOT_SERVICE))
 			wake_up(tmp, -EABORT);
-#endif
 	}
 }
 
 void process_die(void)
 {
+	gp_regs *regs = current_regs;
+
+	if (current_proc->pid == 1) {
+		pr_fatal("root service exit 0x%x %d\n", regs->pc, regs->x0);
+		panic("root service hang, system crash");
+	}
+
 	request_process_stop(current_proc);
 }
 

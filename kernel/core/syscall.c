@@ -36,7 +36,7 @@ long sys_kobject_close(handle_t handle)
 {
 	struct kobject *kobj;
 	right_t right;
-	int ret;
+	long ret;
 
 	/*
 	 * release the handle first, then other thread in
@@ -96,7 +96,7 @@ long sys_kobject_recv(handle_t handle, void __user *data, size_t data_size,
 {
 	struct kobject *kobj;
 	right_t right;
-	int ret;
+	long ret;
 
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
@@ -119,7 +119,7 @@ long sys_kobject_send(handle_t handle, void __user *data, size_t data_size,
 {
 	struct kobject *kobj;
 	right_t right;
-	int ret;
+	long ret;
 
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
@@ -145,7 +145,7 @@ long sys_kobject_reply(handle_t handle, unsigned long token,
 {
 	struct kobject *kobj;
 	right_t right;
-	int ret;
+	long ret;
 
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
@@ -164,7 +164,7 @@ long sys_kobject_ctl(handle_t handle, int req, unsigned long data)
 {
 	struct kobject *kobj;
 	right_t right;
-	unsigned long ret;
+	long ret;
 
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
@@ -186,7 +186,7 @@ void *sys_kobject_mmap(handle_t handle)
 {
 	struct kobject *kobj;
 	right_t right;
-	int ret;
+	long ret;
 	void *out = (void *)-1;
 
 	ret = get_kobject(handle, &kobj, &right);

@@ -103,6 +103,25 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 	return 0;
 }
 
+static int process_page_fault_done(struct process *proc, int tid)
+{
+	struct task *task;
+
+	if (tid < 0) {
+		kill_process(proc);
+		return 0;
+	}
+
+	task = get_task_by_tid(tid);
+	if (!task)
+		return -ENOENT;
+
+	if (task->pid != proc->pid)
+		return -EPERM;
+
+	return wake_up(task, 0);
+}
+
 static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 {
 	struct process *proc = (struct process *)kobj->data;
@@ -120,13 +139,16 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 		wake_up(proc->head, 0);
 		return 0;
 	case KOBJ_PROCESS_VA2PA:
-		if (!(kobj->right & KOBJ_RIGHT_HEAP_SELFCTL))
-			return -1;
-
+		// if (!(kobj->right & KOBJ_RIGHT_HEAP_SELFCTL))
+		//	return -1;
 		addr = translate_va_to_pa(&proc->vspace, data);
 		if (addr == INVALID_ADDR)
 			addr = -1;
 		return addr;
+	case KOBJ_PROCESS_PF_DONE:
+		if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
+			return -EPERM;
+		return process_page_fault_done(proc, (int)data);
 	case KOBJ_PROCESS_EXIT:
 		/*
 		 * task will be sched out when in return to user.

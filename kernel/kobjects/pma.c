@@ -166,7 +166,7 @@ static int pma_munmap(struct kobject *kobj, right_t right)
 	return pma_unmap(kobj, current_proc);
 }
 
-int sys_map(handle_t proc_handle, handle_t pma_handle,
+int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
 		unsigned long virt, size_t size, right_t right)
 {
 	struct kobject *kobj_proc;
@@ -175,7 +175,7 @@ int sys_map(handle_t proc_handle, handle_t pma_handle,
 	int ret = -EACCES;
 	void *addr;
 
-	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))
+	if (WRONG_HANDLE(proc_handle))
 		return -ENOENT;
 
 	if ((proc_handle != 0) && (current_proc->kobj.right != KOBJ_RIGHT_ROOT))

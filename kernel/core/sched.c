@@ -474,7 +474,7 @@ int local_sched_init(void)
 	return 0;
 }
 
-int __wake_up(struct task *task, int pend_state, void *data)
+int __wake_up(struct task *task, long pend_state, void *data)
 {
 	unsigned long flags;
 	uint32_t timeout;

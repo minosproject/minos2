@@ -128,7 +128,7 @@ struct task {
 	 */
 	spinlock_t s_lock;
 	int stat;
-	int pend_stat;
+	long pend_stat;
 	long request;
 
 	/*

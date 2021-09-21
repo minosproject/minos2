@@ -266,7 +266,7 @@ int unmap_process_memory(struct process *proc,
 }
 
 static int __map_process_page_internal(struct process *proc,
-		unsigned long virt, int write, unsigned long flags)
+		unsigned long virt, unsigned long flags)
 {
 	struct vspace *vs = &proc->vspace;
 	unsigned long phy;
@@ -289,7 +289,7 @@ static int __map_process_page_internal(struct process *proc,
 		goto out;
 	}
 
-	ret = __map_process_memory(vs, virt, virt + PAGE_SIZE, vtop(mem), VM_RWX);
+	ret = __map_process_memory(vs, virt, virt + PAGE_SIZE, vtop(mem), flags);
 	if (ret == -ENOMEM)
 		free_pages(mem);
 out:
@@ -297,9 +297,10 @@ out:
 	return ret;
 }
 
-static int handle_page_fault_internal(struct process *proc, unsigned long virt,
-		int write, unsigned long flags)
+static int handle_page_fault_internal(struct process *proc,
+		unsigned long virt, int write)
 {
+	unsigned long flags = __VM_READ;
 	int ret;
 
 	if ((virt < SYS_PROC_HEAP_BASE) || (virt >= SYS_PROC_HEAP_END)) {
@@ -309,23 +310,65 @@ static int handle_page_fault_internal(struct process *proc, unsigned long virt,
 		goto out;
 	}
 
-	ret = __map_process_page_internal(proc, virt, write, flags);
+	if (write)
+		flags |= __VM_WRITE;
+
+	ret = __map_process_page_internal(proc, virt, flags);
 	if (ret)
 		goto out;
 
 	return 0;
-out:
-	process_die();
 
+out:
 	/*
 	 * will nerver get here.
 	 */
+	process_die();
 	panic("kernel internal error when handle page fault\n");
 	return -EFAULT;
 }
 
-static int handle_page_fault_ipc(struct process *proc, unsigned long virt,
-		int write, unsigned long flags)
+static int sys_map_anon(handle_t proc_handle, unsigned long virt,
+		size_t size, right_t right)
+{
+	unsigned long flags = 0;
+	struct kobject *kobj_proc;
+	right_t right_proc;
+	int ret;
+
+	if (right & KOBJ_RIGHT_READ)
+		flags |= __VM_READ;
+	if (right & KOBJ_RIGHT_WRITE)
+		flags |= __VM_WRITE;
+	if (right & KOBJ_RIGHT_EXEC)
+		flags |= __VM_EXEC;
+
+	if ((flags == 0) || (current_proc->kobj.right != KOBJ_RIGHT_ROOT))
+		return -EPERM;
+
+	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
+	if (ret)
+		return -ENOENT;
+
+	ret =  __map_process_page_internal((struct process *)kobj_proc->data, virt, flags);
+	put_kobject(kobj_proc);
+
+	return ret;
+}
+
+int sys_map(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size, right_t right)
+{
+	extern int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size, right_t right);
+
+	if (pma_handle <= 0)
+		return sys_map_anon(proc_handle, virt, size, right);
+	else
+		return sys_map_pma(proc_handle, pma_handle, virt, size, right);
+}
+
+static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int write)
 {
 	uint64_t data[3];
 	int ret;
@@ -341,40 +384,36 @@ static int handle_page_fault_ipc(struct process *proc, unsigned long virt,
 	 * page fault, and wait the root service to wake up
 	 * it again.
 	 */
-	ret = poll_event_send_with_data(proc->kobj.poll_struct, POLLKERNEL,
-				POLL_KEV_PAGE_FAULT, data[0], data[1], data[2]);
+	ret = poll_event_send_with_data(proc->kobj.poll_struct,
+			EV_KERNEL, POLL_KEV_PAGE_FAULT,
+			data[0], data[1], data[2]);
 	if (ret)
-		goto out;
+		return ret;
 
-	ret = wait_event();
-	if (ret == 0)
-		return 0;
-
-out:
-	process_die();
-	return -EFAULT;
+	return wait_event();
 }
 
-int handle_page_fault(unsigned long virt, int write, unsigned long flags)
+int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 {
 	struct process *proc = current_proc;
 	struct kobject *kobj = &proc->kobj;
+	gp_regs *regs= current_regs;
 	int ret;
 
 	if (kobj->right & KOBJ_RIGHT_HEAP_SELFCTL)
-		ret = handle_page_fault_internal(proc, virt, write, flags);
+		ret = handle_page_fault_internal(proc, virt, write);
 	else
-		ret = handle_page_fault_ipc(proc, virt, write, flags);
+		ret = handle_page_fault_ipc(proc, virt, write);
 	if (!ret)
 		return 0;
 
 	/*
 	 * Can not handle this page fualt. Kill this process. TBD
 	 */
-	panic("page fault fail\n");
+	pr_fatal("page fault fail %s [0x%x@0x%x]\n",
+			proc->head->name, regs->pc, virt);
 
-	return 0;
-
+	return -EFAULT;
 }
 
 int vspace_init(struct process *proc)

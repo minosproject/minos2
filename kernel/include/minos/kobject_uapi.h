@@ -51,6 +51,7 @@ enum {
 	KOBJ_PROCESS_WAKEUP,
 	KOBJ_PROCESS_VA2PA,
 	KOBJ_PROCESS_EXIT,
+	KOBJ_PROCESS_PF_DONE,
 };
 
 struct process_create_arg {

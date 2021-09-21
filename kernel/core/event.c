@@ -132,10 +132,10 @@ void event_pend_down(struct task *task)
 	task->wait_type = 0;
 }
 
-int wait_event(void)
+long wait_event(void)
 {
 	struct task *task = current;
-	int ret;
+	long ret;
 
 	ASSERT(task->stat == TASK_STAT_WAIT_EVENT)
 	sched();

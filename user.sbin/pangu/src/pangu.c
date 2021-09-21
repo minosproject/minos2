@@ -23,7 +23,6 @@
 
 #include <uapi/bootdata.h>
 
-#include <pangu/vma.h>
 #include <pangu/proc.h>
 #include <pangu/request.h>
 #include <pangu/bootarg.h>
@@ -74,7 +73,7 @@ int register_request_entry(int type, int handle, void *data)
 	if (!re)
 		return -ENOMEM;
 
-	event.events = EPOLLIN;
+	event.events = EPOLLIN | EPOLLKERNEL;
 	event.data.ptr = re;
 
 	return epoll_ctl(proc_epfd, EPOLL_CTL_ADD, handle, &event);
@@ -287,8 +286,7 @@ static int load_rootfs_driver(void)
 	if (ret)
 		goto out;
 
-	rootfs_proc = load_ramdisk_process(drv_name, 0, NULL,
-			TASK_FLAGS_DRV | TASK_FLAGS_DEDICATED_HEAP, res);
+	rootfs_proc = load_ramdisk_process(drv_name, 0, NULL, TASK_FLAGS_DRV, res);
 	if (rootfs_proc == NULL) {
 		ret = -ENOENT;
 		goto err_release_resource;

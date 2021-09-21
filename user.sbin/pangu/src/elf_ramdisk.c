@@ -139,7 +139,7 @@ static int elf_findshdr(struct ramdisk_file *file, struct elf_ctx *ctx,
 int load_process_from_ramdisk(struct process *proc, struct elf_ctx *ctx,
 		struct ramdisk_file *file)
 {
-	struct vma *vma = proc->elf_vma;
+	struct vma *vma = &proc->elf_vma;
 	int rv = EL_OK;
     	unsigned int i = 0;
 	void *page;

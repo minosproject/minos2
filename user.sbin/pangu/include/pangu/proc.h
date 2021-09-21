@@ -4,8 +4,8 @@
 #include <minos/list.h>
 #include <minos/types.h>
 
-#include <pangu/vma.h>
 #include <pangu/resource.h>
+#include <pangu/mm.h>
 
 #define TASK_FLAGS_SRV			BIT(0)
 #define TASK_FLAGS_DRV			BIT(1)
@@ -26,10 +26,22 @@ struct process {
 	int flags;
 	int proc_handle;		// used to control the process.
 
-	struct vma *elf_vma;
-	struct vma *stack_vma;
+	struct vma elf_vma;
+	struct vma init_stack_vma;
+	struct vma anon_stack_vma;
+
+	/*
+	 * mmap used for mmap.
+	 */
 	struct list_head vma_free;
 	struct list_head vma_used;
+
+	/*
+	 * heap area.
+	 */
+	unsigned long brk_end;
+	unsigned long brk_start;
+	unsigned long brk_cur;
 
 	union {
 		struct resource *resource;
@@ -37,9 +49,10 @@ struct process {
 	};
 
 	struct list_head list;		// link to all the process in the system.
-
 	char name[0];
 };
+
+typedef long (*syscall_hdl)(struct process *proc, struct proto *proto, void *data);
 
 extern struct process *self;
 extern struct process *rootfs_proc;

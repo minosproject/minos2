@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2021 Min Le (lemin9538@gmail.com)
- * Copyright (c) 2021 上海网返科技
  */
 
 #include <stdio.h>
@@ -22,12 +21,12 @@
 #include <minos/kmalloc.h>
 #include <minos/proto.h>
 
-#include <pangu/vma.h>
 #include <pangu/proc.h>
 #include <pangu/ramdisk.h>
 #include <pangu/elf.h>
 #include <pangu/resource.h>
 #include <pangu/request.h>
+#include <pangu/mm.h>
 
 struct execv_request {
 	int pma_handle;
@@ -62,91 +61,6 @@ struct process *find_process_by_name(const char *name)
 	}
 
 	return NULL;
-}
-
-int unmap_self_memory(void *base)
-{
-	struct vma *vma;
-	int ret;
-
-	if (!IS_PAGE_ALIGN((unsigned long)base)) {
-		pr_err("%s address %p is not page align\n", __func__, base);
-		return -EINVAL;
-	}
-
-	vma = find_vma(self, (unsigned long)base);
-	if (!vma)
-		return -ENOENT;
-
-	if (vma->pma_handle <= 0) {
-		pr_err("%s invalid pma handle\n", __func__);
-		return -EINVAL;
-	}
-
-	ret = sys_unmap(self->proc_handle, vma->pma_handle,
-			vma->start, vma->end - vma->start);
-	if (ret)
-		return ret;
-
-	release_vma(self, vma);
-
-	return 0;
-}
-
-void *map_self_memory(int pma_handle, size_t size, int perm)
-{
-	struct vma *vma;
-	int ret;
-
-	if (pma_handle <= 0) {
-		pr_err("%s bad pma handle %d\n", __func__, pma_handle);
-		return NULL;
-	}
-
-	vma = __request_vma(self, 0, size, perm, 0);
-	if (!vma)
-		return NULL;
-	vma->pma_handle = pma_handle;
-
-	/*
-	 * map can only be called by root service, to control
-	 * the mapping of a process.
-	 */
-	ret = sys_map(self->proc_handle, pma_handle, vma->start, size, perm);
-	if (ret) {
-		release_vma(self, vma);
-		return NULL;
-	}
-
-	return (void *)vma->start;
-}
-
-static int process_vspace_init(struct process *proc, int elf_pma,
-		unsigned long elf_base, size_t elf_size)
-{
-	struct vma *vma;
-
-	vspace_init(proc);
-
-	proc->elf_vma = request_vma(proc, elf_pma, elf_base, elf_size, KOBJ_RIGHT_RWX, 0);
-	if (!proc->elf_vma)
-		return -ENOMEM;
-
-	proc->stack_vma = request_vma(proc, 0, PROCESS_STACK_INIT_BASE,
-			PROCESS_STACK_INIT_SIZE, KOBJ_RIGHT_RW, 0);
-	if (!proc->stack_vma)
-		return ENOMEM;
-
-	/*
-	 * request other stack region, which will page faulted.
-	 */
-	vma = request_vma(proc, 0, PROCESS_STACK_BASE,
-			PROCESS_STACK_SIZE - PROCESS_STACK_INIT_SIZE,
-			KOBJ_RIGHT_RW, 1);
-	if (!vma)
-		return -ENOMEM;
-
-	return 0;
 }
 
 void release_process(struct process *proc)
@@ -213,7 +127,7 @@ static struct process *create_new_process(char *name, unsigned long entry,
 
 	proc->pid = kobject_ctl(proc->proc_handle, KOBJ_PROCESS_GET_PID, 0);
 
-	if (process_vspace_init(proc, elf_pma, elf_base, elf_size))
+	if (process_mm_init(proc, elf_pma, elf_base, elf_size))
 		goto err_out;
 
 	if (flags & TASK_FLAGS_DRV) {
@@ -417,7 +331,7 @@ static char *file_path_to_proc_name(char *path)
 
 static int setup_process(struct process *proc, char *path, int argc, char **argv)
 {
-	struct vma *stack_vma = proc->stack_vma;
+	struct vma *stack_vma = &proc->init_stack_vma;
 	void *stack, *origin, *tmp;
 	char **new_argv;
 	int i, ret = 0;
@@ -562,32 +476,6 @@ struct process *get_process_by_handle(int handle)
 	return NULL;
 }
 
-static long handle_process_page_fault(struct process *proc,
-		uint64_t virt_addr, int access_type, int tid)
-{
-	unsigned long start = PAGE_ALIGN(virt_addr);
-	struct vma *vma;
-
-	vma = find_vma(proc, start);
-	if (!vma || !vma->anon)
-		goto out;
-
-	if (start + PAGE_SIZE >= vma->end)
-		goto out;
-
-	if (sys_map(proc->proc_handle, -1, start, PAGE_SIZE, KOBJ_RIGHT_RWX)) {
-		pr_err("map memory for process %d failed\n", proc->pid);
-		goto out;
-	}
-
-out:
-	/*
-	 * kill this process, TBD, use wake up
-	 */
-	pr_err("process %d access invalid address", proc->pid);
-	return -EFAULT;
-}
-
 static long handle_process_exit(struct process *proc, uint64_t data0)
 {
 	return 0;
@@ -712,38 +600,6 @@ out:
 	return ret;
 }
 
-static long process_mmap_handler(struct process *proc, struct proto *proto, void *data)
-{
-	size_t len = proto->mmap.len;
-	int prot = proto->mmap.prot;
-	struct vma *vma;
-	int perm = 0;
-	void *addr = (void *)-1;
-
-	if ((proto->mmap.addr != NULL) || (proto->mmap.fd != -1)) {
-		pr_err("only support map anon mapping for process\n");
-		goto out;
-	}
-
-	if (prot & PROT_EXEC)
-		perm |= KOBJ_RIGHT_EXEC;
-	if (prot & PROT_WRITE)
-		perm |= KOBJ_RIGHT_WRITE;
-	if (prot & PROT_READ)
-		perm |= KOBJ_RIGHT_READ;
-
-	if (perm == KOBJ_RIGHT_NONE)
-		pr_warn("request memory with no right\n");
-
-	len = BALIGN(len, PAGE_SIZE);
-	vma = request_vma(proc, 0, 0, len, perm, 1);
-	if (vma)
-		addr = (void *)vma->start;
-
-out:
-	return (long)addr;
-}
-
 static void load_init_process(void)
 {
 	struct execv_extra *extra = (struct execv_extra *)proto_buf;
@@ -756,20 +612,22 @@ static void load_init_process(void)
 	assert(!process_execv_handler(self, &proto, extra));
 }
 
-static void process_iamok_handler(struct process *proc, struct proto *proto, void *data)
+static long process_iamok_handler(struct process *proc, struct proto *proto, void *data)
 {
 	/*
 	 * start the init process, current start the shell process.
 	 */
 	if (proc == rootfs_proc)
 		load_init_process();
+
+	return 0;
 }
 
 static void handle_process_kernel_request(struct process *proc, struct epoll_event *event)
 {
 	switch (event->data.type) {
 	case EPOLL_KEV_PAGE_FAULT:
-		handle_process_page_fault(proc, event->data.data0,
+		handle_user_page_fault(proc, event->data.data0,
 				(int)event->data.data1, (int)event->data.data2);
 		break;
 	case EPOLL_KEV_PROCESS_EXIT:
@@ -829,7 +687,7 @@ static int do_execv(struct proto *proto, struct execv_request *er)
 	return kobject_reply_errcode(er->parent->proc_handle, er->reply_token, ret);
 }
 
-static int handle_nvwa_request(struct process *proc, struct proto *proto, void *data)
+static long handle_nvwa_request(struct process *proc, struct proto *proto, void *data)
 {
 	struct execv_request *er, *next;
 
@@ -854,6 +712,21 @@ static int handle_nvwa_request(struct process *proc, struct proto *proto, void *
 	return -ENOENT;
 }
 
+static syscall_hdl proc_handles[] = {
+	[0 ... PROTO_PROC_END]	= NULL,
+	[PROTO_IAMOK]		= process_iamok_handler,
+	[PROTO_ELF_INFO]	= handle_nvwa_request,
+	[PROTO_MMAP]		= process_mmap_handler,
+	[PROTO_EXECV]		= process_execv_handler,
+	[PROTO_BRK]		= process_brk_handler,
+	[PROTO_MPROTECT]	= process_mprotect_handler,
+};
+
+static int inline proto_return_pointer(int id)
+{
+	return ((id == PROTO_MMAP) ? 1 : 0);
+}
+
 static void handle_process_in_request(struct process *proc, struct epoll_event *event)
 {
 	struct proto proto;
@@ -864,36 +737,22 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 	if (ret < 0)
 		return;
 
-	switch (proto.proto_id) {
-	case PROTO_MMAP:
-		ret = process_mmap_handler(proc, &proto, proto_buf);
-		kobject_reply_errcode(proc->proc_handle, 0, ret);
-		break;
-	case PROTO_EXECV:
-		ret = process_execv_handler(proc, &proto, proto_buf);
-		if (ret)
-			kobject_reply_errcode(proc->proc_handle, proto.token, ret);
-		break;
-	case PROTO_IAMOK:
-		kobject_reply_errcode(proc->proc_handle, proto.token, 0);
-		process_iamok_handler(proc, &proto, proto_buf);
-		break;
-	case PROTO_ELF_INFO:
-		/*
-		 * reply the nvwa first, and do the left work later
-		 */
-		handle_nvwa_request(proc, &proto, proto_buf);
-		break;
-	default:
-		pr_err("unknown event for process %d\n", event->events);
-		break;
+	if ((proto.proto_id > PROTO_PROC_END) || !proc_handles[proto.proto_id]) {
+		pr_err("get unsupport request %d\n", proto.proto_id);
+		ret = proto_return_pointer(proto.proto_id) ? -1 : -ENOSYS;
+		kobject_reply_errcode(proc->proc_handle, proto.token, ret);
+		return;
 	}
-}
 
-static void handle_process_exit_request(struct process *proc,
-		struct epoll_event *event)
-{
+	ret = proc_handles[proto.proto_id](proc, &proto, proto_buf);
 
+	if (proto.proto_id == PROTO_EXECV && ret)
+		kobject_reply_errcode(proc->proc_handle, proto.token, ret);
+
+	if (proto.proto_id == PROTO_ELF_INFO)
+		return;
+
+	kobject_reply_errcode(proc->proc_handle, proto.token, ret);
 }
 
 void handle_process_request(struct epoll_event *event, struct request_entry *re)
@@ -906,9 +765,6 @@ void handle_process_request(struct epoll_event *event, struct request_entry *re)
 		break;
 	case EPOLLKERNEL:
 		handle_process_kernel_request(proc, event);
-		break;
-	case EPOLLWCLOSE:
-		handle_process_exit_request(proc, event);
 		break;
 	default:
 		pr_err("invalid event for process\n");

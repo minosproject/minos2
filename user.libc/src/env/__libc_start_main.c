@@ -32,12 +32,6 @@ void __init_libc(char **envp, char *pn)
 	if (aux[AT_SYSINFO]) __sysinfo = aux[AT_SYSINFO];
 	libc.page_size = aux[AT_PAGESZ];
 
-	libc.heap_start = aux[AT_HEAP_BASE];
-	libc.heap_end = aux[AT_HEAP_END];
-	if ((libc.heap_start != 0) && (libc.heap_end != 0) &&
-			(libc.heap_end > libc.heap_start))
-		libc.use_kmalloc = 1;
-
 	libc.rootfs_handle = aux[AT_ROOTFS_HANDLE];
 
 	if (!pn) pn = (void*)aux[AT_EXECFN];
@@ -87,11 +81,6 @@ static int libc_start_main_stage2(int (*main)(int,char **,char **), int argc, ch
 {
 	char **envp = argv+argc+1;
 	__libc_start_init();
-
-	if (libc.use_kmalloc) {
-		// fprintf(stdout, "Use kmalloc api\n");
-		kmalloc_init(libc.heap_start, libc.heap_end);
-	}
 
 	/* Pass control to the application */
 	exit(main(argc, argv, envp));

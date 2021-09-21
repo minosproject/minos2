@@ -31,8 +31,8 @@ int fclose(FILE *f)
 	if (*head == f) *head = f->next;
 	__ofl_unlock();
 
-	libc_free(f->getln_buf);
-	libc_free(f);
+	free(f->getln_buf);
+	free(f);
 
 	return r;
 }

@@ -13,8 +13,6 @@
 #define TASK_FLAGS_REALTIME		BIT(3)
 #define TASK_FLAGS_KERNEL_MASK		(0xff)
 
-#define TASK_FLAGS_DEDICATED_HEAP	BIT(16)
-
 #define MAX_ARGC	(PAGE_SIZE / sizeof(char *))
 
 #define PROCESS_NAME_SIZE 64

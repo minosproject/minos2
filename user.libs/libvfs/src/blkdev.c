@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <minos/debug.h>
 #include <minos/sched.h>
-#include <minos/kmalloc.h>
 #include <minos/compiler.h>
 #include <minos/thread.h>
 #include <sys/epoll.h>

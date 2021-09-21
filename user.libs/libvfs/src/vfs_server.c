@@ -17,7 +17,6 @@
 #include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/list.h>
-#include <minos/kmalloc.h>
 #include <minos/proto.h>
 #include <minos/service.h>
 
@@ -48,7 +47,7 @@ struct vfs_server *create_vfs_server(const char *name,
 	int epfd, rfd;
 	struct file *file;
 
-	vserver = libc_zalloc(sizeof(struct vfs_server));
+	vserver = zalloc(sizeof(struct vfs_server));
 	if (!vserver) {
 		pr_err("create vfs server failed\n");
 		return NULL;
@@ -57,7 +56,7 @@ struct vfs_server *create_vfs_server(const char *name,
 	rfd = register_service("/", name, SRV_PORT, 0);
 	if (rfd <= 0) {
 		pr_err("create service for vfs server failed\n");
-		libc_free(vserver);
+		free(vserver);
 		return NULL;
 	}
 
@@ -65,7 +64,7 @@ struct vfs_server *create_vfs_server(const char *name,
 	if (epfd <= 0) {
 		pr_err("create epoll handle for vfs server failed\n");
 		unregister_service(rfd);
-		libc_free(vserver);
+		free(vserver);
 		return NULL;
 	}
 

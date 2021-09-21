@@ -6,7 +6,6 @@
 #include <errno.h>
 #include <minos/debug.h>
 #include <minos/list.h>
-#include <minos/kmalloc.h>
 
 #include <vfs/vfs.h>
 #include <vfs/blkdev.h>
@@ -107,7 +106,7 @@ static int parse_partition(struct blkdev *bdev,
 	print_human_size((float)((uint64_t)sectors * 0x200));
 	printf("\n");
 
-	part = libc_zalloc(sizeof(struct partition));
+	part = zalloc(sizeof(struct partition));
 	if (!part)
 		return -ENOMEM;
 
@@ -151,7 +150,7 @@ int parse_mbr(struct blkdev *bdev)
 	int ret;
 	char *buf;
 
-	buf = get_pages(bdev_sector_pages(bdev, 1));
+	buf = memalign(PAGE_SIZE, PAGE_SIZE);
 	if (!buf)
 		return -ENOMEM;
 
@@ -161,7 +160,7 @@ int parse_mbr(struct blkdev *bdev)
 
 	ret = __parse_mbr(bdev, buf);
 
-	free_pages(buf);
+	free(buf);
 
 	return ret;
 }

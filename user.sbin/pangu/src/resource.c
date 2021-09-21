@@ -9,8 +9,8 @@
 #include <minos/types.h>
 #include <minos/debug.h>
 #include <minos/kobject.h>
-#include <minos/kmalloc.h>
 
+#include <pangu/kmalloc.h>
 #include <pangu/of.h>
 #include <pangu/resource.h>
 

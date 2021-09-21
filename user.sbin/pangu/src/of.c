@@ -20,11 +20,11 @@
 #include <errno.h>
 #include <sys/param.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/compiler.h>
 
 #include <libfdt/libfdt.h>
 
+#include <pangu/kmalloc.h>
 #include <pangu/of.h>
 #include <pangu/bootarg.h>
 

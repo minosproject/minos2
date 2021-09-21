@@ -3,6 +3,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <sys/param.h>
 #include <dirent.h>
@@ -10,7 +11,6 @@
 #include <minos/list.h>
 #include <minos/types.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/compiler.h>
 
 #include <vfs/vfs.h>
@@ -190,7 +190,7 @@ static int fat_get_root_file(struct super_block *sb)
 	struct fnode *fnode;
 	struct fat_fnode *ffnode;
 
-	ffnode = kzalloc(sizeof(struct fat_fnode) + sizeof(struct fnode));
+	ffnode = zalloc(sizeof(struct fat_fnode) + sizeof(struct fnode));
 	if (!ffnode)
 		return -ENOMEM;
 
@@ -216,7 +216,7 @@ static struct super_block *fat_read_super(struct partition *partition, struct fi
 	char *buf;
 	int ret = 0;
 
-	buf = get_pages(partition->blkdev->pages_per_sector);
+	buf = memalign(PAGE_SIZE, partition->blkdev->pages_per_sector * PAGE_SIZE);
 	if (!buf)
 		return NULL;
 
@@ -224,7 +224,7 @@ static struct super_block *fat_read_super(struct partition *partition, struct fi
 	if (ret)
 		goto err_read_block;
 
-	fat_super = kzalloc(sizeof(struct fat_super_block));
+	fat_super = zalloc(sizeof(struct fat_super_block));
 	if (!fat_super)
 		goto err_read_block;
 
@@ -268,14 +268,14 @@ static struct super_block *fat_read_super(struct partition *partition, struct fi
 	sb->max_file = (uint32_t)-1;	// TBD
 	sb->flags = 0;
 	sb->magic = 0;
-	free_pages(buf);
+	free(buf);
 
 	return sb;
 
 err_get_super_block:
-	kfree(sb);
+	free(sb);
 err_read_block:
-	free_pages(buf);
+	free(buf);
 
 	return NULL;
 }
@@ -429,7 +429,7 @@ static struct fnode *new_fat_fnode(struct fat_super_block *fsb,
 {
 	struct fat_fnode *ffnode;
 
-	ffnode = kzalloc(sizeof(struct fat_fnode));
+	ffnode = zalloc(sizeof(struct fat_fnode));
 	if (!ffnode)
 		return NULL;
 
@@ -647,7 +647,7 @@ static int fat_parse_name(char *name)
 	if (!name || !len)
 		return -EINVAL;
 
-	buf = get_page();
+	buf = memalign(PAGE_SIZE, PAGE_SIZE);
 	if (!buf)
 		return -EAGAIN;
 
@@ -683,7 +683,7 @@ static int fat_parse_name(char *name)
 		
 	buf[11] = type;
 	memcpy(name, buf, 512);
-	free_pages(buf);
+	free(buf);
 
 	return 0;
 }

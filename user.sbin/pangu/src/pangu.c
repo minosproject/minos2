@@ -17,12 +17,12 @@
 #include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/list.h>
-#include <minos/kmalloc.h>
 #include <minos/proto.h>
 #include <minos/libc.h>
 
 #include <uapi/bootdata.h>
 
+#include <pangu/kmalloc.h>
 #include <pangu/proc.h>
 #include <pangu/request.h>
 #include <pangu/bootarg.h>
@@ -201,8 +201,7 @@ static int load_nvwa_service(void)
 	if (nvwa_handle <= 0)
 		return nvwa_handle;
 
-	proc = load_ramdisk_process("nvwa.srv", 0, NULL, TASK_FLAGS_SRV |
-			TASK_FLAGS_DEDICATED_HEAP, NULL);
+	proc = load_ramdisk_process("nvwa.srv", 0, NULL, TASK_FLAGS_SRV, NULL);
 	if (proc == NULL)
 		return -ENOMEM;
 
@@ -323,6 +322,8 @@ int main(int argc, char **argv)
 	heap_base = bootdata->heap_start;
 	heap_end = bootdata->heap_end;
 	dump_boot_info();
+
+	assert(!kmalloc_init(heap_base, heap_end));
 
 	ramdisk_init(bootdata->ramdisk_start, bootdata->ramdisk_end);
 	of_init(bootdata->dtb_start, bootdata->dtb_end);

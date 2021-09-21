@@ -20,9 +20,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 
 #include <uapi/bootdata.h>
+#include <pangu/kmalloc.h>
 
 struct boot_option {
 	char *name;

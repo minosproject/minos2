@@ -11,7 +11,6 @@
 
 #include <minos/list.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/compiler.h>
 #include <minos/kobject.h>
 
@@ -70,7 +69,7 @@ static int fs_open(struct fnode *parent, char *path, struct fnode **out)
 	int ret = 0;
 
 	*out = NULL;
-	name = libc_malloc(FILENAME_MAX);
+	name = malloc(FILENAME_MAX);
 	if (!name)
 		return -ENOMEM;
 
@@ -112,7 +111,7 @@ static int fs_open(struct fnode *parent, char *path, struct fnode **out)
 	}
 
 out:
-	kfree(name);
+	free(name);
 	return ret;
 }
 

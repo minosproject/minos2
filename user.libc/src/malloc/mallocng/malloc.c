@@ -306,11 +306,6 @@ void *malloc(size_t n)
 	int idx;
 	int ctr;
 
-	if (libc.use_kmalloc) {
-		fprintf(stderr, "please use kmalloc instead\n");
-		return NULL;
-	}
-
 	if (n >= MMAP_THRESHOLD) {
 		size_t needed = n + IB + UNIT;
 		void *p = mmap(0, needed, PROT_READ|PROT_WRITE,

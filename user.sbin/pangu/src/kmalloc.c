@@ -2,12 +2,11 @@
  * Copyright (c) 2020 - 2021 Min Le (lemin9538@163.com)
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <strings.h>
 #include <errno.h>
 #include <string.h>
-#include "libc.h"
-#include "lock.h"
-#include "syscall.h"
 
 #include <minos/types.h>
 #include <minos/list.h>
@@ -28,9 +27,6 @@ static unsigned long heap_pool_base;
 static unsigned long heap_pool_end;
 
 static int kmalloc_has_init;
-
-static volatile int lock[1];
-volatile int *const __kmalloc_lockptr = lock;
 
 static void *get_memory_unlock(size_t size, int ispage)
 {
@@ -86,8 +82,6 @@ static void *malloc_internal(size_t size, int ispage)
 		free_list = &slab_free_list;
 	}
 
-	LOCK(lock);
-
 	list_for_each_entry(meta, free_list, list) {
 		if (meta->size == size) {
 			ret = meta;
@@ -124,8 +118,6 @@ static void *malloc_internal(size_t size, int ispage)
 	}
 
 out:
-	UNLOCK(lock);
-
 	return addr;
 }
 
@@ -147,8 +139,6 @@ static void mfree_internal(void *addr, int ispage)
 		free_list = &slab_free_list;
 	}
 
-	LOCK(lock);
-
 	list_for_each_entry_safe(meta, tmp, use_list, list) {
 		if (meta->addr == addr) {
 			list_del(&meta->list);
@@ -156,8 +146,6 @@ static void mfree_internal(void *addr, int ispage)
 			break;
 		}
 	}
-
-	UNLOCK(lock);
 }
 
 void *kmalloc(size_t size)
@@ -192,7 +180,7 @@ void free_pages(void *base)
 	mfree_internal(base, 1);
 }
 
-hidden int kmalloc_init(unsigned long base, unsigned long end)
+int kmalloc_init(unsigned long base, unsigned long end)
 {
 	if ((end < base) || !IS_PAGE_ALIGN(base) || !IS_PAGE_ALIGN(end)) {
 		fprintf(stderr, "invalid heap region 0x%lx 0x%lx\n", base, end);

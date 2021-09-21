@@ -21,7 +21,7 @@ FILE *__fdopen(int fd, const char *mode)
 	}
 
 	/* Allocate FILE+buffer or fail */
-	if (!(f=libc_malloc(sizeof *f + UNGET))) return 0;
+	if (!(f=malloc(sizeof *f + UNGET))) return 0;
 
 	/* Zero-fill only the struct, not the buffer */
 	memset(f, 0, sizeof *f);
@@ -44,7 +44,7 @@ FILE *__fdopen(int fd, const char *mode)
 
 	f->buf = kobject_mmap(fd);
 	if (f->buf == (void *)-1) {
-		libc_free(f);
+		free(f);
 		return 0;
 	}
 

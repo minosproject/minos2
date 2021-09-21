@@ -12,7 +12,6 @@
 #include <minos/list.h>
 #include <minos/debug.h>
 #include <minos/compiler.h>
-#include <minos/kmalloc.h>
 
 #include <vfs/vfs.h>
 
@@ -102,12 +101,12 @@ void buffer_head_init(struct super_block *sb)
 		init_list(&sb->buffer_hash_lists[i]);
 
 	for (i = 0; i < 128; i++) {
-		data = get_pages(1);
+		data = memalign(PAGE_SIZE, PAGE_SIZE);
 		if (!data)
 			return;
 
 		for (j = 0; j < blocks_per_page; j++) {
-			bh = kzalloc(sizeof(struct buffer_head));
+			bh = zalloc(sizeof(struct buffer_head));
 			if (!bh)
 				return;
 

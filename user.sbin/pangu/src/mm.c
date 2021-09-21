@@ -16,9 +16,9 @@
 #include <minos/list.h>
 #include <minos/kobject.h>
 #include <minos/map.h>
-#include <minos/kmalloc.h>
 #include <minos/proto.h>
 
+#include <pangu/kmalloc.h>
 #include <pangu/proc.h>
 #include <pangu/mm.h>
 

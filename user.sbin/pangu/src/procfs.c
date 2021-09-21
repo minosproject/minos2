@@ -13,7 +13,6 @@
 
 #include <minos/list.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/compiler.h>
 #include <minos/kobject.h>
 #include <minos/types.h>
@@ -22,6 +21,7 @@
 
 #include <vfs/file.h>
 
+#include <pangu/kmalloc.h>
 #include <pangu/request.h>
 #include <pangu/proc.h>
 

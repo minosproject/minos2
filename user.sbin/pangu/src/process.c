@@ -18,9 +18,9 @@
 #include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/list.h>
-#include <minos/kmalloc.h>
 #include <minos/proto.h>
 
+#include <pangu/kmalloc.h>
 #include <pangu/proc.h>
 #include <pangu/ramdisk.h>
 #include <pangu/elf.h>
@@ -82,9 +82,6 @@ static int sys_create_process(char *name, unsigned long entry,
 		.flags = flags & TASK_FLAGS_KERNEL_MASK,
 		.name = name,
 	};
-
-	if (flags & TASK_FLAGS_DEDICATED_HEAP)
-		right |= KOBJ_RIGHT_HEAP_SELFCTL;
 
 	return kobject_create(KOBJ_TYPE_PROCESS, right, KR_RC, (unsigned long)&args);
 }
@@ -216,7 +213,6 @@ static void *setup_argv(void *top, int argc, char **argv)
 static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 {
 	Elf64_auxv_t *auxp = (Elf64_auxv_t *)top;
-	extern unsigned long heap_base, heap_end;
 	int fuxi;
 
 	NEW_AUX_ENT(auxp, AT_NULL, 0);
@@ -234,11 +230,6 @@ static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 			pr_err("grant fuxi handle to process fail\n");
 		else
 			NEW_AUX_ENT(auxp, AT_ROOTFS_HANDLE, fuxi);
-	}
-
-	if (flags & TASK_FLAGS_DEDICATED_HEAP) {
-		NEW_AUX_ENT(auxp, AT_HEAP_BASE, heap_base);
-		NEW_AUX_ENT(auxp, AT_HEAP_END, heap_end);
 	}
 
 	return (void *)auxp;

@@ -19,6 +19,8 @@ static inline void *get_page(void)
 	return get_pages(1);
 }
 
+int kmalloc_init(unsigned long base, unsigned long end);
+
 #ifdef __cplusplus
 }
 #endif

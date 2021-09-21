@@ -10,7 +10,6 @@
 
 #include <minos/list.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/compiler.h>
 #include <minos/kobject.h>
 #include <minos/types.h>
@@ -38,7 +37,7 @@ struct file *create_file(int flags, int mode)
 		return NULL;
 	}
 
-	f = libc_malloc(sizeof(struct file));
+	f = malloc(sizeof(struct file));
 	if (f == NULL) {
 		kobject_close(handle);
 		return NULL;
@@ -62,5 +61,5 @@ void release_file(struct file *file)
 
 	kobject_munmap(file->handle);
 	kobject_close(file->handle);
-	libc_free(file);
+	free(file);
 }

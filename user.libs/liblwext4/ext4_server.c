@@ -16,7 +16,6 @@
 #include <minos/kobject.h>
 #include <minos/map.h>
 #include <minos/debug.h>
-#include <minos/kmalloc.h>
 #include <minos/proto.h>
 #include <minos/service.h>
 #include <minos/types.h>
@@ -100,7 +99,7 @@ static struct lwext4_file *create_new_lwext4_file(int dir)
 	else
 		size += sizeof(struct ext4_file);
 
-	file = libc_zalloc(size);
+	file = zalloc(size);
 	if (!file)
 		return NULL;
 
@@ -118,7 +117,7 @@ static void release_file(struct lwext4_file *file)
 
 	kobject_munmap(file->handle);
 	kobject_close(file->handle);
-	libc_free(file);
+	free(file);
 }
 
 static int __handle_vfs_open_request(struct ext4_server *vs, struct lwext4_file *file,
@@ -375,7 +374,7 @@ int run_ext4_file_server(struct ext4_blockdev *bdev)
 	struct ext4_blockdev *ext4_blkdev = NULL;
 	struct ext4_server *vs;
 
-	vs = libc_malloc(sizeof(struct ext4_server));
+	vs = malloc(sizeof(struct ext4_server));
 	if (!vs)
 		return -ENOMEM;
 

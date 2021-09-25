@@ -18,12 +18,17 @@
 #include <minos/console.h>
 #include <minos/of.h>
 
-#define MEM_CONSOLE_SIZE	(4096)
+#define MEM_CONSOLE_SIZE	(2048)
+#define CONSOLE_INBUF_SIZE	(2048)
 
 static int widx;
 static char mem_log_buf[MEM_CONSOLE_SIZE];
 
+static char console_inbuf[CONSOLE_INBUF_SIZE];
+static uint32_t inbuf_ridx, inbuf_widx;
+
 #define MEM_CONSOLE_IDX(idx)	(idx & (MEM_CONSOLE_SIZE - 1))
+#define BUFIDX(idx)		(idx & (CONSOLE_INBUF_SIZE - 1))
 
 static void mem_console_putc(char ch)
 {
@@ -79,4 +84,43 @@ void console_putc(char ch)
 char console_getc(void)
 {
 	return console->getc();
+}
+
+void console_char_recv(unsigned char ch)
+{
+	uint32_t widx;
+
+	widx = inbuf_widx;
+	console_inbuf[BUFIDX(widx++)] = ch;
+	inbuf_widx = widx;
+	mb();
+}
+
+void console_puts(char *buf, int len)
+{
+	puts(buf, len);
+}
+
+int console_gets(char *buf, int max)
+{
+	uint32_t ridx, widx;
+	int i, copy;
+
+	ridx = inbuf_ridx;
+	widx = inbuf_widx;
+	mb();
+
+	ASSERT((widx - ridx) <= CONSOLE_INBUF_SIZE);
+	copy = widx - ridx > max ? max : widx - ridx;
+	if (copy == 0) {
+
+	}
+
+	for (i = 0; i < copy; i++)
+		buf[i] = console_inbuf[BUFIDX(ridx++)];
+
+	inbuf_ridx = ridx;
+	mb();
+
+	return copy;
 }

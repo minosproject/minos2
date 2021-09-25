@@ -19,13 +19,13 @@
 #include <minos/kobject.h>
 #include <minos/mutex.h>
 #include <minos/uaccess.h>
-#include <minos/print.h>
+#include <minos/console.h>
 
-#define STDIO_BUF_SIZE	4096
+#define STDIO_BUF_SIZE	2048
 
 struct kobject stdio_kobj;
-static mutex_t stdio_lock;
-static char stdio_buf[STDIO_BUF_SIZE];
+static mutex_t stdio_wlock;
+static char stdio_out_buf[STDIO_BUF_SIZE];
 
 static long stdio_send(struct kobject *kobj, void __user *data,
 		size_t data_size, void __user *extra,
@@ -38,15 +38,15 @@ static long stdio_send(struct kobject *kobj, void __user *data,
 	if (left <=0 )
 		return 0;
 
-	mutex_pend(&stdio_lock, 0);
+	mutex_pend(&stdio_wlock, 0);
 
 	while (left > 0) {
 		copy = left > STDIO_BUF_SIZE ? STDIO_BUF_SIZE : left;
-		ret = copy_from_user(stdio_buf, data, copy);
+		ret = copy_from_user(stdio_out_buf, data, copy);
 		if (ret <= 0)
 			goto out;
 
-		puts(stdio_buf, copy);
+		console_puts(stdio_out_buf, copy);
 		left -= copy;
 		data += copy;
 	}
@@ -54,7 +54,7 @@ static long stdio_send(struct kobject *kobj, void __user *data,
 	ret = data_size;
 
 out:
-	mutex_post(&stdio_lock);
+	mutex_post(&stdio_wlock);
 
 	return ret;
 }
@@ -63,7 +63,17 @@ static long stdio_recv(struct kobject *kobj, void __user *data,
 		size_t data_size, size_t *actual_data, void __user *extra,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
-	// TBD
+	char buf[32];
+	int size = 0;
+
+	/*
+	 * currently only support one process, the shell. TBD
+	 */
+	size = console_gets(buf, 32);
+	if (size != 0)
+		copy_to_user(data, buf, size);
+	*actual_data = size;
+
 	return 0;
 }
 
@@ -77,7 +87,7 @@ static int stdio_kobject_init(void)
 	kobject_init(&stdio_kobj, KOBJ_TYPE_STDIO, KOBJ_RIGHT_RW, 0);
 	kobject_get(&stdio_kobj);
 	stdio_kobj.ops = &stdio_ops;
-	mutex_init(&stdio_lock);
+	mutex_init(&stdio_wlock);
 
 	return 0;
 }

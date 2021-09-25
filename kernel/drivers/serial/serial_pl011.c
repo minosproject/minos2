@@ -20,6 +20,7 @@
 #include <config/config.h>
 #include "pl011.h"
 #include <minos/console.h>
+#include <minos/irq.h>
 
 static void *base;
 
@@ -48,7 +49,8 @@ static int __pl011_init(void *addr, int clock, int baudrate)
 	iowrite32(divider, base + UARTIBRD);
 	iowrite32(fraction, base + UARTFBRD);
 
-	iowrite32(0X0, base + UARTIMSC);
+	iowrite32(INT_RX, base + UARTIMSC);	// enable rx interrupt.
+
 	iowrite32(PL011_ICR_CLR_ALL_IRQS, base + UARTICR);
 	iowrite32(0x0 | PL011_CR_UART_ENABLE | \
 		  PL011_CR_TX_ENABLE | \
@@ -56,6 +58,26 @@ static int __pl011_init(void *addr, int clock, int baudrate)
 
 	return 0;
 }
+
+static int pl011_irq_handler(uint32_t irq, void *data)
+{
+	unsigned int int_status;
+
+	int_status = ioread32(base + UARTMIS);
+	if (int_status & INT_RX) {
+		iowrite32(INT_RX, base + UARTICR);
+		console_char_recv(ioread32(base + UARTDR) & 0xff);
+		iowrite32(0, base + UARTECR);
+	}
+
+	return 0;
+}
+
+static int pl011_irq_init(void)
+{
+	return request_irq(38, pl011_irq_handler, 0, "pl011", NULL);
+}
+device_initcall(pl011_irq_init);
 
 static int pl011_init(char *arg)
 {

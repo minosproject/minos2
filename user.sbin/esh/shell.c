@@ -15,6 +15,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 
 #include "shell_command.h"
@@ -48,7 +49,10 @@ int excute_shell_command(int argc, char **argv)
 
 static void __esh_putc(struct esh *esh, char c, void *arg)
 {
-	// console_putc(c);
+	char buf[8];
+
+	buf[0] = c;
+	fwrite(buf, 1, 1, stdout);
 }
 
 static void esh_excute_command(struct esh *esh,
@@ -61,13 +65,10 @@ static void esh_excute_command(struct esh *esh,
 		printf("Command \'%s\' not found\n", argv[0]);
 }
 
-char console_getc(void)
-{
-	return 0;
-}
-
 int main(int argc, char **argv)
 {
+	char buf[32];
+	int ret, i;
 	char ch;
 
 	pesh = esh_init();
@@ -76,11 +77,16 @@ int main(int argc, char **argv)
 
 	esh_rx(pesh, '\n');
 
-	while (1) {
-		for (; ;) {
-			ch = console_getc();
-			if (ch <= 0)
-				break;
+	for (; ;) {
+		ret = fread(buf, 1, 32, stdin);
+		if (ret < 0)
+			break;
+
+		for (i = 0; i < ret; i++) {
+			ch = buf[i];
+			if (ch == '\r')
+				ch = '\n';
+			esh_rx(pesh, ch);
 		}
 	}
 

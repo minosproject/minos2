@@ -161,8 +161,9 @@ flag_t flag_pend(struct flag_grp *grp, flag_t flags,
 	if (result) {
 		wait_type &= ~FLAG_CONSUME;
 		consume = 1;
-	} else
+	} else {
 		consume = 0;
+	}
 
 	spin_lock_irqsave(&grp->lock, irq);
 
@@ -305,7 +306,7 @@ flag_t flag_post(struct flag_grp *grp, flag_t flags, int opt)
 
 	spin_unlock_irqrestore(&grp->lock, irq);
 
-	if (need_sched)
+	if (need_sched && !in_interrupt())
 		sched();
 
 	return grp->flags;

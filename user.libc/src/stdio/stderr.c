@@ -17,9 +17,8 @@ static int __stderr_close(FILE *f)
 	return __stdio_close(f);
 }
 
-static unsigned char buf[UNGET];
 hidden FILE __stderr_FILE = {
-	.buf = buf+UNGET,
+	.buf = NULL,
 	.buf_size = 0,
 	.fd = 3,
 	.flags = F_PERM | F_NORD,

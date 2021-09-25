@@ -27,10 +27,9 @@ static int __stdin_close(FILE *f)
 	return __stdio_close(f);
 }
 
-static unsigned char buf[BUFSIZ+UNGET];
 hidden FILE __stdin_FILE = {
-	.buf = buf+UNGET,
-	.buf_size = sizeof buf-UNGET,
+	.buf = NULL,
+	.buf_size = 0,
 	.fd = 1,
 	.flags = F_PERM | F_NOWR,
 	.read = __stdin_read,

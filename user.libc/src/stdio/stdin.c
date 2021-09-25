@@ -1,12 +1,20 @@
 #include "stdio_impl.h"
 
 #undef stdin
+#include <minos/kobject.h>
 
 extern hidden int __stdio_close(FILE *f);
 
 static size_t __stdin_read(FILE *f, unsigned char *buf, size_t len)
 {
-	return 0;
+	size_t read_size;
+	long ret;
+
+	ret = kobject_read(f->fd, buf, len, &read_size, NULL, 0, NULL, 0);
+	if (ret < 0)
+		return ret;
+
+	return read_size;
 }
 
 static off_t __stdin_seek(FILE *f, off_t off, int whence)

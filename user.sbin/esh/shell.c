@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <errno.h>
 
+#include <minos/kobject.h>
+
 #include "shell_command.h"
 #include "esh.h"
 #include "esh_internal.h"
@@ -52,7 +54,7 @@ static void __esh_putc(struct esh *esh, char c, void *arg)
 	char buf[8];
 
 	buf[0] = c;
-	fwrite(buf, 1, 1, stdout);
+	kobject_write(2, buf, 1, NULL, 0, 0);
 }
 
 static void esh_excute_command(struct esh *esh,
@@ -62,7 +64,7 @@ static void esh_excute_command(struct esh *esh,
 
 	ret = excute_shell_command(argc, argv);
 	if (ret == -ENOENT)
-		printf("Command \'%s\' not found\n", argv[0]);
+		printf("Command %s not found\n", argv[0]);
 }
 
 int main(int argc, char **argv)
@@ -74,6 +76,14 @@ int main(int argc, char **argv)
 	pesh = esh_init();
 	esh_register_command(pesh, esh_excute_command);
 	esh_register_print(pesh, __esh_putc);
+
+	printf("\n");
+	printf(" _   _   _   _   _   _\n");
+	printf("/ \\ / \\ / \\ / \\ / \\ / \\\n");
+	printf("(M | i | n | o | s | 2 )\n");
+	printf("\\_/ \\_/ \\_/ \\_/ \\_/ \\_/\n");
+	printf("\n  Welcome to Minos2 \n");
+	printf("\n");
 
 	esh_rx(pesh, '\n');
 

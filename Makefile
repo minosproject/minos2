@@ -115,18 +115,18 @@ libs: libc
 	done
 
 libc:
-	$(Q) echo "\n\033[32m--->Build LIBC ... \033[0m \n"
+	$(Q) echo "\n\033[32m---> Build LIBC ... \033[0m \n"
 	$(Q) $(MAKE) $(MFLAGS) -C user.libc -j 16
 	$(Q) $(MAKE) $(MFLAGS) -C user.libc install
 
 kernel:
-	$(Q) echo "\n\033[32m --->Build Kernel ... \033[0m \n"
+	$(Q) echo "\n\033[32m ---> Build Kernel ... \033[0m \n"
 	$(Q) $(MAKE) $(MFLAGS) -C kernel
 	$(Q) $(MAKE) $(MFLAGS) -C kernel dtbs
 	$(Q) $(MAKE) $(MFLAGS) -C kernel install
 
 clean-kernel:
-	$(Q) echo "\n\033[32m --->Clean Kernel ... \033[0m \n"
+	$(Q) echo "\n\033[32m ---> Clean Kernel ... \033[0m \n"
 	$(Q) $(MAKE) $(MFLAGS) -C kernel clean
 
 objdirs:
@@ -170,11 +170,11 @@ clean: clean-libs clean-apps
 images: ramdisk rootfs kernel
 
 ramdisk: apps
-	$(Q) echo "\n\033[32m --->Packing Ramdisk image ... \033[0m \n"
+	$(Q) echo "\n\033[32m ---> Packing Ramdisk image ... \033[0m \n"
 	$(Q) tools/make_ramdisk.sh -o out/ramdisk.bin -- out/ramdisk/*
 
 rootfs: apps
-	$(Q) echo "\n\033[32m --->Packing Rootfs image ... \033[0m \n"
+	$(Q) echo "\n\033[32m ---> Packing Rootfs image ... \033[0m \n"
 	$(Q) mkdir -p /tmp/minos-mnt
 	$(Q) dd if=/dev/zero of=/tmp/rootfs.img bs=1M count=64
 	$(Q) mkfs.vfat -n "ROOTFS" -F 32 /tmp/rootfs.img

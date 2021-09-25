@@ -17,6 +17,8 @@
 #include <minos/minos.h>
 #include <minos/console.h>
 #include <minos/of.h>
+#include <minos/spinlock.h>
+#include <minos/sched.h>
 
 #define MEM_CONSOLE_SIZE	(2048)
 #define CONSOLE_INBUF_SIZE	(2048)
@@ -26,6 +28,8 @@ static char mem_log_buf[MEM_CONSOLE_SIZE];
 
 static char console_inbuf[CONSOLE_INBUF_SIZE];
 static uint32_t inbuf_ridx, inbuf_widx;
+static DEFINE_SPIN_LOCK(inbuf_lock);
+static struct task *inbuf_task;
 
 #define MEM_CONSOLE_IDX(idx)	(idx & (MEM_CONSOLE_SIZE - 1))
 #define BUFIDX(idx)		(idx & (CONSOLE_INBUF_SIZE - 1))
@@ -94,6 +98,11 @@ void console_char_recv(unsigned char ch)
 	console_inbuf[BUFIDX(widx++)] = ch;
 	inbuf_widx = widx;
 	mb();
+
+	raw_spin_lock(&inbuf_lock);
+	if (inbuf_task)
+		wake_up(inbuf_task, 0);
+	raw_spin_unlock(&inbuf_lock);
 }
 
 void console_puts(char *buf, int len)
@@ -105,7 +114,9 @@ int console_gets(char *buf, int max)
 {
 	uint32_t ridx, widx;
 	int i, copy;
+	unsigned long flags;
 
+repeat:
 	ridx = inbuf_ridx;
 	widx = inbuf_widx;
 	mb();
@@ -113,7 +124,21 @@ int console_gets(char *buf, int max)
 	ASSERT((widx - ridx) <= CONSOLE_INBUF_SIZE);
 	copy = widx - ridx > max ? max : widx - ridx;
 	if (copy == 0) {
+		spin_lock_irqsave(&inbuf_lock, flags);
+		if (inbuf_widx - inbuf_ridx == 0) {
+			__event_task_wait(0, TASK_EVENT_IRQ, -1);
+			inbuf_task = current;
+		}
+		spin_unlock_irqrestore(&inbuf_lock, flags);
 
+		if (inbuf_task) {
+			copy = wait_event();
+			inbuf_task = NULL;
+			if (copy < 0)
+				return copy;
+		}
+
+		goto repeat;
 	}
 
 	for (i = 0; i < copy; i++)

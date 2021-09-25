@@ -28,6 +28,10 @@ size_t fread(void *restrict destv, size_t size, size_t nmemb, FILE *restrict f)
 		if (!k) {
 			FUNLOCK(f);
 			return (len-l)/size;
+		} else if (f->flags & F_STREAM) {
+			l -= k;
+			FUNLOCK(f);
+			return (len-l)/size;
 		}
 	}
 

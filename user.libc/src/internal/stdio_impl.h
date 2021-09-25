@@ -17,6 +17,7 @@
 #define F_ERR 32
 #define F_SVB 64
 #define F_APP 128
+#define F_STREAM 256
 
 struct _IO_FILE {
 	unsigned flags;

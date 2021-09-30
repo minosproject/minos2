@@ -45,12 +45,7 @@ void *ext4_user_alloc_bcache(size_t size)
 {
 	void *mem;
 
-	if (size != PAGE_SIZE) {
-		pr_err("cache size bigger than 4096\n");
-		return NULL;
-	}
-
-	mem = memalign(PAGE_SIZE, PAGE_SIZE);
+	mem = memalign(PAGE_SIZE, PAGE_BALIGN(size));
 	if (mem)
 		memset(mem, 0, sizeof(unsigned long));
 

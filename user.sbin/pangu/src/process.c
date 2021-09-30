@@ -598,6 +598,7 @@ static void load_init_process(void)
 
 	memset(&proto, 0, sizeof(struct proto));
 	memset(extra, 0, sizeof(struct execv_extra));
+	pr_info("loading init shell.app ...\n");
 	strcpy(extra->path, "/c/shell.app");
 
 	assert(!process_execv_handler(self, &proto, extra));

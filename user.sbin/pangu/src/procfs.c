@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2021 Min Le (lemin9538@163.com)
- * Copyright (c) 2021 上海网返科技
  */
 
 #include <stdlib.h>

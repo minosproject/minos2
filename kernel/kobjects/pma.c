@@ -455,4 +455,4 @@ static struct kobject *pma_create(right_t right,
 
 	return &p->kobj;
 }
-DEFINE_KOBJECT(endpoint, KOBJ_TYPE_PMA, pma_create);
+DEFINE_KOBJECT(pma, KOBJ_TYPE_PMA, pma_create);

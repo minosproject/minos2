@@ -14,28 +14,19 @@ extern "C" {
 #define KR_X KOBJ_RIGHT_EXEC
 #define KR_C KOBJ_RIGHT_CTL
 #define KR_M KOBJ_RIGHT_MMAP
-#define KR_G KOBJ_RIGHT_GRANT
 #define KR_S KOBJ_RIGHT_SHARED
 
 #define KR_RW (KR_R | KR_W)
 #define KR_RWX (KR_R | KR_W | KR_X)
-#define KR_RWG (KR_R | KR_W | KR_G)
 #define KR_RWC (KR_R | KR_W | KR_C)
-#define KR_RWCG (KR_R | KR_W | KR_G | KR_C)
-#define KR_RWCMG (KR_R | KR_W | KR_G | KR_C | KR_M)
-#define KR_RWCMSG (KR_R | KR_W | KR_G | KR_C | KR_M | KR_S)
-#define KR_RMG (KR_R | KR_M | KR_G)
-#define KR_WMG (KR_W | KR_M | KR_G)
-#define KR_WCMG (KR_W | KR_C | KR_M | KR_G)
-#define KR_RCMG (KR_R | KR_C | KR_M | KR_G)
+#define KR_RWM (KR_R | KR_W | KR_M)
+#define KR_RWCM (KR_R | KR_W | KR_C | KR_M)
 #define KR_RM (KR_R | KR_M)
 #define KR_WM (KR_W | KR_M)
 #define KR_RC (KR_R | KR_C)
 #define KR_WC (KR_W | KR_C)
-#define KR_WCG (KR_W | KR_C | KR_G)
-#define KR_RCG (KR_R | KR_C | KR_G)
-#define KR_WG (KR_W | KR_G)
-#define KR_GG (KR_R | KR_G)
+#define KR_RCM	(KR_R | KR_C | KR_M)
+#define KR_WCM	(KR_W | KR_C | KR_M)
 
 /*
  * kobject related API.

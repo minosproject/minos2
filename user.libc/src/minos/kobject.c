@@ -30,15 +30,26 @@ int kobject_create_notify(int right, int right_req)
 	return kobject_create(KOBJ_TYPE_NOTIFY, right, right_req, 0);
 }
 
-int kobject_create_pma(int right, int right_req, size_t memsize)
+static int __kobject_create_pma(int right, int right_req, size_t memsize, int consequent)
 {
 	int nr = PAGE_NR(memsize);
 	struct pma_create_arg args;
 
 	args.cnt = nr;
+	args.consequent = consequent;
 	args.type = PMA_TYPE_NORMAL;
 	args.start = 0;
 	args.end = 0;
 
 	return kobject_create(KOBJ_TYPE_PMA, right, right_req, (unsigned long)&args);
+}
+
+int kobject_create_pma(int right, int right_req, size_t memsize)
+{
+	return __kobject_create_pma(right, right_req, memsize, 0);
+}
+
+int kobject_create_consequent_pma(int right, int right_req, size_t memsize)
+{
+	return __kobject_create_pma(right, right_req, memsize, 1);
 }

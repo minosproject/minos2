@@ -23,7 +23,7 @@
 
 #include "kobject_copy.h"
 
-#define PORT_RIGHT (KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT)
+#define PORT_RIGHT KOBJ_RIGHT_RW
 
 struct port {
 	struct task *recv_task;

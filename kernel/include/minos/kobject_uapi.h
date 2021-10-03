@@ -9,10 +9,6 @@
 #define KOBJ_RIGHT_CTL		0x0010		// can control the releated kobject
 #define KOBJ_RIGHT_MASK		0x001f
 
-#define KOBJ_RIGHT_SHARED	(1 << 16)	// can be shared, for example PMA
-#define KOBJ_RIGHT_NONBLOCK	(1 << 17)	// read and write is non-blocked
-#define KOBJ_RIGHT_GRANT	(1 << 18)	// this kobject can be changed owner.
-
 #define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
 #define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)
 #define KOBJ_RIGHT_RWX		(KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
@@ -51,6 +47,7 @@ enum {
 	KOBJ_PROCESS_VA2PA,
 	KOBJ_PROCESS_EXIT,
 	KOBJ_PROCESS_PF_DONE,
+	KOBJ_PROCESS_GRANT_RIGHT,
 };
 
 struct process_create_arg {
@@ -69,16 +66,19 @@ enum {
 	PMA_TYPE_NORMAL = 0,
 	PMA_TYPE_MMIO,
 	PMA_TYPE_DMA,
+	PMA_TYPE_PMEM,
 	PMA_TYPE_MAX
 };
 
 enum {
 	KOBJ_PMA_ADD_PAGES = 0x4000,
+	KOBJ_PMA_GET_SIZE,
 };
 
 struct pma_create_arg {
 	int cnt;
 	int type;
+	int consequent;
 	unsigned long start;
 	unsigned long end;
 };

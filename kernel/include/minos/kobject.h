@@ -7,9 +7,14 @@
 
 #include <minos/kobject_uapi.h>
 
+#define KOBJ_RIGHT_GRANT	(1 << 16)	// can be granted to other process.
+#define KOBJ_RIGHT_VMCTL	(1 << 17)	// for process, can do some VM ctl.
+#define KOBJ_RIGHT_HWCTL	(1 << 18)	// can request hardware kobject.
+#define KOBJ_RIGHT_KERNEL_MASK	\
+	(KOBJ_RIGHT_GRANT | KOBJ_RIGHT_VMCTL | KOBJ_RIGHT_HWCTL)
+
 struct task;
 struct process;
-struct ipc_msg;
 struct kobject_ops;
 struct poll_struct;
 

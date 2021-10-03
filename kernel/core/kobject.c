@@ -41,12 +41,6 @@ static void kobject_release(struct kobject *kobj)
 		kobj->ops->release(kobj);
 }
 
-/*
- * get -> put case
- * kobject_create  -> kobject_close
- * kobject_connect -> kobject_close
- * get_kobject     -> put_kobject
- */
 int kobject_get(struct kobject *kobj)
 {
 	int old;
@@ -107,24 +101,27 @@ struct kobject *kobject_create(int type, right_t right,
 
 	ops = kobj_create_cbs[type];
 	if (!ops)
-		return ERROR_PTR(-EACCES);
+		return ERROR_PTR(-EOPNOTSUPP);
 
 	kobj = ops(right, right_req, data);
 	if (IS_ERROR_PTR(kobj))
 		return kobj;
 
+	/*
+	 * in case some kobject do not call the kobject_init
+	 * function to init the kobject.
+	 */
 	kobj->type = type;
+
 	return kobj;
 }
 
 int kobject_poll(struct kobject *ksrc, struct kobject *kdst, int event, bool enable)
 {
-	int ret = 0;
-
 	if (ksrc->ops && ksrc->ops->poll)
-		ret = ksrc->ops->poll(ksrc, kdst, event, enable);
-
-	return ret;
+		return ksrc->ops->poll(ksrc, kdst, event, enable);
+	else
+		return 0;
 }
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right)

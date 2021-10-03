@@ -454,14 +454,14 @@ static struct kobject *poll_hub_create(right_t right,
 	struct poll_hub *peh;
 
 	if ((right & POLL_HUB_RIGHT) != POLL_HUB_RIGHT)
-		return ERROR_PTR(EPERM);
+		return ERROR_PTR(-EPERM);
 
 	if (right != right_req)
-		return ERROR_PTR(EPERM);
+		return ERROR_PTR(-EPERM);
 
 	peh = zalloc(sizeof(struct poll_hub));
 	if (!peh)
-		return ERROR_PTR(ENOMEM);
+		return ERROR_PTR(-ENOMEM);
 
 	init_list(&peh->event_list);
 	spin_lock_init(&peh->lock);

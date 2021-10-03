@@ -223,7 +223,7 @@ void process_die(void)
 {
 	gp_regs *regs = current_regs;
 
-	if (current_proc->pid == 1) {
+	if (is_root_process(current_proc)) {
 		pr_fatal("root service exit 0x%x %d\n", regs->pc, regs->x0);
 		panic("root service hang, system crash");
 	}

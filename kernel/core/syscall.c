@@ -55,23 +55,18 @@ handle_t sys_kobject_create(int type, right_t right,
 		right_t right_req, unsigned long data)
 {
 	struct kobject *kobj;
-	handle_t handle;
 
-	if ((type >= KOBJ_TYPE_MAX) || (type <= 0))
-		return -EINVAL;
-
+	right_req &= ~KOBJ_RIGHT_MASK;
 	kobj = kobject_create(type, right, right_req, data);
 	if (IS_ERROR_PTR(kobj))
 		return (handle_t)(long)(kobj);
 
 	/*
-	 * visable for all the threads in this process.
+	 * visable for all the threads in this process, and
+	 * the owner of this kobject have the GRANT right for
+	 * this kobject.
 	 */
-	handle = alloc_handle(kobj, right_req);
-	if (handle <= 0)
-		return -ENOSPC;
-
-	return handle;
+	return alloc_handle(kobj, right_req | KOBJ_RIGHT_GRANT);
 }
 
 int sys_kobject_open(handle_t handle)

@@ -22,11 +22,9 @@
 #include <minos/irq.h>
 #include <minos/poll.h>
 
-#define kobj_to_irqdesc(kobj)	\
-	(struct irq_desc *)kobj->data
+#define kobj_to_irqdesc(kobj) (struct irq_desc *)kobj->data
 
-#define IRQ_KOBJ_RIGHT	\
-	(KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT)
+#define IRQ_KOBJ_RIGHT	KOBJ_RIGHT_RW
 
 static int irq_kobj_open(struct kobject *kobj, handle_t handle, right_t rigt)
 {
@@ -123,30 +121,27 @@ static struct kobject *irq_kobject_create(right_t right,
 	/*
 	 * only root service can create an irq kobject.
 	 */
-	if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
-		return ERROR_PTR(EPERM);
-
-	if ((right & IRQ_KOBJ_RIGHT) != right)
-		pr_warn("request unsupport right for irq 0x%x\n", right);
+	if (!proc_can_hwctl(current_proc))
+		return ERROR_PTR(-EPERM);
 
 	if ((irqnum < SPI_IRQ_BASE) || (irqnum > BAD_IRQ))
-		return ERROR_PTR(EINVAL);
+		return ERROR_PTR(-EINVAL);
 
 	idesc = get_irq_desc(irqnum);
 	if (!idesc)
-		return ERROR_PTR(ENOENT);
+		return ERROR_PTR(-ENOENT);
 
 	if (idesc->kobj)
-		return ERROR_PTR(EBUSY);
+		return ERROR_PTR(-EBUSY);
 
 	kobj = zalloc(sizeof(struct kobject));
 	if (!kobj)
-		return ERROR_PTR(ENOMEM);
+		return ERROR_PTR(-ENOMEM);
 
 	idesc->poll_event = (struct poll_event_kernel *)alloc_poll_event();
 	if (!idesc->poll_event) {
 		free(kobj);
-		return ERROR_PTR(ENOMEM);
+		return ERROR_PTR(-ENOMEM);
 	}
 
 	idesc->kobj = kobj;

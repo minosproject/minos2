@@ -122,32 +122,31 @@ static int process_page_fault_done(struct process *proc, int tid)
 	return wake_up(task, 0);
 }
 
-static long process_ctl(struct kobject *kobj, int req, unsigned long data)
+static int process_grant_right(struct process *proc, right_t right)
 {
-	struct process *proc = (struct process *)kobj->data;
+	right &= ~KOBJ_RIGHT_KERNEL_MASK;
+	proc->kobj.right |= right;
+	return 0;
+}
+
+static long do_process_ctl(struct process *proc, int req, unsigned long data)
+{
 	unsigned long addr;
 
 	switch (req) {
 	case KOBJ_PROCESS_GET_PID:
 		return proc->pid;
 	case KOBJ_PROCESS_SETUP_SP:
-		if (current_proc == proc)
-			return -EPERM;
 		arch_set_task_user_stack(proc->head, data);
 		return 0;
 	case KOBJ_PROCESS_WAKEUP:
-		wake_up(proc->head, 0);
-		return 0;
+		return wake_up(proc->head, 0);
 	case KOBJ_PROCESS_VA2PA:
-		// if (!(kobj->right & KOBJ_RIGHT_HEAP_SELFCTL))
-		//	return -1;
 		addr = translate_va_to_pa(&proc->vspace, data);
 		if (addr == INVALID_ADDR)
 			addr = -1;
 		return addr;
 	case KOBJ_PROCESS_PF_DONE:
-		if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
-			return -EPERM;
 		return process_page_fault_done(proc, (int)data);
 	case KOBJ_PROCESS_EXIT:
 		/*
@@ -159,12 +158,45 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 	case KOBJ_PROCESS_SETUP_REG0:
 		arch_set_task_reg0(proc->head, data);
 		return 0;
+	case KOBJ_PROCESS_GRANT_RIGHT:
+		return process_grant_right(proc, (right_t)data);
 	default:
-		pr_err("%s unsupport ctl reqeust %d\n", __func__, req);
 		break;
 	}
 
 	return -EPROTONOSUPPORT;
+}
+
+static long process_ctl(struct kobject *kobj, int req, unsigned long data)
+{
+	struct process *proc = (struct process *)kobj->data;
+
+	switch (req) {
+	case KOBJ_PROCESS_SETUP_SP:
+	case KOBJ_PROCESS_WAKEUP:
+	case KOBJ_PROCESS_PF_DONE:
+	case KOBJ_PROCESS_SETUP_REG0:
+	case KOBJ_PROCESS_GRANT_RIGHT:
+		/*
+		 * only root process can call these operations.
+		 */
+		if (!is_root_process(current_proc))
+			return -EPERM;
+		break;
+	case KOBJ_PROCESS_EXIT:
+		if (current_proc != proc)
+			return -EPERM;
+		break;
+	case KOBJ_PROCESS_VA2PA:
+		if (!(current_proc->kobj.right & KOBJ_RIGHT_VMCTL))
+			return -EPERM;
+		break;
+	default:
+		pr_err("%s unsupport ctl reqeust %d\n", __func__, req);
+		return -EPERM;
+	}
+
+	return do_process_ctl(proc, req, data);
 }
 
 static void process_release(struct kobject *kobj)

@@ -38,6 +38,21 @@ struct process {
 	struct task *request_current;
 };
 
+static inline int is_root_process(struct process *proc)
+{
+	return (proc->kobj.right == KOBJ_RIGHT_ROOT);
+}
+
+static inline int proc_can_vmctl(struct process *proc)
+{
+	return !!(proc->kobj.right & KOBJ_RIGHT_VMCTL);
+}
+
+static inline int proc_can_hwctl(struct process *proc)
+{
+	return !!(proc->kobj.right & KOBJ_RIGHT_HWCTL);
+}
+
 #define for_all_task_in_process(proc, task)	\
 	for (task = proc->head; task != NULL; task = task->next)
 

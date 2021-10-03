@@ -30,7 +30,7 @@
 #define EP_STAT_CLOSED 1
 #define EP_STAT_OPENED 0
 
-#define EP_RIGHT (KOBJ_RIGHT_RW | KOBJ_RIGHT_GRANT | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_CTL)
+#define EP_RIGHT (KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_CTL)
 
 struct endpoint {
 	struct task *recv_task;			// which task is receiveing data from this endpoint.

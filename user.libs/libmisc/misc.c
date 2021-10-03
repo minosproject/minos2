@@ -1,9 +1,10 @@
 /*
+ * SPDX-License-Identifier: GPL-2.0
+ *
  * Copyright (C) 2020 Min Le (lemin9538@gmail.com)
  */
 
 #include <stdlib.h>
-#include <minos/debug.h>
 #include <string.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -65,4 +66,9 @@ int get_mmio_handles(int argc, char **argv, int *handles, int cnt)
 int get_dma_handles(int argc, char **argv, int *handles, int cnt)
 {
 	return get_resource_handles(argc, argv, "dma@", handles, cnt);
+}
+
+int get_handles(int argc, char **argv, int *handles, int cnt)
+{
+	return get_resource_handles(argc, argv, "handle@", handles, cnt);
 }

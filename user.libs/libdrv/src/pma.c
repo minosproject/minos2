@@ -9,5 +9,5 @@
 
 int request_pma(size_t memsize)
 {
-	return kobject_create_pma(KR_RW | KR_S | KR_M, KR_RW | KR_S | KR_M, memsize);
+	return kobject_create_pma(KR_RWCM, KR_RWM, memsize);
 }

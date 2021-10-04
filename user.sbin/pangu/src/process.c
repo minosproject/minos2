@@ -24,7 +24,6 @@
 #include <pangu/proc.h>
 #include <pangu/ramdisk.h>
 #include <pangu/elf.h>
-#include <pangu/resource.h>
 #include <pangu/request.h>
 #include <pangu/mm.h>
 
@@ -46,6 +45,7 @@ struct nvwa_proto {
 
 static LIST_HEAD(execv_request_list);
 static char proto_buf[PAGE_SIZE];
+static char argv_buf[512];
 
 static struct process proc_self;
 struct process *self = &proc_self;
@@ -86,24 +86,8 @@ static int sys_create_process(char *name, unsigned long entry,
 	return kobject_create(KOBJ_TYPE_PROCESS, right, KR_RC, (unsigned long)&args);
 }
 
-static int prepare_driver_resource(struct process *proc)
-{
-	struct resource *resource = proc->resource;
-
-	while (resource) {
-		resource->client = grant(proc->proc_handle,
-				resource->handle, RES_DEFAULT_RIGHT);
-		if (resource->client <= 0)
-			return -EIO;
-		resource = resource->next;
-	}
-
-	return 0;
-}
-
 static struct process *create_new_process(char *name, unsigned long entry,
-			int elf_pma, unsigned long elf_base,
-			size_t elf_size, int flags, void *pdata)
+		int elf_pma, unsigned long elf_base, size_t elf_size, int flags)
 {
 	struct process *proc;
 
@@ -113,10 +97,10 @@ static struct process *create_new_process(char *name, unsigned long entry,
 
 	proc->proc_handle = -1;
 	proc->flags = flags;
-	proc->pdata = pdata;
 	strcpy(proc->name, name);
 
-	proc->proc_handle = sys_create_process(name, entry, PROCESS_STACK_BASE, -1, -1, flags);
+	proc->proc_handle = sys_create_process(name,
+			entry, PROCESS_STACK_BASE, -1, -1, flags);
 	if (proc->proc_handle <= 0) {
 		kfree(proc);
 		return NULL;
@@ -126,15 +110,6 @@ static struct process *create_new_process(char *name, unsigned long entry,
 
 	if (process_mm_init(proc, elf_pma, elf_base, elf_size))
 		goto err_out;
-
-	if (flags & TASK_FLAGS_DRV) {
-		if (prepare_driver_resource(proc)) {
-			pr_err("failed to setup the resource for driver\n");
-			goto err_out;
-		}
-	}
-
-	register_request_entry(REQUEST_TYPE_PROCESS, proc->proc_handle, proc);
 
 	return proc;
 
@@ -213,7 +188,7 @@ static void *setup_argv(void *top, int argc, char **argv)
 static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 {
 	Elf64_auxv_t *auxp = (Elf64_auxv_t *)top;
-	int fuxi;
+	int fuxi, chiyou;
 
 	NEW_AUX_ENT(auxp, AT_NULL, 0);
 	NEW_AUX_ENT(auxp, AT_PAGESZ, PAGE_SIZE);
@@ -232,44 +207,15 @@ static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 			NEW_AUX_ENT(auxp, AT_ROOTFS_HANDLE, fuxi);
 	}
 
-	return (void *)auxp;
-}
-
-static void *prepare_driver_process_argv(struct process *proc,
-		void *stack, char **argv, int *argc)
-{
-	struct resource *tmp = proc->resource;
-	int irq_len = 4, mmio_len = 5, cnt = *argc;
-	char mmio_buf[128];
-	char irq_buf[128];
-
-	strcpy(mmio_buf, "mmio@");
-	strcpy(irq_buf, "irq@");
-
-	while (tmp) {
-		if (tmp->type == RES_TYPE_MMIO) {
-			pr_debug("add mmio 0x%lx 0x%lx\n", tmp->start, tmp->end);
-			mmio_len += sprintf(&mmio_buf[mmio_len], "%d,", tmp->client);
-		} else if (tmp->type == RES_TYPE_IRQ) {
-			pr_debug("add irq %d %d\n", tmp->start, tmp->end);
-			irq_len += sprintf(&irq_buf[irq_len], "%d,", tmp->client);
-		} else {
-			pr_warn("resource do not support\n");
-		}
-		tmp = tmp->next;
+	if (chiyou_handle > 0) {
+		chiyou = grant(proc->proc_handle, chiyou_handle, KR_W);
+		if (chiyou <= 0)
+			pr_err("grant chiyou handle to process fail\n");
+		else
+			NEW_AUX_ENT(auxp, AT_CHIYOU_HANDLE, chiyou);
 	}
 
-	/*
-	 * remove the latest char ',' at mmio and irq string.
-	 */
-	mmio_buf[mmio_len - 1] = 0;
-	irq_buf[irq_len - 1] = 0;
-	stack = copy_argv_string(stack, cnt++, argv, mmio_buf);
-	stack = copy_argv_string(stack, cnt++, argv, irq_buf);
-
-	*argc = cnt;
-
-	return stack;
+	return (void *)auxp;
 }
 
 static void *prepare_process_argv(struct process *proc, char *name,
@@ -292,14 +238,6 @@ static void *prepare_process_argv(struct process *proc, char *name,
 	 */
 	for (i = 0; i < cnt; i++)
 		stack = copy_argv_string(stack, i, new_argv, argv[i]);
-
-	if (proc->flags & TASK_FLAGS_DRV) {
-		stack = prepare_driver_process_argv(proc, stack, new_argv, &cnt);
-		if (stack == NULL) {
-			pr_err("copy argv to process failed\n");
-			return NULL;
-		}
-	}
 
 	/*
 	 * add process name to the latest argv in the buffer.
@@ -349,8 +287,10 @@ static int setup_process(struct process *proc, char *path, int argc, char **argv
 
 	name = file_path_to_proc_name(path);
 	stack = prepare_process_argv(proc, name, stack, &argc, argv, new_argv);
-	if (stack == NULL)
+	if (stack == NULL) {
+		ret = -ENOMEM;
 		goto err_setup_argv;
+	}
 
 	/*
 	 * convert the memory address of argv to the process's
@@ -372,25 +312,62 @@ static int setup_process(struct process *proc, char *path, int argc, char **argv
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_SETUP_SP,
 			PROCESS_STACK_TOP - (origin - stack));
 
-	unmap_self_memory(tmp);
-
-	return 0;
-
 err_setup_argv:
 	unmap_self_memory(tmp);
 err_map_stack_mem:
-	free_pages(argv);
+	free_pages(new_argv);
 
 	return ret;
 }
 
-struct process *load_ramdisk_process(char *path, int argc, char **argv,
-		unsigned long flags, void *pdata)
+static int setup_process_handles(struct process *proc, char *buf,
+		struct handle_desc *hdesc, int num_handle)
+{
+	int *htarget;
+	char *tmp;
+	int i, size;
+
+	if (num_handle <= 0 || !hdesc)
+		return 0;
+
+	htarget = kzalloc(sizeof(int) * num_handle);
+	if (!htarget)
+		return -ENOMEM;
+
+	for (i = 0; i < num_handle; i++) {
+		htarget[i] = grant(proc->proc_handle,
+				hdesc[i].handle, hdesc[i].right);
+		if (htarget[i] <= 0) {
+			pr_err("grant %d to process %s failed\n",
+					hdesc[i].handle, proc->name);
+		}
+	}
+
+	size = sprintf(buf, "%s", "handle@");
+	tmp = buf + size;
+
+	for (i = 0; i < num_handle; i++) {
+		if (i == (num_handle - 1))
+			size = sprintf(tmp, "%d", htarget[i]);
+		else
+			size = sprintf(tmp, "%d,", htarget[i]);
+		tmp += size;
+	}
+
+	*tmp = 0;
+	pr_info("handle send to %s [%s]\n", proc->name, buf);
+	kfree(htarget);
+
+	return 0;
+}
+
+struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int num_handle, int flags)
 {
 	struct process *proc;
 	struct ramdisk_file rfile;
-	int ret;
 	struct elf_ctx ctx;
+	char *argv[2] = {argv_buf, NULL};
+	int ret;
 
 	ret = ramdisk_open(path, &rfile);
 	if (ret) {
@@ -403,7 +380,7 @@ struct process *load_ramdisk_process(char *path, int argc, char **argv,
 		return NULL;
 
 	proc = create_new_process(path, ctx.ehdr.e_entry, 0,
-			ctx.base_load_vbase, ctx.memsz, flags, pdata);
+			ctx.base_load_vbase, ctx.memsz, flags);
 	if (!proc)
 		return NULL;
 
@@ -415,17 +392,30 @@ struct process *load_ramdisk_process(char *path, int argc, char **argv,
 
 	/*
 	 * all the resource is ok now, setup the process
-	 * to prepare run it.
+	 * to prepare run it. before setup the argv, need to pass
+	 * the handle to the process, which are needed for this
+	 * process.
 	 */
-	ret = setup_process(proc, path, argc, argv);
+	ret = setup_process_handles(proc, argv_buf, hdesc, num_handle);
 	if (ret) {
-		release_process(proc);
-		return NULL;
+		pr_err("setup process handles fail\n");
+		goto out_err;
 	}
 
+	ret = setup_process(proc, path, 1, argv);
+	if (ret) {
+		pr_err("set up process failed\n");
+		goto out_err;
+	}
+
+	register_request_entry(REQUEST_TYPE_PROCESS, proc->proc_handle, proc);
 	list_add_tail(&process_list, &proc->list);
 
 	return proc;
+
+out_err:
+	release_process(proc);
+	return NULL;
 }
 
 void wakeup_process(struct process *proc)
@@ -520,8 +510,8 @@ static int send_elf_load_request(struct process *proc, const char *path, struct 
 	 * grant the pma handle to the nvwa process, so that nvwa
 	 * can allocate memory for the elf file.
 	 */
-	er->pma_handle = create_pma(PMA_TYPE_NORMAL, KR_RWCG | KR_X,
-			KR_RWCG | KR_X, 0, 0);
+	er->pma_handle = create_pma(PMA_TYPE_NORMAL, KR_RWC | KR_X,
+			KR_RWC | KR_X, 0, 0);
 	if (er->pma_handle <= 0)
 		return er->pma_handle;
 
@@ -653,7 +643,7 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 
 	new = create_new_process(extra->path, proto->elf_info.entry,
 			er->pma_handle, proto->elf_info.elf_base,
-			proto->elf_info.elf_size, 0, NULL);
+			proto->elf_info.elf_size, 0);
 	if (!new)
 		return -ENOMEM;
 
@@ -663,8 +653,10 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	else
 		list_add_tail(&process_list, &new->list);
 
-	kfree(argv);
+	register_request_entry(REQUEST_TYPE_PROCESS, new->proc_handle, new);
+
 	wakeup_process(new);
+	kfree(argv);
 
 	return new->pid;
 }

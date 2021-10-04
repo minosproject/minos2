@@ -4,7 +4,6 @@
 #include <minos/list.h>
 #include <minos/types.h>
 
-#include <pangu/resource.h>
 #include <pangu/mm.h>
 
 #define TASK_FLAGS_SRV			BIT(0)
@@ -17,7 +16,16 @@
 
 #define PROCESS_NAME_SIZE 64
 
+#define KOBJ_RIGHT_GRANT	(1 << 16)	// can be granted to other process.
+#define KOBJ_RIGHT_VMCTL	(1 << 17)	// for process, can do some VM ctl.
+#define KOBJ_RIGHT_HWCTL	(1 << 18)	// can request hardware kobject.
+
 struct request_entry;
+
+struct handle_desc {
+	int handle;
+	int right;
+};
 
 struct process {
 	int pid;
@@ -41,11 +49,6 @@ struct process {
 	unsigned long brk_start;
 	unsigned long brk_cur;
 
-	union {
-		struct resource *resource;
-		void *pdata;
-	};
-
 	struct list_head list;		// link to all the process in the system.
 	char name[0];
 };
@@ -58,6 +61,7 @@ extern struct process *nvwa_proc;
 
 extern int fuxi_handle;
 extern int nvwa_handle;
+extern int chiyou_handle;
 extern int proc_epfd;
 
 extern struct list_head process_list;
@@ -82,8 +86,8 @@ void handle_process_request(struct epoll_event *event,
 void handle_procfs_request(struct epoll_event *event,
 		struct request_entry *re);
 
-struct process *load_ramdisk_process(char *path, int argc, char **argv,
-		unsigned long flags, void *pdata);
+struct process *load_ramdisk_process(char *path,
+		struct handle_desc *hdesc, int num_handle, int flags);
 
 struct process *find_process_by_name(const char *name);
 

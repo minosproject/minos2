@@ -18,14 +18,66 @@
 #include <minos/proto.h>
 #include <minos/service.h>
 
-#include <vfs/file.h>
-
 #include <pangu/kmalloc.h>
 #include <pangu/request.h>
 #include <pangu/proc.h>
 
+struct file {
+	uint8_t root;
+	uint8_t type;
+	int f_flags;
+	int handle;
+	int sbuf_size;
+	void *sbuf;
+	struct process *pdata;
+};
+
+#define FILE_RIGHT	(KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP)
+#define FILE_REQ_RIGHT	(KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP)
+
 static char strbuf[FILENAME_MAX];
 static struct file root_file;
+
+static struct file *create_file(int flags, int mode)
+{
+	struct file *f;
+	int handle;
+	void *addr;
+
+	handle = kobject_create_endpoint(FILE_RIGHT, FILE_REQ_RIGHT, PAGE_SIZE);
+	if (handle <= 0)
+		return NULL;
+
+	addr = kobject_mmap(handle);
+	if (addr == (void *)-1) {
+		kobject_close(handle);
+		return NULL;
+	}
+
+	f = kzalloc(sizeof(struct file));
+	if (f == NULL) {
+		kobject_close(handle);
+		return NULL;
+	}
+
+	f->f_flags = flags;
+	f->sbuf_size = PAGE_SIZE;
+	f->sbuf = addr;
+	f->handle = handle;
+	f->pdata = NULL;
+
+	return f;
+}
+
+static void release_file(struct file *file)
+{
+	if (!file)
+		return;
+
+	kobject_munmap(file->handle);
+	kobject_close(file->handle);
+	kfree(file);
+}
 
 static struct file *create_procfs_file(struct proto *proto, struct process *proc)
 {
@@ -42,7 +94,7 @@ static struct file *create_procfs_file(struct proto *proto, struct process *proc
 	if (proc == NULL)
 		file->pdata = list_first_entry(&process_list, struct process, list);
 	else
-		proc->pdata = proc;
+		file->pdata = proc;
 
 	ret = register_request_entry(REQUEST_TYPE_PROCFS, file->handle, file);
 	if (ret) {
@@ -223,6 +275,7 @@ void procfs_init(void)
 		exit(-ENOSPC);
 
 	root_file.handle = rootfd;
+	root_file.root = 1;
 
 	if (register_request_entry(REQUEST_TYPE_PROCFS, rootfd, &root_file)) {
 		pr_err("register procfs service failed\n");

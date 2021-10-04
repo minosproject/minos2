@@ -1,6 +1,6 @@
 TARGET 		= pangu.srv
 APP_CFLAGS 	= -I./include
-APP_LINK_LIBS	= fdt vfs
+APP_LINK_LIBS	= fdt
 
 SRC_C	:= $(wildcard src/*.c)
 

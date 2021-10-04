@@ -607,6 +607,7 @@ typedef struct {
 
 /* dedicated for minos */
 #define AT_ROOTFS_HANDLE 61
+#define AT_CHIYOU_HANDLE 62
 
 struct elf_ctx {
 	Elf_Addr base_load_vbase;

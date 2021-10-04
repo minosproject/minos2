@@ -29,9 +29,14 @@
 int proc_epfd;
 int fuxi_handle;
 int nvwa_handle;
+int chiyou_handle;
+
+int setup_mem_handle;
 
 struct process *rootfs_proc;
 struct process *nvwa_proc;
+struct process *chiyou_proc;
+struct process *fuxi_proc;
 
 unsigned long heap_base, heap_end;
 
@@ -193,110 +198,110 @@ static int start_and_wait_process(struct process *proc)
 
 static int load_nvwa_service(void)
 {
-	struct process *proc;
-	int ret;
+	struct handle_desc hdesc[1];
 	
-	nvwa_handle = kobject_create_endpoint(KR_RWG, KR_WG, 0);
+	nvwa_handle = kobject_create_endpoint(KR_RW, KR_W, 0);
 	if (nvwa_handle <= 0)
 		return nvwa_handle;
 
-	proc = load_ramdisk_process("nvwa.srv", 0, NULL, TASK_FLAGS_SRV, NULL);
-	if (proc == NULL)
+	hdesc[0].handle = nvwa_handle;
+	hdesc[0].right = KR_R;
+	nvwa_proc = load_ramdisk_process("nvwa.srv", hdesc, 1, TASK_FLAGS_DRV);
+	if (nvwa_proc == NULL)
 		return -ENOMEM;
 
-	ret = grant(proc->proc_handle, nvwa_handle, KR_R);
-	if (ret <= 0)
-		return ret;
+	return start_and_wait_process(nvwa_proc);
+}
 
-	ret = kobject_ctl(proc->proc_handle, KOBJ_PROCESS_SETUP_REG0, ret);
-	if (ret)
-		return ret;
+static int load_chiyou_service(void)
+{
+	unsigned long pbase, pend;
+	struct pma_create_arg args;
+	struct handle_desc hdesc[2];
+	int handle;
 
-	nvwa_proc = proc;
+	/*
+	 * chiyou service will handle the dtb or setup
+	 * data, each driver or service will get information
+	 * from it.
+	 */
+	pbase = kobject_ctl(0, KOBJ_PROCESS_VA2PA, bootdata->dtb_start);
+	pend = kobject_ctl(0, KOBJ_PROCESS_VA2PA, bootdata->dtb_end);
+	assert(pend > pbase);
 
-	return start_and_wait_process(proc);
+	args.cnt = 0;
+	args.type = PMA_TYPE_PMEM;
+	args.consequent = 0;
+	args.start = pbase;
+	args.end = pend;
+	setup_mem_handle = kobject_create(KOBJ_TYPE_PMA, KR_RWCM,
+			KR_RW, (unsigned long)&args);
+	assert(setup_mem_handle > 0);
+
+	handle = kobject_create_port(KR_RW, KR_W);
+	assert(handle > 0);
+
+	hdesc[0].handle = handle;
+	hdesc[0].right = KR_R;
+	hdesc[1].handle = setup_mem_handle;
+	hdesc[1].right = KR_RWCM;
+
+	/*
+	 * the setup_mem_handle will pass to the chiyou service
+	 * then chiyou service can map it to its address space.
+	 */
+	chiyou_proc = load_ramdisk_process("chiyou.srv", hdesc, 2, TASK_FLAGS_SRV);
+	if (chiyou_proc)
+		return -ENOMEM;
+
+	chiyou_handle = handle;
+
+	return start_and_wait_process(chiyou_proc);
 }
 
 static int load_fuxi_service(void)
 {
-	struct process *proc;
-	int ret;
+	int ret, handle;
 
 	/*
 	 * create the endpoint for fuxi service, that it
 	 * can commuicate with other process, this endpoint
 	 * will grant to fuxi service
 	 */
-	fuxi_handle = kobject_create_port(KR_RWG, KR_WG);
-	if (fuxi_handle <= 0)
-		return fuxi_handle;
+	handle = kobject_create_port(KR_RW, KR_W);
+	if (handle <= 0)
+		return handle;
 
-	proc = load_ramdisk_process("fuxi.srv", 0, NULL, TASK_FLAGS_SRV, NULL);
-	if (proc == NULL)
+	fuxi_proc = load_ramdisk_process("fuxi.srv", NULL, 0, TASK_FLAGS_SRV);
+	if (fuxi_proc == NULL)
 		return -ENOMEM;
 
-	/*
-	 * fuxi service will be the second process in the process
-	 * list after self_init()
-	 */
-	ret = grant(proc->proc_handle, fuxi_handle, KR_R);
+	ret = grant(fuxi_proc->proc_handle, handle, KR_R);
 	if (ret <= 0)
 		return ret;
 
-	ret = kobject_ctl(proc->proc_handle, KOBJ_PROCESS_SETUP_REG0, ret);
+	ret = kobject_ctl(fuxi_proc->proc_handle, KOBJ_PROCESS_SETUP_REG0, ret);
 	if (ret)
 		return ret;
 
-	return start_and_wait_process(proc);
+	fuxi_handle = handle;
+
+	return start_and_wait_process(fuxi_proc);
 }
 
 static int load_rootfs_driver(void)
 {
-	char *buf, *drv_name, *dev_name;
 	char *path = NULL;
-	struct resource *res;
 	int ret;
 
 	ret = bootarg_parse_string("rootfs", &path);
-	if (ret)
-		path = rootfs_default;
+	path = ret ? rootfs_default : path;
+	rootfs_proc = load_ramdisk_process(path, NULL, 0, TASK_FLAGS_DRV);
+	if (rootfs_proc == NULL)
+		return -ENOENT;
 
-	buf = kmalloc(strlen(path) + 1);
-	if (!buf)
-		return -ENOMEM;
-
-	/*
-	 * rootfs cmdline need to be as below format
-	 *   rootfs="virtioblk.drv@virtio_block"
-	 */
-	strcpy(buf, path);
-	path = strchr(buf, '@');
-	if (!path) {
-		ret = -ENOENT;
-		goto out;
-	}
-
-	*path = 0;
-	drv_name = buf;
-	dev_name = path + 1;
-
-	ret = request_device_resource(dev_name, &res);
-	if (ret)
-		goto out;
-
-	rootfs_proc = load_ramdisk_process(drv_name, 0, NULL, TASK_FLAGS_DRV, res);
-	if (rootfs_proc == NULL) {
-		ret = -ENOENT;
-		goto err_release_resource;
-	}
-
-	return 0;
-
-err_release_resource:
-	release_resource(res);
-out:
-	kfree(buf);
-	return ret;
+	return kobject_ctl(rootfs_proc->proc_handle,
+			KOBJ_PROCESS_GRANT_RIGHT, KOBJ_RIGHT_VMCTL);
 }
 
 int main(int argc, char **argv)
@@ -340,6 +345,7 @@ int main(int argc, char **argv)
 
 	assert(!load_fuxi_service());
 	assert(!load_nvwa_service());
+	assert(!load_chiyou_service());
 	assert(!load_rootfs_driver());
 
 	/*

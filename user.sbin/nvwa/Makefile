@@ -1,5 +1,7 @@
 TARGET := nvwa.srv
 
+APP_LINK_LIBS	= misc
+
 SRC_C := nvwa.c elf_std.c
 APP_INSTALL_DIR := ramdisk
 

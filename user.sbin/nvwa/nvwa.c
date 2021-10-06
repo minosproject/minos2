@@ -126,8 +126,9 @@ static int nvwa_loop(void)
 {
 	long token;
 
-	pr_info("nvwa waitting elf load request with handle %d\n", nvwa_handle);
 	i_am_ok();
+
+	pr_info("nvwa waitting elf load request\n");
 
 	for (; ;) {
 		token = kobject_read_simple(nvwa_handle, &nvwa_proto,
@@ -150,8 +151,8 @@ int main(int argc, char **argv)
 
 	printf("\n\nNvWa service start...\n\n");
 
-	nvwa_handle = 5;
-	if (nvwa_handle <= 0) {
+	ret = get_handle(argc, argv, &nvwa_handle, 1);
+	if (ret || nvwa_handle <= 0) {
 		pr_err("can not get nvwa handle\n");
 		return -EINVAL;
 	}

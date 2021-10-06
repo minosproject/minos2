@@ -77,7 +77,7 @@ int kobject_create_pma(int right, int right_req, size_t memsize);
 static inline int kobject_reply_handle(int fd, long token,
 		int handle, int right)
 {
-	if (handle >= 0)
+	if (handle > 0)
 		return kobject_reply(fd, token, 0, handle, right);
 	else
 		return kobject_reply(fd, token, handle, 0, 0);

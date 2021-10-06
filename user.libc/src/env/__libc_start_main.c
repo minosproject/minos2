@@ -33,6 +33,7 @@ void __init_libc(char **envp, char *pn)
 	libc.page_size = aux[AT_PAGESZ];
 
 	libc.rootfs_handle = aux[AT_ROOTFS_HANDLE];
+	libc.chiyou_handle = aux[AT_CHIYOU_HANDLE];
 
 	if (!pn) pn = (void*)aux[AT_EXECFN];
 	if (!pn) pn = "";

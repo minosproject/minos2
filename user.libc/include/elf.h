@@ -1046,6 +1046,7 @@ typedef struct {
 
 /* dedicated for minos */
 #define AT_ROOTFS_HANDLE 61
+#define AT_CHIYOU_HANDLE 62
 
 typedef struct {
   Elf32_Word n_namesz;

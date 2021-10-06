@@ -27,6 +27,14 @@ enum {
 	PROTO_VFS_END,
 };
 
+enum {
+	PROTO_ROOTFS_READY,
+	PROTO_GET_MMIO,
+	PROTO_GET_IRQ,
+	PROTO_GET_DMA_CHANEL,
+	PROTO_GET_IOMMU_SID,
+};
+
 #define PROC_PROTO_BASE PROTO_IAMOK
 #define PROC_PROTO_END	PROTO_PROTO_EXECV
 #define PROC_PROTO_CNT	(PROTO_PROC_END - PROTO_IAMOK)
@@ -109,6 +117,11 @@ struct execv_extra {
 	char buf[0];
 };
 
+struct proto_devinfo {
+	uint32_t key;
+	int index;
+};
+
 struct proto {
 	long token;
 	int proto_id;
@@ -125,6 +138,7 @@ struct proto {
 		struct proto_elf_info elf_info;
 		struct proto_brk brk;
 		struct proto_register_service register_service;
+		struct proto_devinfo devinfo;
 	};
 };
 

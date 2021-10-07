@@ -58,6 +58,7 @@ typedef long (*syscall_hdl)(struct process *proc, struct proto *proto, void *dat
 extern struct process *self;
 extern struct process *rootfs_proc;
 extern struct process *nvwa_proc;
+extern struct process *chiyou_proc;
 
 extern int fuxi_handle;
 extern int nvwa_handle;

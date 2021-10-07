@@ -153,10 +153,9 @@ int create_pma(int type, int right, int right_req,
 		unsigned long base, size_t size)
 {
 	struct pma_create_arg args = {
-		.cnt = size >> PAGE_SHIFT,
+		.size = size,
 		.type = type,
 		.start = base,
-		.end = base + size,
 	};
 
 	return kobject_create(KOBJ_TYPE_PMA, right,

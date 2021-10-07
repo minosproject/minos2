@@ -185,7 +185,7 @@ static void *setup_argv(void *top, int argc, char **argv)
 		auxp->a_val = value;	\
 	} while (0)
 
-static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
+static void *setup_auxv(struct process *proc, void *top, int flags)
 {
 	Elf64_auxv_t *auxp = (Elf64_auxv_t *)top;
 	int fuxi, chiyou;
@@ -207,7 +207,7 @@ static void *setup_auxv(struct process *proc, void *top, unsigned long flags)
 			NEW_AUX_ENT(auxp, AT_ROOTFS_HANDLE, fuxi);
 	}
 
-	if (chiyou_handle > 0) {
+	if ((chiyou_handle > 0) && (flags & TASK_FLAGS_DRV)) {
 		chiyou = grant(proc->proc_handle, chiyou_handle, KR_W);
 		if (chiyou <= 0)
 			pr_err("grant chiyou handle to process fail\n");
@@ -258,7 +258,8 @@ static char *file_path_to_proc_name(char *path)
 		return name + 1;
 }
 
-static int setup_process(struct process *proc, char *path, int argc, char **argv)
+static int setup_process(struct process *proc, char *path,
+		int argc, char **argv, int flags)
 {
 	struct vma *stack_vma = &proc->init_stack_vma;
 	void *stack, *origin, *tmp;
@@ -358,7 +359,7 @@ static int setup_process_handles(struct process *proc, char *buf,
 	pr_info("handle send to %s [%s]\n", proc->name, buf);
 	kfree(htarget);
 
-	return 0;
+	return 1;
 }
 
 struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int num_handle, int flags)
@@ -397,12 +398,12 @@ struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int 
 	 * process.
 	 */
 	ret = setup_process_handles(proc, argv_buf, hdesc, num_handle);
-	if (ret) {
+	if (ret < 0) {
 		pr_err("setup process handles fail\n");
 		goto out_err;
 	}
 
-	ret = setup_process(proc, path, 1, argv);
+	ret = setup_process(proc, path, ret, argv, proc->flags);
 	if (ret) {
 		pr_err("set up process failed\n");
 		goto out_err;
@@ -594,13 +595,23 @@ static void load_init_process(void)
 	assert(!process_execv_handler(self, &proto, extra));
 }
 
+static void notify_chiyou_service(void)
+{
+	struct proto proto;
+
+	proto.proto_id = PROTO_ROOTFS_READY;
+	kobject_write(chiyou_handle, &proto, sizeof(struct proto), NULL, 0, -1);
+}
+
 static long process_iamok_handler(struct process *proc, struct proto *proto, void *data)
 {
 	/*
 	 * start the init process, current start the shell process.
 	 */
-	if (proc == rootfs_proc)
+	if (proc == rootfs_proc) {
 		load_init_process();
+		notify_chiyou_service();
+	}
 
 	return 0;
 }
@@ -624,7 +635,7 @@ static void handle_process_kernel_request(struct process *proc, struct epoll_eve
 static int __do_execv(struct proto *proto, struct execv_request *er)
 {
 	struct execv_extra *extra = er->data;
-	int i, ret = -EINVAL;
+	int i, ret = -EINVAL, flags;
 	struct process *new;
 	char *string;
 	char **argv;
@@ -632,6 +643,10 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	argv = kmalloc(sizeof(char *) * extra->argc);
 	if (!argv)
 		return -ENOMEM;
+
+	flags = extra->flags;
+	if (er->parent != chiyou_proc)
+		flags &= ~TASK_FLAGS_DRV;
 
 	/*
 	 * do not need to check again, since these content
@@ -643,11 +658,11 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 
 	new = create_new_process(extra->path, proto->elf_info.entry,
 			er->pma_handle, proto->elf_info.elf_base,
-			proto->elf_info.elf_size, 0);
+			proto->elf_info.elf_size, flags);
 	if (!new)
 		return -ENOMEM;
 
-	ret = setup_process(new, extra->path, extra->argc, argv);
+	ret = setup_process(new, extra->path, extra->argc, argv, flags);
 	if (ret)
 		release_process(new);
 	else

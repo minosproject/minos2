@@ -215,7 +215,7 @@ static int load_nvwa_service(void)
 
 static int load_chiyou_service(void)
 {
-	unsigned long pbase, pend;
+	unsigned long pbase;
 	struct pma_create_arg args;
 	struct handle_desc hdesc[2];
 	int handle;
@@ -225,15 +225,13 @@ static int load_chiyou_service(void)
 	 * data, each driver or service will get information
 	 * from it.
 	 */
-	pbase = kobject_ctl(0, KOBJ_PROCESS_VA2PA, bootdata->dtb_start);
-	pend = kobject_ctl(0, KOBJ_PROCESS_VA2PA, bootdata->dtb_end);
-	assert(pend > pbase);
+	pbase = (unsigned long)kobject_ctl(0, KOBJ_PROCESS_VA2PA, bootdata->dtb_start);
+	assert(pbase != -1);
 
-	args.cnt = 0;
 	args.type = PMA_TYPE_PMEM;
 	args.consequent = 0;
 	args.start = pbase;
-	args.end = pend;
+	args.size = bootdata->dtb_end - bootdata->dtb_start;
 	setup_mem_handle = kobject_create(KOBJ_TYPE_PMA, KR_RWCM,
 			KR_RW, (unsigned long)&args);
 	assert(setup_mem_handle > 0);
@@ -251,12 +249,14 @@ static int load_chiyou_service(void)
 	 * then chiyou service can map it to its address space.
 	 */
 	chiyou_proc = load_ramdisk_process("chiyou.srv", hdesc, 2, TASK_FLAGS_SRV);
-	if (chiyou_proc)
+	if (!chiyou_proc)
 		return -ENOMEM;
 
+	kobject_ctl(chiyou_proc->proc_handle, KOBJ_PROCESS_GRANT_RIGHT,
+			KOBJ_RIGHT_VMCTL | KOBJ_RIGHT_HWCTL);
 	chiyou_handle = handle;
 
-	return start_and_wait_process(chiyou_proc);
+	return kobject_ctl(chiyou_proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 }
 
 static int load_fuxi_service(void)

@@ -6,7 +6,7 @@
 
 int kobject_close(int handle)
 {
-	return syscall(SYS_kobject_open, handle);
+	return syscall(SYS_kobject_close, handle);
 }
 
 int kobject_create(int type, int right, int right_req, unsigned long data)

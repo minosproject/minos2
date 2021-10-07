@@ -158,7 +158,7 @@ static struct vreq *create_new_vreq(struct vnode *node)
 	 * create a normal endpoint which allow two process
 	 * to IPC with each other.
 	 */
-	vreq->handle = kobject_create_endpoint(KR_RWCMG, KR_RCMG, PAGE_SIZE);
+	vreq->handle = kobject_create_endpoint(KR_RWCM, KR_RCM, PAGE_SIZE);
 	if (vreq->handle <= 0)
 		goto err_create_endpoint;
 
@@ -255,10 +255,10 @@ static int create_service_kobject(struct vnode *node, struct proto *proto)
 
 	switch (proto->register_service.type) {
 	case SRV_PORT:
-		handle = kobject_create_port(KR_RWG, KR_WG);
+		handle = kobject_create_port(KR_RW, KR_W);
 		break;
 	case SRV_NOTIFY:
-		handle = kobject_create_notify(KR_RWG, KR_G);
+		handle = kobject_create_notify(KR_RW, 0);
 		break;
 	default:
 		handle = -1;

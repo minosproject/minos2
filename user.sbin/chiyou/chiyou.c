@@ -226,8 +226,10 @@ static int handle_chiyou_event(int loop)
 
 		if (proto.proto_id == PROTO_ROOTFS_READY) {
 			kobject_reply_errcode(chiyou_handle, proto.token, 0);
-			if (!loop)
+			if (!loop) {
+				pr_info("rootfs is ready, exit chiyou event loop\n");
 				break;
+			}
 		} else {
 			ret = do_handle_chiyou_event(&proto, buf);
 			if (ret <= 0) {

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <misc.h>
 #include <sys/mman.h>
 #include <sys/epoll.h>
 
@@ -151,8 +152,8 @@ int main(int argc, char **argv)
 
 	printf("\n\nNvWa service start...\n\n");
 
-	ret = get_handle(argc, argv, &nvwa_handle, 1);
-	if (ret || nvwa_handle <= 0) {
+	ret = get_handles(argc, argv, &nvwa_handle, 1);
+	if (ret != 1) {
 		pr_err("can not get nvwa handle\n");
 		return -EINVAL;
 	}

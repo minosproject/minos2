@@ -266,6 +266,8 @@ static inline struct device_node *alloc_device_node(void)
 		return NULL;
 	}
 
+	init_list(&node->resource_list);
+
 	return node;
 }
 

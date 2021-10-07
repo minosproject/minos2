@@ -56,10 +56,9 @@ static int create_mmio_handle(unsigned long base, unsigned long size)
 	struct pma_create_arg args;
 
 	size = PAGE_BALIGN(size);
-	args.cnt = size >> PAGE_SHIFT;
+	args.size = size;
 	args.type = PMA_TYPE_MMIO;
 	args.start = base;
-	args.end = base + size;
 
 	return kobject_create(KOBJ_TYPE_PMA,
 			KR_RWCM, KR_RWCM, (unsigned long)&args);
@@ -168,9 +167,6 @@ static int handle_get_irq(struct device_node *dnode, int index)
 	list_add_tail(&dnode->resource_list, &res->list);
 
 	return handle;
-
-
-	return 0;
 }
 
 static int handle_get_dma_channel(struct device_node *dnode, int index)

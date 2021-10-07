@@ -32,14 +32,12 @@ int kobject_create_notify(int right, int right_req)
 
 static int __kobject_create_pma(int right, int right_req, size_t memsize, int consequent)
 {
-	int nr = PAGE_NR(memsize);
 	struct pma_create_arg args;
 
-	args.cnt = nr;
+	args.size = memsize;
 	args.consequent = consequent;
 	args.type = PMA_TYPE_NORMAL;
 	args.start = 0;
-	args.end = 0;
 
 	return kobject_create(KOBJ_TYPE_PMA, right, right_req, (unsigned long)&args);
 }

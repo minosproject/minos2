@@ -74,6 +74,8 @@ int kobject_create_notify(int right, int right_req);
 
 int kobject_create_pma(int right, int right_req, size_t memsize);
 
+int kobject_create_consequent_pma(int right, int right_req, size_t memsize);
+
 static inline int kobject_reply_handle(int fd, long token,
 		int handle, int right)
 {

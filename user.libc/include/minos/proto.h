@@ -29,6 +29,7 @@ enum {
 
 enum {
 	PROTO_ROOTFS_READY,
+	PROTO_LOAD_DRIVER,
 	PROTO_GET_MMIO,
 	PROTO_GET_IRQ,
 	PROTO_GET_DMA_CHANEL,
@@ -113,13 +114,17 @@ struct execv_extra {
 	char path[FILENAME_MAX];
 	int argv[32];
 	int argc;
-	int padding;
+	int flags;
 	char buf[0];
 };
 
 struct proto_devinfo {
 	uint32_t key;
 	int index;
+};
+
+struct proto_load_driver {
+	char path[FILENAME_MAX];
 };
 
 struct proto {

@@ -76,11 +76,10 @@ enum {
 };
 
 struct pma_create_arg {
-	int cnt;
 	int type;
 	int consequent;
 	unsigned long start;
-	unsigned long end;
+	unsigned long size;
 };
 
 /*

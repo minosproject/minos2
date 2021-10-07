@@ -124,7 +124,7 @@ static int process_page_fault_done(struct process *proc, int tid)
 
 static int process_grant_right(struct process *proc, right_t right)
 {
-	right &= ~KOBJ_RIGHT_KERNEL_MASK;
+	right &= KOBJ_RIGHT_KERNEL_MASK;
 	proc->kobj.right |= right;
 	return 0;
 }
@@ -192,8 +192,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 			return -EPERM;
 		break;
 	default:
-		pr_err("%s unsupport ctl reqeust %d\n", __func__, req);
-		return -EPERM;
+		break;
 	}
 
 	return do_process_ctl(proc, req, data);

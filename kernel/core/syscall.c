@@ -56,7 +56,7 @@ handle_t sys_kobject_create(int type, right_t right,
 {
 	struct kobject *kobj;
 
-	right_req &= ~KOBJ_RIGHT_MASK;
+	right_req &= KOBJ_RIGHT_MASK;
 	kobj = kobject_create(type, right, right_req, data);
 	if (IS_ERROR_PTR(kobj))
 		return (handle_t)(long)(kobj);

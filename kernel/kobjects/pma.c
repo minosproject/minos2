@@ -165,6 +165,11 @@ static int pma_unmap(struct kobject *kobj, struct process *proc)
 
 static void *pma_mmap(struct kobject *kobj, right_t right)
 {
+	struct pma *p = (struct pma *)kobj->data;
+
+	if (!p->pstart)
+		return ERROR_PTR(-EPERM);
+
 	return pma_map(kobj, current_proc, 0);
 }
 
@@ -375,7 +380,7 @@ static int allocate_pma_memory(struct pma *p, int cnt, int consequent, int type)
 			return -ENOMEM;
 
 		p->psize = cnt << PAGE_SHIFT;
-		p->pend = p->pstart + p->pend;
+		p->pend = p->pstart + p->psize;
 		return 0;
 	}
 
@@ -413,8 +418,8 @@ static struct kobject *pma_create(right_t right, right_t right_req, unsigned lon
 	if (fixup_pmem && !proc_can_vmctl(current_proc))
 		return ERROR_PTR(-EPERM);
 
-	if (fixup_pmem && (args.end < args.start))
-		return ERROR_PTR(-EINVAL);
+	if (!is_root_process(current_proc) && (args.size > HUGE_PAGE_SIZE))
+		return ERROR_PTR(-E2BIG);
 
 	/*
 	 * data will be the page count of the request memory size
@@ -423,15 +428,19 @@ static struct kobject *pma_create(right_t right, right_t right_req, unsigned lon
 	if (!p)
 		return ERROR_PTR(-ENOMEM);
 
+	args.size = PAGE_BALIGN(args.size);
 	p->vm_flags = pma_flags(args.type, right);
 	if (fixup_pmem) {
+		if (args.size == 0)
+			return ERROR_PTR(-EINVAL);
+
 		p->pstart = args.start;
-		p->pend = args.end;
-		p->psize = p->pend - p->pstart;
+		p->pend = args.start + args.size;
+		p->psize = args.size;
 	} else {
-		if (args.cnt > 0) {
-			p->psize = args.cnt << PAGE_SHIFT;
-			ret = allocate_pma_memory(p, args.cnt,
+		if (args.size > 0) {
+			p->psize = args.size;
+			ret = allocate_pma_memory(p, args.size >> PAGE_SHIFT,
 					!!args.consequent, args.type);
 			if (ret) {
 				free(p);

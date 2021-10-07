@@ -262,14 +262,6 @@ handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
 	struct process *proc;
 	int ret;
 
-	/*
-	 * only the root service can call this function, other
-	 * process if need pass an kobject to another thread, may
-	 * have its owm proto
-	 */
-	if (current_proc->kobj.right != KOBJ_RIGHT_ROOT)
-		return -EPERM;
-
 	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(handle))
 		return -ENOENT;
 
@@ -284,7 +276,7 @@ handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
 	}
 
 	if ((kobj_proc->type != KOBJ_TYPE_PROCESS) ||
-			!(kobj->right & KOBJ_RIGHT_GRANT)) {
+			!(right_kobj & KOBJ_RIGHT_GRANT)) {
 		handle_out = -EBADF;
 		goto out;
 	}

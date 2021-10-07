@@ -6,8 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <minos/list.h>
-
-#include <drv/drv.h>
+#include <minos/device.h>
 
 #define VIRTIO_MAGIC   0x74726976
 #define VIRTIO_VERSION 0x2

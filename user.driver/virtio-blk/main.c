@@ -11,33 +11,20 @@
 #include <errno.h>
 #include <minos/debug.h>
 #include <minos/list.h>
+#include <minos/device.h>
 
-#include <drv/drv.h>
 #include "virtio.h"
 
 static int irq_handle, mmio_handle;
 
-/*
- * mmio@4,5,6 irq@1,2,3
- */
 int main(int argc, char **argv)
 {
 	int ret;
 	void *mmio;
 
-	ret = get_mmio_handles(argc, argv, &mmio_handle, 1);
-	if (ret <= 0) {
-		pr_err("no mmio handle found\n");
-		exit(-ENOENT);
-	}
-
-	ret = get_irq_handles(argc, argv, &irq_handle, 1);
-	if (ret <= 0) {
-		pr_err("no irq handle found\n");
-		exit(-ENOENT);
-	}
-
-	if (irq_handle < 0 || mmio_handle < 0) {
+	mmio_handle = get_device_mmio_handle("virtio,mmio", 0);
+	irq_handle = get_device_irq_handle("virtio,mmio", 0);
+	if (irq_handle <= 0 || mmio_handle <= 0) {
 		pr_err("virtio-blk: wrong irq or mmio information\n");
 		return -EINVAL;
 	}

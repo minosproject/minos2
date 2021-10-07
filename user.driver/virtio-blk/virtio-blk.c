@@ -16,8 +16,7 @@
 #include <minos/map.h>
 #include <minos/proto.h>
 #include <minos/service.h>
-
-#include <drv/drv.h>
+#include <minos/device.h>
 
 #include <lwext4/ext4_blkdev.h>
 

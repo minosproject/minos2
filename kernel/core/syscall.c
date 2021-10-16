@@ -51,22 +51,22 @@ long sys_kobject_close(handle_t handle)
 	return kobject_close(kobj, right);
 }
 
-handle_t sys_kobject_create(int type, right_t right,
-		right_t right_req, unsigned long data)
+handle_t sys_kobject_create(int type, unsigned long data)
 {
 	struct kobject *kobj;
+	right_t right;
+	int ret;
 
-	right_req &= KOBJ_RIGHT_MASK;
-	kobj = kobject_create(type, right, right_req, data);
-	if (IS_ERROR_PTR(kobj))
-		return (handle_t)(long)(kobj);
+	ret = kobject_create(type, &kobj, &right, data);
+	if (ret)
+		return ret;
 
 	/*
 	 * visable for all the threads in this process, and
 	 * the owner of this kobject have the GRANT right for
 	 * this kobject.
 	 */
-	return alloc_handle(kobj, right_req | KOBJ_RIGHT_GRANT);
+	return alloc_handle(kobj, right);
 }
 
 int sys_kobject_open(handle_t handle)

@@ -23,7 +23,8 @@
 
 #include "kobject_copy.h"
 
-#define PORT_RIGHT KOBJ_RIGHT_RW
+#define PORT_RIGHT 	KOBJ_RIGHT_RW
+#define PORT_RIGHT_MASK KOBJ_RIGHT_WRITE
 
 struct port {
 	struct task *recv_task;
@@ -56,7 +57,7 @@ static int port_close(struct kobject *kobj, right_t right)
 {
 	struct port *port = kobject_to_port(kobj);
 
-	if (right & KOBJ_RIGHT_WRITE)
+	if (!(right & KOBJ_RIGHT_WRITE))
 		return 0;
 
 	port->closed = 1;
@@ -266,30 +267,21 @@ static struct kobject_ops port_kobject_ops = {
 	.poll		= port_poll,
 };
 
-static struct kobject *port_create(right_t right,
-		right_t right_req, unsigned long data)
+static int port_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	struct port *port;
 
-	if ((right & ~PORT_RIGHT) || (right_req & ~PORT_RIGHT))
-		return ERROR_PTR(-EPERM);
-
-	/*
-	 * the owner only can have read right or write right
-	 * can not have both right.
-	 */
-	if ((right_req & KOBJ_RIGHT_RW) == KOBJ_RIGHT_RW)
-		return ERROR_PTR(-EPERM);
-
 	port = zalloc(sizeof(struct port));
 	if (!port)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	init_list(&port->pending_list);
 	init_list(&port->processing_list);
-	kobject_init(&port->kobj, KOBJ_TYPE_PORT, right, (unsigned long)port);
+	kobject_init(&port->kobj, KOBJ_TYPE_PORT, PORT_RIGHT_MASK, (unsigned long)port);
 	port->kobj.ops = &port_kobject_ops;
+	*kobj = &port->kobj;
+	*right = PORT_RIGHT;
 
-	return &port->kobj;
+	return 0;
 }
 DEFINE_KOBJECT(port, KOBJ_TYPE_PORT, port_create);

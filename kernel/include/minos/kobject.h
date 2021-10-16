@@ -7,12 +7,6 @@
 
 #include <minos/kobject_uapi.h>
 
-#define KOBJ_RIGHT_GRANT	(1 << 16)	// can be granted to other process.
-#define KOBJ_RIGHT_VMCTL	(1 << 17)	// for process, can do some VM ctl.
-#define KOBJ_RIGHT_HWCTL	(1 << 18)	// can request hardware kobject.
-#define KOBJ_RIGHT_KERNEL_MASK	\
-	(KOBJ_RIGHT_GRANT | KOBJ_RIGHT_VMCTL | KOBJ_RIGHT_HWCTL)
-
 struct task;
 struct process;
 struct kobject_ops;
@@ -25,12 +19,12 @@ struct poll_struct;
  * type : the type of this kobj defined as above.
  * ref  : reference count of this kernel object, when
  *        0 can be released.
- * rights : the original rights of this kernel object.
+ * right_mask : the right mask for this kobj used for grant
  * list : list all the kernel object for a task or global.
  */
 struct kobject {
 	int type;
-	right_t right;
+	right_t right_mask;
 	atomic_t ref;
 	struct kobject_ops *ops;
 	unsigned long data;
@@ -70,8 +64,7 @@ struct kobject_ops {
 	long (*ctl)(struct kobject *kobj, int req, unsigned long data);
 };
 
-typedef struct kobject *(*kobject_create_cb)( right_t right,
-		right_t right_req, unsigned long data);
+typedef int(*kobject_create_cb)(struct kobject **kobj, right_t *right, unsigned long data);
 
 struct kobject_desc {
 	char *name;
@@ -93,12 +86,12 @@ int kobject_get(struct kobject *kobj);
 int kobject_put(struct kobject *kobj);
 
 void kobject_init(struct kobject *kobj, int type,
-		right_t right, unsigned long data);
+		right_t right_mask, unsigned long data);
 
 int kobject_close(struct kobject *kobj, right_t right);
 
-struct kobject *kobject_create(int type, right_t right,
-		right_t right_req, unsigned long data);
+int kobject_create(int type, struct kobject **kobj,
+		right_t *right, unsigned long data);
 
 int kobject_poll(struct kobject *ksrc,
 		struct kobject *dst, int event, int enable);

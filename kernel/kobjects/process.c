@@ -26,6 +26,9 @@
 
 #include "kobject_copy.h"
 
+#define PROC_RIGHT	(KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL)
+#define PROC_RIGHT_MASK	(KOBJ_RIGHT_CTL)
+
 static long process_send(struct kobject *kobj,
 		void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size,
@@ -122,13 +125,6 @@ static int process_page_fault_done(struct process *proc, int tid)
 	return wake_up(task, 0);
 }
 
-static int process_grant_right(struct process *proc, right_t right)
-{
-	right &= KOBJ_RIGHT_KERNEL_MASK;
-	proc->kobj.right |= right;
-	return 0;
-}
-
 static long do_process_ctl(struct process *proc, int req, unsigned long data)
 {
 	unsigned long addr;
@@ -159,7 +155,9 @@ static long do_process_ctl(struct process *proc, int req, unsigned long data)
 		arch_set_task_reg0(proc->head, data);
 		return 0;
 	case KOBJ_PROCESS_GRANT_RIGHT:
-		return process_grant_right(proc, (right_t)data);
+		data &= PROC_FLAGS_MASK;
+		proc->flags |= data;
+		return 0;
 	default:
 		break;
 	}
@@ -180,7 +178,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 		/*
 		 * only root process can call these operations.
 		 */
-		if (!is_root_process(current_proc))
+		if (!proc_is_root(current_proc))
 			return -EPERM;
 		break;
 	case KOBJ_PROCESS_EXIT:
@@ -188,7 +186,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 			return -EPERM;
 		break;
 	case KOBJ_PROCESS_VA2PA:
-		if (!(current_proc->kobj.right & KOBJ_RIGHT_VMCTL))
+		if (!proc_can_vmctl(current_proc))
 			return -EPERM;
 		break;
 	default:
@@ -237,9 +235,10 @@ static struct kobject_ops proc_kobj_ops = {
 	.ctl		= process_ctl,
 };
 
-static void process_kobject_init(struct process *proc, right_t right)
+static void process_kobject_init(struct process *proc)
 {
-	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS, right, (unsigned long)proc);
+	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS,
+			PROC_RIGHT_MASK, (unsigned long)proc);
 	proc->kobj.ops = &proc_kobj_ops;
 }
 
@@ -252,16 +251,14 @@ struct process *create_root_process(char *name, task_func_t func,
 	if (!proc)
 		return NULL;
 
-	proc->kobj.right = KOBJ_RIGHT_ROOT;
+	proc->flags |= PROC_FLAGS_ROOT | PROC_FLAGS_VMCTL | PROC_FLAGS_HWCTL;
 	proc->kobj.ops = &proc_kobj_ops;
 
 	return proc;
 }
 
-static struct kobject *process_create(right_t right,
-		right_t right_req, unsigned long data)
+static int process_create(struct kobject **kobjr, right_t *right, unsigned long data)
 {
-	struct kobject *kobj = &current_proc->kobj;
 	struct process_create_arg args;
 	struct process *proc;
 	char name[256];
@@ -270,13 +267,13 @@ static struct kobject *process_create(right_t right,
 	/*
 	 * only root service can create process directly
 	 */
-	if (kobj->right != KOBJ_RIGHT_ROOT)
-		return ERROR_PTR(-EPERM);
+	if (!proc_is_root(current_proc))
+		return -EPERM;
 
 	ret = copy_from_user(&args, (void *)data,
 			sizeof(struct process_create_arg));
 	if (ret <= 0)
-		return ERROR_PTR(-EFAULT);
+		return -EFAULT;
 
 	ret = copy_string_from_user_safe(name, args.name, 256);
 	if (ret < 0)
@@ -286,10 +283,12 @@ static struct kobject *process_create(right_t right,
 			(void *)args.stack, args.aff,
 			args.prio, args.flags);
 	if (!proc)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
-	process_kobject_init(proc, right);
+	process_kobject_init(proc);
+	*kobjr = &proc->kobj;
+	*right = PROC_RIGHT;
 
-	return &proc->kobj;
+	return 0;
 }
 DEFINE_KOBJECT(process, KOBJ_TYPE_PROCESS, process_create);

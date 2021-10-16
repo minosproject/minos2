@@ -9,9 +9,15 @@
 
 struct task;
 
+#define PROC_FLAGS_VMCTL	(1 << 0)
+#define PROC_FLAGS_HWCTL	(1 << 1)
+#define PROC_FLAGS_ROOT		(1 << 31)
+#define PROC_FLAGS_MASK		(PROC_FLAGS_VMCTL | PROC_FLAGS_HWCTL)
+
 struct process {
 	int pid;
 	int task_cnt;
+	int flags;
 	void *pdata;
 
 	int stopped;
@@ -38,19 +44,19 @@ struct process {
 	struct task *request_current;
 };
 
-static inline int is_root_process(struct process *proc)
+static inline int proc_is_root(struct process *proc)
 {
-	return (proc->kobj.right == KOBJ_RIGHT_ROOT);
+	return !!(proc->flags & PROC_FLAGS_ROOT);
 }
 
 static inline int proc_can_vmctl(struct process *proc)
 {
-	return !!(proc->kobj.right & KOBJ_RIGHT_VMCTL);
+	return !!(proc->flags & PROC_FLAGS_VMCTL);
 }
 
 static inline int proc_can_hwctl(struct process *proc)
 {
-	return !!(proc->kobj.right & KOBJ_RIGHT_HWCTL);
+	return !!(proc->flags & PROC_FLAGS_HWCTL);
 }
 
 #define for_all_task_in_process(proc, task)	\

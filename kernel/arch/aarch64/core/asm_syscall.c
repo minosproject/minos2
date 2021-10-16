@@ -40,11 +40,7 @@ static void __sys_kobject_close(gp_regs *regs)
 
 static void __sys_kobject_create(gp_regs *regs)
 {
-	regs->x0 = sys_kobject_create(
-			(int)regs->x0,
-			(int)regs->x1,
-			(unsigned long)regs->x2,
-			(unsigned long)regs->x3);
+	regs->x0 = sys_kobject_create((int)regs->x0, (unsigned long)regs->x1);
 }
 
 static void __sys_kobject_recv(gp_regs *regs)

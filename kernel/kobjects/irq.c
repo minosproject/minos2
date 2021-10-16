@@ -24,7 +24,8 @@
 
 #define kobj_to_irqdesc(kobj) (struct irq_desc *)kobj->data
 
-#define IRQ_KOBJ_RIGHT	KOBJ_RIGHT_RW
+#define IRQ_RIGHT	KOBJ_RIGHT_RW
+#define IRQ_RIGHT_MASK	(0)
 
 static int irq_kobj_open(struct kobject *kobj, handle_t handle, right_t rigt)
 {
@@ -106,8 +107,7 @@ static struct kobject_ops irq_kobj_ops = {
 	.close	= irq_kobj_close,
 };
 
-static struct kobject *irq_kobject_create(right_t right,
-		right_t right_req, unsigned long data)
+int irq_kobject_create(struct kobject **rkobj, right_t *right, unsigned long data)
 {
 	/*
 	 * data[0-15] : the irq number.
@@ -122,26 +122,26 @@ static struct kobject *irq_kobject_create(right_t right,
 	 * only root service can create an irq kobject.
 	 */
 	if (!proc_can_hwctl(current_proc))
-		return ERROR_PTR(-EPERM);
+		return -EPERM;
 
 	if ((irqnum < SPI_IRQ_BASE) || (irqnum > BAD_IRQ))
-		return ERROR_PTR(-EINVAL);
+		return -EINVAL;
 
 	idesc = get_irq_desc(irqnum);
 	if (!idesc)
-		return ERROR_PTR(-ENOENT);
+		return -ENOENT;
 
 	if (idesc->kobj)
-		return ERROR_PTR(-EBUSY);
+		return -EBUSY;
 
 	kobj = zalloc(sizeof(struct kobject));
 	if (!kobj)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	idesc->poll_event = (struct poll_event_kernel *)alloc_poll_event();
 	if (!idesc->poll_event) {
 		free(kobj);
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 	}
 
 	idesc->kobj = kobj;
@@ -150,9 +150,11 @@ static struct kobject *irq_kobject_create(right_t right,
 	idesc->poll_event->event.data.type = 0;
 	idesc->flags = flags;
 	idesc->hno = irqnum;
-	kobject_init(kobj, KOBJ_TYPE_IRQ, right, (unsigned long)idesc);
+	kobject_init(kobj, KOBJ_TYPE_IRQ, IRQ_RIGHT_MASK, (unsigned long)idesc);
 	kobj->ops = &irq_kobj_ops;
+	*rkobj = kobj;
+	*right = IRQ_RIGHT;
 
-	return kobj;
+	return 0;
 }
 DEFINE_KOBJECT(irq, KOBJ_TYPE_IRQ, irq_kobject_create);

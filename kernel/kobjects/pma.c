@@ -21,6 +21,9 @@
 #include <minos/sched.h>
 #include <minos/vspace.h>
 
+#define PMA_RIGHT	(KOBJ_RIGHT_CTL | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_RWX)
+#define PMA_RIGHT_MASK	(KOBJ_RIGHT_CTL | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_RWX)
+
 struct pma_mapping_entry {
 	unsigned long base;
 	struct list_head list;
@@ -190,7 +193,7 @@ int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
 	if (WRONG_HANDLE(proc_handle))
 		return -ENOENT;
 
-	if ((proc_handle != 0) && !is_root_process(current_proc))
+	if ((proc_handle != 0) && !proc_is_root(current_proc))
 		return -EPERM;
 
 	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
@@ -227,7 +230,7 @@ int sys_unmap(handle_t proc_handle, handle_t pma_handle)
 	right_t right_proc, right_pma;
 	int ret;
 
-	if ((proc_handle != 0) && !is_root_process(current_proc))
+	if ((proc_handle != 0) && !proc_is_root(current_proc))
 		return -EPERM;
 
 	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))
@@ -398,7 +401,7 @@ static int allocate_pma_memory(struct pma *p, int cnt, int consequent, int type)
 	return 0;
 }
 
-static struct kobject *pma_create(right_t right, right_t right_req, unsigned long data)
+static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	struct pma_create_arg args;
 	int fixup_pmem = 0;
@@ -407,32 +410,32 @@ static struct kobject *pma_create(right_t right, right_t right_req, unsigned lon
 
 	ret = copy_from_user(&args, (void __user *)data, sizeof(struct pma_create_arg));
 	if (ret <= 0)
-		return ERROR_PTR(-EFAULT);
+		return ret;
 
 	if (args.type >= PMA_TYPE_MAX)
-		return ERROR_PTR(-EINVAL);
+		return -EINVAL;
 
 	if ((args.type == PMA_TYPE_MMIO) || (args.type == PMA_TYPE_PMEM))
 		fixup_pmem = 1;
 
 	if (fixup_pmem && !proc_can_vmctl(current_proc))
-		return ERROR_PTR(-EPERM);
+		return -EPERM;
 
-	if (!is_root_process(current_proc) && (args.size > HUGE_PAGE_SIZE))
-		return ERROR_PTR(-E2BIG);
+	if (!proc_is_root(current_proc) && (args.size > HUGE_PAGE_SIZE))
+		return -E2BIG;
 
 	/*
 	 * data will be the page count of the request memory size
 	 */
 	p = zalloc(sizeof(struct pma));
 	if (!p)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	args.size = PAGE_BALIGN(args.size);
-	p->vm_flags = pma_flags(args.type, right);
+	p->vm_flags = pma_flags(args.type, args.right);
 	if (fixup_pmem) {
 		if (args.size == 0)
-			return ERROR_PTR(-EINVAL);
+			return -EINVAL;
 
 		p->pstart = args.start;
 		p->pend = args.start + args.size;
@@ -444,7 +447,7 @@ static struct kobject *pma_create(right_t right, right_t right_req, unsigned lon
 					!!args.consequent, args.type);
 			if (ret) {
 				free(p);
-				return ERROR_PTR(-ENOMEM);
+				return -ENOMEM;
 			}
 		}
 	}
@@ -454,8 +457,10 @@ static struct kobject *pma_create(right_t right, right_t right_req, unsigned lon
 	init_list(&p->mapping);
 	spin_lock_init(&p->lock);
 	p->kobj.ops = &pma_ops;
-	kobject_init(&p->kobj, KOBJ_TYPE_PMA, right, (unsigned long)p);
+	kobject_init(&p->kobj, KOBJ_TYPE_PMA, PMA_RIGHT_MASK, (unsigned long)p);
+	*kobj = &p->kobj;
+	*right = PMA_RIGHT;
 
-	return &p->kobj;
+	return 0;
 }
 DEFINE_KOBJECT(pma, KOBJ_TYPE_PMA, pma_create);

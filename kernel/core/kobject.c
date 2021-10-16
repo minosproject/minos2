@@ -21,7 +21,7 @@
 
 static kobject_create_cb kobj_create_cbs[KOBJ_TYPE_MAX];
 
-void register_kobject_type(kobject_create_cb ops, int type)
+static void register_kobject_type(kobject_create_cb ops, int type)
 {
 	BUG_ON(!ops || (type >= KOBJ_TYPE_MAX));
 
@@ -79,41 +79,30 @@ int kobject_put(struct kobject *kobj)
 	return 1;
 }
 
-void kobject_init(struct kobject *kobj, int type, right_t right, unsigned long data)
+void kobject_init(struct kobject *kobj, int type,
+		right_t right_mask, unsigned long data)
 {
 
 	BUG_ON((!kobj));
-	kobj->right = right;
+	kobj->right_mask = right_mask;
 	kobj->type = type;
 	kobj->data = data;
 	kobj->list.pre = NULL;
 	kobj->list.next = NULL;
 }
 
-struct kobject *kobject_create(int type, right_t right,
-		right_t right_req, unsigned long data)
+int kobject_create(int type, struct kobject **kobj, right_t *right, unsigned long data)
 {
 	kobject_create_cb ops;
-	struct kobject *kobj;
 
 	if ((type <= 0) || (type >= KOBJ_TYPE_MAX))
-		return ERROR_PTR(-ENOENT);
+		return -ENOENT;
 
 	ops = kobj_create_cbs[type];
 	if (!ops)
-		return ERROR_PTR(-EOPNOTSUPP);
+		return -EOPNOTSUPP;
 
-	kobj = ops(right, right_req, data);
-	if (IS_ERROR_PTR(kobj))
-		return kobj;
-
-	/*
-	 * in case some kobject do not call the kobject_init
-	 * function to init the kobject.
-	 */
-	kobj->type = type;
-
-	return kobj;
+	return ops(kobj, right, data);
 }
 
 int kobject_poll(struct kobject *ksrc, struct kobject *kdst, int event, bool enable)
@@ -156,7 +145,9 @@ int kobject_close(struct kobject *kobj, right_t right)
 	}
 
 	if (!kobj->ops || !kobj->ops->close)
-		ret = kobj->ops->close(kobj, right);
+		return 0;
+
+	ret = kobj->ops->close(kobj, right);
 
 	/*
 	 * send the close event to the poller if need.
@@ -165,7 +156,7 @@ int kobject_close(struct kobject *kobj, right_t right)
 		poll_event_send(kobj->poll_struct, EV_WCLOSE);
 		if (kobj->poll_struct)
 			kobj->poll_struct->poll_events &= ~(POLLIN | POLLWOPEN | POLLWCLOSE);
-	} else {
+	} else if (right & KOBJ_RIGHT_READ) {
 		poll_event_send(kobj->poll_struct, EV_RCLOSE);
 		if (kobj->poll_struct)
 			kobj->poll_struct->poll_events &= ~(POLLOUT |

@@ -149,8 +149,7 @@ struct process *create_process(char *name, task_func_t func,
 	 */
 	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
 			KOBJ_RIGHT_CTL, (unsigned long)task);
-	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS,
-			KOBJ_RIGHT_RW | KOBJ_RIGHT_CTL,
+	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS, KOBJ_RIGHT_CTL,
 			(unsigned long)proc);
 
 	proc->head = task;
@@ -223,7 +222,7 @@ void process_die(void)
 {
 	gp_regs *regs = current_regs;
 
-	if (is_root_process(current_proc)) {
+	if (proc_is_root(current_proc)) {
 		pr_fatal("root service exit 0x%x %d\n", regs->pc, regs->x0);
 		panic("root service hang, system crash");
 	}

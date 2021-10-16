@@ -226,40 +226,35 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 	}
 
 	/*
-	 * if the current process has the grant right of this kobject
-	 * it can send any right which this kobject has, the GRANT
-	 * right only can be get when create the kobject.
-	 *
-	 * otherwise it can only send the right which the process
-	 * has to other process.
+	 * if the right is 0, means need send all the right
+	 * it has to target process.
 	 */
-	if (right & KOBJ_RIGHT_GRANT) {
-		right_send &= (KOBJ_RIGHT_MASK & kobj->right);
-	} else {
-		if (right_send == 0) {
-			right_send = right;
-		} else if ((right_send & (~right)) != 0) {
-			ret = -EPERM;
-			goto out;
-		}
+	right_send = (right_send == 0) ? right : right_send;
+
+	/*
+	 * if the source kobject do not have this right.
+	 */
+	if ((right & right_send) != right_send) {
+		ret = -EPERM;
+		goto out;
 	}
 
 	ret =  __alloc_handle(pdst, kobj, right_send);
-	// why need this ? mistake here, need double check.
-	// if (ret > 0)
-	//	hdesc->right = KOBJ_RIGHT_NONE;
+	if (ret > 0)
+		hdesc->right = right & (~right_send | kobj->right_mask);
 out:
 	spin_unlock(&proc->kobj_lock);
+	if (ret < 0)
+		pr_err("send handle %d with 0x%x fail\n", handle, right_send);
+
 
 	return ret;
 }
 
 handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
 {
-	struct kobject *kobj_proc, *kobj;
-	right_t right_proc, right_kobj;
-	handle_t handle_out = -1;
-	struct process *proc;
+	struct kobject *kobj_proc;
+	right_t right_proc;
 	int ret;
 
 	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(handle))
@@ -269,31 +264,16 @@ handle_t sys_grant(handle_t proc_handle, handle_t handle, right_t right)
 	if (ret)
 		return -ENOENT;
 
-	ret = get_kobject(handle, &kobj, &right_kobj);
-	if (ret) {
-		put_kobject(kobj_proc);
-		return -ENOENT;
-	}
-
-	if ((kobj_proc->type != KOBJ_TYPE_PROCESS) ||
-			!(right_kobj & KOBJ_RIGHT_GRANT)) {
-		handle_out = -EBADF;
+	if (kobj_proc->type != KOBJ_TYPE_PROCESS) {
+		ret = -EBADF;
 		goto out;
 	}
 
-	if ((kobj->right & right) != right) {
-		handle_out = -EPERM;
-		goto out;
-	}
-
-	proc = (struct process *)kobj_proc->data;
-	handle_out = __alloc_handle(proc, kobj, right);
-
+	ret = send_handle(current_proc, (struct process *)kobj_proc->data, handle, right);
 out:
 	put_kobject(kobj_proc);
-	put_kobject(kobj);
 
-	return handle_out;
+	return ret;
 }
 
 int get_kobject_from_process(struct process *proc, handle_t handle,
@@ -395,7 +375,7 @@ int init_proc_handles(struct process *proc)
 	 * handle [2] is stdin
 	 * handle [3] is stderr
 	 */
-	handle = __alloc_handle(proc, &proc->kobj, KOBJ_RIGHT_RW | KOBJ_RIGHT_CTL);
+	handle = __alloc_handle(proc, &proc->kobj, KOBJ_RIGHT_WRITE | KOBJ_RIGHT_CTL);
 	ASSERT(handle == 0);
 	handle = __alloc_handle(proc, &stdio_kobj, KOBJ_RIGHT_READ);
 	ASSERT(handle == 1);

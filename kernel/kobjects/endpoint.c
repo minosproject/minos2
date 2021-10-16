@@ -30,7 +30,8 @@
 #define EP_STAT_CLOSED 1
 #define EP_STAT_OPENED 0
 
-#define EP_RIGHT (KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_CTL)
+#define EP_RIGHT_MASK	(KOBJ_RIGHT_MMAP | KOBJ_RIGHT_CTL)
+#define EP_RIGHT	(KOBJ_RIGHT_RW | KOBJ_RIGHT_CTL)
 
 struct endpoint {
 	struct task *recv_task;			// which task is receiveing data from this endpoint.
@@ -74,6 +75,9 @@ static int endpoint_close(struct kobject *kobj, right_t right)
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	int dir = EP_DIR(right);
 
+	if ((right & KOBJ_RIGHT_RW) == 0)
+		goto out;
+
 	ep->status[dir] = EP_STAT_CLOSED;
 	smp_wmb();
 
@@ -83,6 +87,7 @@ static int endpoint_close(struct kobject *kobj, right_t right)
 		spin_unlock(&ep->lock);
 	}
 
+out:
 	if (ep->shmem)
 		unmap_process_memory(current_proc, va2sva(ep->shmem), ep->shmem_size);
 
@@ -325,46 +330,37 @@ static struct kobject_ops endpoint_kobject_ops = {
 	.reply		= endpoint_reply,
 };
 
-static struct kobject *endpoint_create(right_t right, right_t right_req, unsigned long data)
+static int endpoint_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	size_t shmem_size = data;
 	struct endpoint *ep;
-
-	if ((right & ~EP_RIGHT) || (right_req & ~EP_RIGHT))
-		return ERROR_PTR(-EPERM);
-
-	if ((right & KOBJ_RIGHT_MMAP) && (shmem_size == 0))
-		return ERROR_PTR(-EPERM);
-
-	/*
-	 * the owner only can have read right or write right
-	 * can not have both right.
-	 */
-	if ((right_req & KOBJ_RIGHT_RW) == KOBJ_RIGHT_RW)
-		return ERROR_PTR(-EPERM);
+	right_t right_ep = EP_RIGHT;
 
 	shmem_size = PAGE_BALIGN(shmem_size);
 	if (shmem_size > HUGE_PAGE_SIZE)
-		return ERROR_PTR(-E2BIG);
+		return -E2BIG;
 
 	ep = zalloc(sizeof(struct endpoint));
 	if (!ep)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	if (shmem_size > 0) {
 		ep->shmem = get_free_pages(shmem_size >> PAGE_SHIFT, GFP_USER);
 		if (!ep->shmem) {
 			free(ep);
-			return ERROR_PTR(-ENOMEM);
+			return -ENOMEM;
 		}
+		right_ep |= KOBJ_RIGHT_MMAP;
 	}
 
 	ep->shmem_size = shmem_size;
 	init_list(&ep->pending_list);
 	init_list(&ep->processing_list);
-	kobject_init(&ep->kobj, KOBJ_TYPE_ENDPOINT, right, (unsigned long)ep);
+	kobject_init(&ep->kobj, KOBJ_TYPE_ENDPOINT, EP_RIGHT_MASK, (unsigned long)ep);
 	ep->kobj.ops = &endpoint_kobject_ops;
+	*kobj = &ep->kobj;
+	*right = right_ep;
 
-	return &ep->kobj;
+	return 0;
 }
 DEFINE_KOBJECT(endpoint, KOBJ_TYPE_ENDPOINT, endpoint_create);

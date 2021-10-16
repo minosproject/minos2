@@ -343,7 +343,7 @@ static int sys_map_anon(handle_t proc_handle, unsigned long virt,
 	if (right & KOBJ_RIGHT_EXEC)
 		flags |= __VM_EXEC;
 
-	if ((flags == 0) || (current_proc->kobj.right != KOBJ_RIGHT_ROOT))
+	if ((flags == 0) || !proc_is_root(current_proc))
 		return -EPERM;
 
 	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
@@ -396,11 +396,10 @@ static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int w
 int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 {
 	struct process *proc = current_proc;
-	struct kobject *kobj = &proc->kobj;
 	gp_regs *regs= current_regs;
 	int ret;
 
-	if (kobj->right == KOBJ_RIGHT_ROOT)
+	if (proc_is_root(proc))
 		ret = handle_page_fault_internal(proc, virt, write);
 	else
 		ret = handle_page_fault_ipc(proc, virt, write);

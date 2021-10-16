@@ -20,8 +20,7 @@
 #include <minos/mm.h>
 #include <minos/vspace.h>
 
-static struct kobject *thread_create(right_t right,
-		right_t right_req, unsigned long data)
+static int thread_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	struct thread_create_arg args;
 	struct task *task;
@@ -30,16 +29,18 @@ static struct kobject *thread_create(right_t right,
 	ret = copy_from_user(&args, (void *)data,
 			sizeof(struct thread_create_arg));
 	if (ret <= 0)
-		return ERROR_PTR(-ENOMEM);
+		return -EFAULT;
 
 	task = create_task_for_process(current_proc, args.func,
 			args.user_sp, args.prio, args.aff, args.flags);
 	if (!task)
-		return ERROR_PTR(-EBUSY);
+		return -EBUSY;
 
 	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
 			KOBJ_RIGHT_NONE, (unsigned long)task);
+	*kobj = &task->kobj;
+	*right = KOBJ_RIGHT_RW;
 
-	return &task->kobj;
+	return 0;
 }
 DEFINE_KOBJECT(thread, KOBJ_TYPE_THREAD, thread_create);

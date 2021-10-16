@@ -21,8 +21,8 @@
 #include <minos/sched.h>
 #include <minos/poll.h>
 
-#define NOTIFY_RIGHT		(KOBJ_RIGHT_WRITE)
-#define NOTIFY_RIGHT_MASK	(KOBJ_RIGHT_WRITE)
+#define NOTIFY_RIGHT		(KOBJ_RIGHT_RW)
+#define NOTIFY_RIGHT_MASK	(KOBJ_RIGHT_READ)
 
 static long notify_kobj_send(struct kobject *kobj, void __user *data,
 			size_t data_size, void __user *extra,
@@ -49,32 +49,19 @@ struct kobject_ops notify_kobj_ops = {
 	.send		= notify_kobj_send,
 };
 
-static int notify_check_right(right_t right, right_t right_req)
-{
-	if (right != NOTIFY_RIGHT)
-		return 0;
-
-	if (right_req != KOBJ_RIGHT_WRITE)
-		return 0;
-
-	return 1;
-}
-
-static struct kobject *notify_create(right_t right,
-		right_t right_req, unsigned long data)
+int notify_create(struct kobject **kobjr, right_t *right, unsigned long data)
 {
 	struct kobject *kobj;
 
-	if (!notify_check_right(right, right_req))
-		return ERROR_PTR(-EPERM);
-
 	kobj = zalloc(sizeof(struct kobject));
 	if (!kobj)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
-	kobject_init(kobj, KOBJ_TYPE_NOTIFY, right, 0);
+	kobject_init(kobj, KOBJ_TYPE_NOTIFY, NOTIFY_RIGHT_MASK, 0);
 	kobj->ops = &notify_kobj_ops;
+	*kobjr = kobj;
+	*right = NOTIFY_RIGHT;
 
-	return kobj;
+	return 0;
 }
 DEFINE_KOBJECT(notify, KOBJ_TYPE_NOTIFY, notify_create);

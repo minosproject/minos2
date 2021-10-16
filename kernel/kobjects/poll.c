@@ -26,7 +26,8 @@
 #include <minos/vspace.h>
 #include <minos/uaccess.h>
 
-#define POLL_HUB_RIGHT (KOBJ_RIGHT_RO | KOBJ_RIGHT_CTL)
+#define POLLHUB_RIGHT		(KOBJ_RIGHT_RO | KOBJ_RIGHT_CTL)
+#define POLLHUB_RIGHT_MASK	(0)
 
 #define to_poll_hub(kobj)	\
 	(struct poll_hub *)kobj->data
@@ -448,26 +449,22 @@ static struct kobject_ops poll_hub_ops = {
 	.ctl		= poll_hub_ctl,
 };
 
-static struct kobject *poll_hub_create(right_t right,
-		right_t right_req, unsigned long data)
+static int poll_hub_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	struct poll_hub *peh;
 
-	if ((right & POLL_HUB_RIGHT) != POLL_HUB_RIGHT)
-		return ERROR_PTR(-EPERM);
-
-	if (right != right_req)
-		return ERROR_PTR(-EPERM);
-
 	peh = zalloc(sizeof(struct poll_hub));
 	if (!peh)
-		return ERROR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	init_list(&peh->event_list);
 	spin_lock_init(&peh->lock);
-	kobject_init(&peh->kobj, KOBJ_TYPE_POLL_HUB, right, (unsigned long)peh);
+	kobject_init(&peh->kobj, KOBJ_TYPE_POLLHUB,
+			POLLHUB_RIGHT_MASK, (unsigned long)peh);
 	peh->kobj.ops = &poll_hub_ops;
+	*kobj = &peh->kobj;
+	*right = POLLHUB_RIGHT;
 
-	return &peh->kobj;
+	return 0;
 }
-DEFINE_KOBJECT(poll_hub, KOBJ_TYPE_POLL_HUB, poll_hub_create);
+DEFINE_KOBJECT(poll_hub, KOBJ_TYPE_POLLHUB, poll_hub_create);

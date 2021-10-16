@@ -49,7 +49,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 	memsize = virtq_size(len);
 	pr_info("virtio-blk virtq size %d\n", memsize);
 
-	pma_handle = request_consequent_pma(memsize);
+	pma_handle = request_consequent_pma(memsize, KR_RW);
 	if (pma_handle <= 0)
 		return NULL;
 

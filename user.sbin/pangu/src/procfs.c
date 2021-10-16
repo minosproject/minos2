@@ -32,9 +32,6 @@ struct file {
 	struct process *pdata;
 };
 
-#define FILE_RIGHT	(KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP)
-#define FILE_REQ_RIGHT	(KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP)
-
 static char strbuf[FILENAME_MAX];
 static struct file root_file;
 
@@ -44,7 +41,7 @@ static struct file *create_file(int flags, int mode)
 	int handle;
 	void *addr;
 
-	handle = kobject_create_endpoint(FILE_RIGHT, FILE_REQ_RIGHT, PAGE_SIZE);
+	handle = kobject_create_endpoint(PAGE_SIZE);
 	if (handle <= 0)
 		return NULL;
 

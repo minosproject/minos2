@@ -12,7 +12,6 @@
 #define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
 #define KOBJ_RIGHT_RO		(KOBJ_RIGHT_READ)
 #define KOBJ_RIGHT_RWX		(KOBJ_RIGHT_RW | KOBJ_RIGHT_EXEC)
-#define KOBJ_RIGHT_ROOT		0xffffffff	// super right, only root sevice can have it.
 
 enum {
 	KOBJ_TYPE_NONE,
@@ -27,7 +26,7 @@ enum {
 	KOBJ_TYPE_IRQ,		// irq for user-space driver
 	KOBJ_TYPE_VIRQ,		// virq for vcpu process in user-space.
 	KOBJ_TYPE_STDIO,	// dedicated for system debuging
-	KOBJ_TYPE_POLL_HUB,	// hub for events need to send.
+	KOBJ_TYPE_POLLHUB,	// hub for events need to send.
 	KOBJ_TYPE_PORT,
 	KOBJ_TYPE_MAX
 };
@@ -77,6 +76,7 @@ enum {
 
 struct pma_create_arg {
 	int type;
+	int right;
 	int consequent;
 	unsigned long start;
 	unsigned long size;
@@ -86,7 +86,7 @@ struct pma_create_arg {
  * for kobject poll
  */
 enum {
-	KOBJ_POLL_HUB_OP_BASE = 0x2000,
+	KOBJ_POLLHUB_OP_BASE = 0x2000,
 	KOBJ_POLL_OP_ADD,
 	KOBJ_POLL_OP_DEL,
 	KOBJ_POLL_OP_MOD,

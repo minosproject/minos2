@@ -35,9 +35,9 @@ int request_irq_by_handle(int handle)
 	return kobject_open(handle);
 }
 
-int request_consequent_pma(size_t memsize)
+int request_consequent_pma(size_t memsize, int right)
 {
-	return kobject_create_consequent_pma(KR_RWCM, KR_RWM, memsize);
+	return kobject_create_consequent_pma(memsize, right);
 }
 
 void *request_mmio_by_handle(int handle)

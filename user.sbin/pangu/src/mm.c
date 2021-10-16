@@ -149,17 +149,16 @@ struct vma *__request_vma(struct process *proc, unsigned long base,
 	return out;
 }
 
-int create_pma(int type, int right, int right_req,
-		unsigned long base, size_t size)
+int create_pma(int type, int right, unsigned long base, size_t size)
 {
 	struct pma_create_arg args = {
 		.size = size,
 		.type = type,
 		.start = base,
+		.right = right,
 	};
 
-	return kobject_create(KOBJ_TYPE_PMA, right,
-			right_req, (unsigned long)&args);
+	return kobject_create(KOBJ_TYPE_PMA, (unsigned long)&args);
 }
 
 struct vma *request_vma(struct process *proc, int pma_handle,
@@ -182,7 +181,7 @@ struct vma *request_vma(struct process *proc, int pma_handle,
 		return vma;
 
 	if (pma_handle <= 0) {
-		vma->pma_handle = create_pma(PMA_TYPE_NORMAL, perm, perm, 0, size);
+		vma->pma_handle = create_pma(PMA_TYPE_NORMAL, perm, 0, size);
 		if (vma->pma_handle < 0) {
 			release_vma(proc, vma);
 			return NULL;
@@ -428,8 +427,7 @@ static int elf_vma_init(struct process *proc, int elf_pma,
 	vma->pma_handle = elf_pma;
 
 	if (vma->pma_handle <= 0) {
-		vma->pma_handle = create_pma(PMA_TYPE_NORMAL,
-				vma->perm, vma->perm, 0, esize);
+		vma->pma_handle = create_pma(PMA_TYPE_NORMAL, vma->perm, 0, esize);
 		if (vma->pma_handle <= 0)
 			return -ENOMEM;
 	}
@@ -449,7 +447,7 @@ static int stack_vma_init(struct process *proc)
 	vma->perm = KR_RW;
 
 	vma->pma_handle = create_pma(PMA_TYPE_NORMAL, vma->perm,
-			vma->perm, 0, PROCESS_STACK_INIT_SIZE);
+			0, PROCESS_STACK_INIT_SIZE);
 	if (vma->pma_handle <= 0)
 		return -ENOMEM;
 

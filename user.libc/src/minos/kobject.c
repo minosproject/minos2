@@ -10,44 +10,45 @@
 #include <minos/kobject.h>
 #include <minos/types.h>
 
-int kobject_create_endpoint(int right, int right_req, size_t shmem_size)
+int kobject_create_endpoint(size_t shmem_size)
 {
-	return kobject_create(KOBJ_TYPE_ENDPOINT, right, right_req, shmem_size);
+	return kobject_create(KOBJ_TYPE_ENDPOINT, shmem_size);
 }
 
-int kobject_create_socket(int right, int right_req, size_t shmem_size)
+int kobject_create_socket(size_t shmem_size)
 {
-	return kobject_create(KOBJ_TYPE_SOCKET, right, right_req, shmem_size);
+	return kobject_create(KOBJ_TYPE_SOCKET, shmem_size);
 }
 
-int kobject_create_port(int right, int right_req)
+int kobject_create_port(void)
 {
-	return kobject_create(KOBJ_TYPE_PORT, right, right_req, 0);
+	return kobject_create(KOBJ_TYPE_PORT, 0);
 }
 
-int kobject_create_notify(int right, int right_req)
+int kobject_create_notify(void)
 {
-	return kobject_create(KOBJ_TYPE_NOTIFY, right, right_req, 0);
+	return kobject_create(KOBJ_TYPE_NOTIFY, 0);
 }
 
-static int __kobject_create_pma(int right, int right_req, size_t memsize, int consequent)
+static int __kobject_create_pma(size_t memsize, int consequent, int right)
 {
 	struct pma_create_arg args;
 
 	args.size = memsize;
+	args.right = right;
 	args.consequent = consequent;
 	args.type = PMA_TYPE_NORMAL;
 	args.start = 0;
 
-	return kobject_create(KOBJ_TYPE_PMA, right, right_req, (unsigned long)&args);
+	return kobject_create(KOBJ_TYPE_PMA, (unsigned long)&args);
 }
 
-int kobject_create_pma(int right, int right_req, size_t memsize)
+int kobject_create_pma(size_t memsize, int right)
 {
-	return __kobject_create_pma(right, right_req, memsize, 0);
+	return __kobject_create_pma(memsize, 0, right);
 }
 
-int kobject_create_consequent_pma(int right, int right_req, size_t memsize)
+int kobject_create_consequent_pma(size_t memsize, int right)
 {
-	return __kobject_create_pma(right, right_req, memsize, 1);
+	return __kobject_create_pma(memsize, 1, right);
 }

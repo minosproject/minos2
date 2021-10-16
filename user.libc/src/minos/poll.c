@@ -46,7 +46,7 @@ int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	if ((op != EPOLL_CTL_ADD) && (op != EPOLL_CTL_DEL) && (op != EPOLL_CTL_MOD))
 		return -EINVAL;
 
-	op += KOBJ_POLL_HUB_OP_BASE;
+	op += KOBJ_POLLHUB_OP_BASE;
 	event->data.fd = fd;
 
 	return kobject_ctl(epfd, op, (unsigned long)event);
@@ -54,9 +54,7 @@ int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
 int epoll_create(int size)
 {
-	return kobject_create(KOBJ_TYPE_POLL_HUB,
-			KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL,
-			KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL, 0);
+	return kobject_create(KOBJ_TYPE_POLLHUB, 0);
 }
 
 int epoll_create1(int flags)

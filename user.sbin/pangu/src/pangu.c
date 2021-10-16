@@ -200,7 +200,7 @@ static int load_nvwa_service(void)
 {
 	struct handle_desc hdesc[1];
 	
-	nvwa_handle = kobject_create_endpoint(KR_RW, KR_W, 0);
+	nvwa_handle = kobject_create_endpoint(0);
 	if (nvwa_handle <= 0)
 		return nvwa_handle;
 
@@ -232,11 +232,11 @@ static int load_chiyou_service(void)
 	args.consequent = 0;
 	args.start = pbase;
 	args.size = bootdata->dtb_end - bootdata->dtb_start;
-	setup_mem_handle = kobject_create(KOBJ_TYPE_PMA, KR_RWCM,
-			KR_RW, (unsigned long)&args);
+	args.right = KR_RW;
+	setup_mem_handle = kobject_create(KOBJ_TYPE_PMA, (unsigned long)&args);
 	assert(setup_mem_handle > 0);
 
-	handle = kobject_create_port(KR_RW, KR_W);
+	handle = kobject_create_port();
 	assert(handle > 0);
 
 	hdesc[0].handle = handle;
@@ -253,7 +253,7 @@ static int load_chiyou_service(void)
 		return -ENOMEM;
 
 	kobject_ctl(chiyou_proc->proc_handle, KOBJ_PROCESS_GRANT_RIGHT,
-			KOBJ_RIGHT_VMCTL | KOBJ_RIGHT_HWCTL);
+			PROC_FLAGS_VMCTL | PROC_FLAGS_HWCTL);
 	chiyou_handle = handle;
 
 	return kobject_ctl(chiyou_proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
@@ -268,7 +268,7 @@ static int load_fuxi_service(void)
 	 * can commuicate with other process, this endpoint
 	 * will grant to fuxi service
 	 */
-	handle = kobject_create_port(KR_RW, KR_W);
+	handle = kobject_create_port();
 	if (handle <= 0)
 		return handle;
 
@@ -301,7 +301,7 @@ static int load_rootfs_driver(void)
 		return -ENOENT;
 
 	return kobject_ctl(rootfs_proc->proc_handle,
-			KOBJ_PROCESS_GRANT_RIGHT, KOBJ_RIGHT_VMCTL);
+			KOBJ_PROCESS_GRANT_RIGHT, PROC_FLAGS_VMCTL);
 }
 
 int main(int argc, char **argv)

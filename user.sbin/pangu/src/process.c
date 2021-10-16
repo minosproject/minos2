@@ -72,8 +72,6 @@ static int sys_create_process(char *name, unsigned long entry,
 		unsigned long stack, int aff,
 		int prio, unsigned long flags)
 {
-	int right = KOBJ_RIGHT_CTL | KOBJ_RIGHT_RW;
-
 	struct process_create_arg args = {
 		.entry = entry,
 		.stack = stack,
@@ -83,7 +81,7 @@ static int sys_create_process(char *name, unsigned long entry,
 		.name = name,
 	};
 
-	return kobject_create(KOBJ_TYPE_PROCESS, right, KR_RC, (unsigned long)&args);
+	return kobject_create(KOBJ_TYPE_PROCESS, (unsigned long)&args);
 }
 
 static struct process *create_new_process(char *name, unsigned long entry,
@@ -511,8 +509,7 @@ static int send_elf_load_request(struct process *proc, const char *path, struct 
 	 * grant the pma handle to the nvwa process, so that nvwa
 	 * can allocate memory for the elf file.
 	 */
-	er->pma_handle = create_pma(PMA_TYPE_NORMAL, KR_RWC | KR_X,
-			KR_RWC | KR_X, 0, 0);
+	er->pma_handle = create_pma(PMA_TYPE_NORMAL, KR_RWX, 0, 0);
 	if (er->pma_handle <= 0)
 		return er->pma_handle;
 

@@ -59,14 +59,14 @@ static int create_mmio_handle(unsigned long base, unsigned long size)
 	args.size = size;
 	args.type = PMA_TYPE_MMIO;
 	args.start = base;
+	args.right = KOBJ_RIGHT_RW;
 
-	return kobject_create(KOBJ_TYPE_PMA,
-			KR_RWCM, KR_RWCM, (unsigned long)&args);
+	return kobject_create(KOBJ_TYPE_PMA, (unsigned long)&args);
 }
 
 static int create_irq_handle(uint32_t irq, unsigned long flags)
 {
-	return kobject_create(KOBJ_TYPE_IRQ, KR_RW, 0, irq);
+	return kobject_create(KOBJ_TYPE_IRQ, irq);
 }
 
 static int get_device_node(const char *name,
@@ -179,7 +179,7 @@ static int handle_get_iommu_sid(struct device_node *dnode, int index)
 	return 0;
 }
 
-static int do_handle_chiyou_event(struct proto *proto, char *buf)
+static int do_handle_chiyou_event(struct proto *proto, char *buf, int *right)
 {
 	struct proto_devinfo *dinfo = &proto->devinfo;
 	struct device_node *dnode;
@@ -192,15 +192,19 @@ static int do_handle_chiyou_event(struct proto *proto, char *buf)
 	switch (proto->proto_id) {
 	case PROTO_GET_MMIO:
 		ret = handle_get_mmio(dnode, dinfo->index);
+		*right = KR_RWCM;
 		break;
 	case PROTO_GET_IRQ:
 		ret = handle_get_irq(dnode, dinfo->index);
+		*right = KR_RW;
 		break;
 	case PROTO_GET_DMA_CHANEL:
 		ret = handle_get_dma_channel(dnode, dinfo->index);
+		*right = KR_RW;
 		break;
 	case PROTO_GET_IOMMU_SID:
 		ret = handle_get_iommu_sid(dnode, dinfo->index);
+		*right = KR_RW;
 		break;
 	default:
 		ret = -ENOSYS;
@@ -214,7 +218,7 @@ static int do_handle_chiyou_event(struct proto *proto, char *buf)
 static int handle_chiyou_event(int loop)
 {
 	struct proto proto;
-	int ret;
+	int ret, right;
 
 	for (;;) {
 		ret = kobject_read_proto_with_string(chiyou_handle,
@@ -231,14 +235,14 @@ static int handle_chiyou_event(int loop)
 				break;
 			}
 		} else {
-			ret = do_handle_chiyou_event(&proto, buf);
+			ret = do_handle_chiyou_event(&proto, buf, &right);
 			if (ret <= 0) {
 				pr_err("handle chiyou event fail %d %s %d %d\n",
 						ret, buf, proto.proto_id,
 						proto.devinfo.index);
 			}
 
-			kobject_reply_handle(chiyou_handle, proto.token, ret, KR_RWCM);
+			kobject_reply_handle(chiyou_handle, proto.token, ret, right);
 		}
 	}
 

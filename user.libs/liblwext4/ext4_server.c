@@ -81,7 +81,7 @@ static struct lwext4_file *create_new_lwext4_file(int dir)
 	void *addr;
 	int size;
 
-	handle = kobject_create_endpoint(KR_RW | KR_M | KR_C, KR_R | KR_M, PAGE_SIZE);
+	handle = kobject_create_endpoint(PAGE_SIZE);
 	if (handle <= 0)
 		return NULL;
 

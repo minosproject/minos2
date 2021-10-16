@@ -42,7 +42,7 @@ extern "C" {
 #define READ64(_reg) (*(volatile uint64_t *)&(_reg))
 
 int request_irq_by_handle(int handle);
-int request_consequent_pma(size_t memsize);
+int request_consequent_pma(size_t memsize, int right);
 void *request_mmio_by_handle(int handle);
 int get_device_mmio_handle(const char *comp, int index);
 int get_device_irq_handle(const char *comp, int index);

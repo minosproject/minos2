@@ -14,7 +14,6 @@ extern "C" {
 #define KR_X KOBJ_RIGHT_EXEC
 #define KR_C KOBJ_RIGHT_CTL
 #define KR_M KOBJ_RIGHT_MMAP
-#define KR_S KOBJ_RIGHT_SHARED
 
 #define KR_RW (KR_R | KR_W)
 #define KR_RWX (KR_R | KR_W | KR_X)
@@ -35,8 +34,7 @@ int kobject_open(int handle);
 
 int kobject_close(int handle);
 
-int kobject_create(int type, int right,
-		int right_req, unsigned long data);
+int kobject_create(int type, unsigned long data);
 
 long kobject_read(int handle, void *data, size_t data_size,
 		size_t *actual_data, void *extra, size_t extra_size,
@@ -64,17 +62,15 @@ long kobject_ctl(int handle, int action, unsigned long data);
 
 int grant(int proc, int handle, int right);
 
-int sys_connect_service(const char *path, int right);
+int kobject_create_endpoint(size_t shmem_size);
 
-int kobject_create_endpoint(int right, int right_req, size_t shmem_size);
+int kobject_create_port(void);
 
-int kobject_create_port(int right, int right_req);
+int kobject_create_notify(void);
 
-int kobject_create_notify(int right, int right_req);
+int kobject_create_pma(size_t memsize, int right);
 
-int kobject_create_pma(int right, int right_req, size_t memsize);
-
-int kobject_create_consequent_pma(int right, int right_req, size_t memsize);
+int kobject_create_consequent_pma(size_t memsize, int right);
 
 static inline int kobject_reply_handle(int fd, long token,
 		int handle, int right)

@@ -16,9 +16,8 @@
 
 #define PROCESS_NAME_SIZE 64
 
-#define KOBJ_RIGHT_GRANT	(1 << 16)	// can be granted to other process.
-#define KOBJ_RIGHT_VMCTL	(1 << 17)	// for process, can do some VM ctl.
-#define KOBJ_RIGHT_HWCTL	(1 << 18)	// can request hardware kobject.
+#define PROC_FLAGS_VMCTL	(1 << 0)
+#define PROC_FLAGS_HWCTL	(1 << 1)
 
 struct request_entry;
 

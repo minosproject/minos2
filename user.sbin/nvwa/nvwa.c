@@ -65,7 +65,7 @@ static int __handle_elf_request(struct nvwa_proto *proto,
 
 	file = fopen(proto->path, "r");
 	if (!file)
-		ret = -EIO;
+		return -EIO;
 
 	ret = elf_init(&ctx, file);
 	if (ret)

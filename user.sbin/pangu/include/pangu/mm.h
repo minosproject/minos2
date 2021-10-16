@@ -61,8 +61,7 @@ void vspace_init(struct process *proc, unsigned long elf_end);
 
 struct vma *find_vma(struct process *proc, unsigned long base);
 
-int create_pma(int type, int right, int right_req,
-			unsigned long base, size_t size);
+int create_pma(int type, int right, unsigned long base, size_t size);
 
 int process_mm_init(struct process *proc, int elf_pma,
 		unsigned long elf_base, size_t elf_size);

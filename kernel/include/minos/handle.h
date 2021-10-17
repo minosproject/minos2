@@ -31,7 +31,6 @@ int release_handle(handle_t handle, struct kobject **kobj, right_t *right);
 handle_t __alloc_handle(struct process *proc, struct kobject *kobj, right_t right);
 
 handle_t alloc_handle(struct kobject *kobj, right_t right);
-int setup_handle(handle_t handle, struct kobject *kobj, right_t right);
 
 int get_kobject_from_process(struct process *proc, handle_t handle,
 			struct kobject **kobj, right_t *right);

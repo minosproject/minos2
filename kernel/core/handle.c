@@ -19,6 +19,8 @@
 #include <minos/handle.h>
 #include <minos/mm.h>
 
+#define KOBJ_PLACEHOLDER	(struct kobject *)(-1)
+
 #define to_handle_table_desc(hdesc)	\
 	(struct handle_table_desc *)&hdesc[NR_DESC_PER_PAGE]
 
@@ -82,6 +84,27 @@ static int lookup_handle_desc(struct process *proc, handle_t handle,
 	*htd = tdesc;
 
 	return 0;
+}
+
+static void __release_handle(struct process *proc, handle_t handle)
+{
+	struct handle_desc *hd;
+	struct handle_table_desc *htd;
+	int ret;
+
+	spin_lock(&proc->kobj_lock);
+	ret = lookup_handle_desc(proc, handle, &hd, &htd);
+	if (ret)
+		goto out;
+
+	if (hd->kobj == NULL)
+		goto out;
+
+	hd->kobj = NULL;
+	hd->right = KOBJ_RIGHT_NONE;
+	htd->left++;
+out:
+	spin_unlock(&proc->kobj_lock);
 }
 
 int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
@@ -167,7 +190,9 @@ handle_t __alloc_handle(struct process *proc, struct kobject *kobj, right_t righ
 
 	hdesc->kobj = kobj;
 	hdesc->right = right;
-	kobject_get(kobj);
+
+	if (kobj != KOBJ_PLACEHOLDER)
+		kobject_get(kobj);
 out:
 	spin_unlock(&proc->kobj_lock);
 	
@@ -179,9 +204,9 @@ handle_t alloc_handle(struct kobject *kobj, right_t right)
 	return __alloc_handle(current_proc, kobj, right);
 }
 
-int setup_handle(handle_t handle, struct kobject *kobj, right_t right)
+static int setup_handle(struct process *proc, handle_t handle,
+		struct kobject *kobj, right_t right)
 {
-	struct process *proc = current_proc;
 	struct handle_desc *hd;
 	struct handle_table_desc *htd;
 	int ret;
@@ -193,9 +218,10 @@ int setup_handle(handle_t handle, struct kobject *kobj, right_t right)
 	if (ret)
 		goto out;
 
-	ASSERT(hd->kobj != NULL);
+	ASSERT(hd->kobj == KOBJ_PLACEHOLDER);
 	hd->kobj = kobj;
 	hd->right = right;
+	kobject_get(kobj);
 out:
 	spin_unlock(&proc->kobj_lock);
 	return ret;
@@ -207,11 +233,22 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 	struct handle_table_desc *htd;
 	struct handle_desc *hdesc;
 	struct kobject *kobj;
+	int handle_ret;
 	int right;
 	int ret;
 
 	if (WRONG_HANDLE(handle))
 		return -EINVAL;
+
+	/*
+	 * first get a empty handle from the target process, then
+	 * do the transfer, the reason why take this logic is there
+	 * are two spinlocks need to request, and may cause dead lock
+	 * in some case.
+	 */
+	handle_ret = __alloc_handle(pdst, KOBJ_PLACEHOLDER, 0);
+	if (handle_ret < 0)
+		return handle_ret;
 
 	spin_lock(&proc->kobj_lock);
 	ret = lookup_handle_desc(proc, handle, &hdesc, &htd);
@@ -227,26 +264,27 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 
 	/*
 	 * if the right is 0, means need send all the right
-	 * it has to target process.
+	 * it has to target process, then check whether this
+	 * kobject has the required rights. then clear the right
+	 * which need to transfer to other process.
 	 */
 	right_send = (right_send == 0) ? right : right_send;
-
-	/*
-	 * if the source kobject do not have this right.
-	 */
 	if ((right & right_send) != right_send) {
 		ret = -EPERM;
 		goto out;
 	}
 
-	ret =  __alloc_handle(pdst, kobj, right_send);
-	if (ret > 0)
-		hdesc->right = right & (~right_send | kobj->right_mask);
+	hdesc->right = right & (~right_send | kobj->right_mask);
+	spin_unlock(&proc->kobj_lock);
+
+	setup_handle(pdst, handle_ret, kobj, right_send);
+
+	return handle_ret;
+
 out:
 	spin_unlock(&proc->kobj_lock);
-	if (ret < 0)
-		pr_err("send handle %d with 0x%x fail\n", handle, right_send);
-
+	__release_handle(pdst, handle_ret);
+	pr_err("send handle %d with 0x%x fail\n", handle, right_send);
 
 	return ret;
 }

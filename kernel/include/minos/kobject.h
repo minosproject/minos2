@@ -34,8 +34,6 @@ struct kobject {
 	spinlock_t lock;
 };
 
-#define KOBJ_PLACEHOLDER	(struct kobject *)(-1)
-
 struct kobject_ops {
 	long (*send)(struct kobject *kobj, void __user *data,
 			size_t data_size, void __user *extra,

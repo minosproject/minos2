@@ -1,9 +1,7 @@
+#include <minos/mutex.h>
+
 #include "stdio_impl.h"
 #include "pthread_impl.h"
-
-struct mutex {
-	int lock;
-};
 
 int mutex_lock(struct mutex *f)
 {
@@ -27,4 +25,9 @@ void mutex_unlock(struct mutex *f)
 {
 	if (a_swap(&f->lock, 0) & MAYBE_WAITERS)
 		__wake(&f->lock, 1, 1);
+}
+
+void mutex_lock(struct mutex *f)
+{
+	f->lock = 0;
 }

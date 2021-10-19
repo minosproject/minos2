@@ -26,7 +26,7 @@ int main(int argc, char **argv)
 
 	printf("PID TIME CMD\n")
 	while (dent = readdir(procdir)) {
-		fd = openat(procdir, dent->d_name, O_RDONLY);
+		fd = openat(dirfd(procdir), dent->d_name, O_RDONLY);
 		if (fd < 0) {
 			printf("no such process %s\n", dent->d_name);
 			continue;

@@ -27,7 +27,7 @@ void mutex_unlock(struct mutex *f)
 		__wake(&f->lock, 1, 1);
 }
 
-void mutex_lock(struct mutex *f)
+void mutex_init(struct mutex *f)
 {
 	f->lock = 0;
 }

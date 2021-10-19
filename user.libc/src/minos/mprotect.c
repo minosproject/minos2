@@ -24,6 +24,8 @@ int __mprotect(void *addr, size_t len, int prot)
 	proto.mprotect.addr = (void *)start;
 	proto.mprotect.len = end - start;
 	proto.mprotect.prot = prot;
+
+	return 0;
 }
 
 weak_alias(__mprotect, mprotect);

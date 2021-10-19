@@ -23,13 +23,11 @@ int fclose(FILE *f)
 
 	if (f->flags & F_PERM) return r;
 
+	/*
+	 * delete it from the open file list.
+	 */
 	__unlist_locked_file(f);
-
-	FILE **head = __ofl_lock();
-	if (f->prev) f->prev->next = f->next;
-	if (f->next) f->next->prev = f->prev;
-	if (*head == f) *head = f->next;
-	__ofl_unlock();
+	__ofl_del(f);
 
 	free(f->getln_buf);
 	free(f);

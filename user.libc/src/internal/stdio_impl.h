@@ -79,12 +79,15 @@ hidden off_t __ftello_unlocked(FILE *);
 hidden size_t __fwritex(const unsigned char *, size_t, FILE *);
 hidden int __putc_unlocked(int, FILE *);
 
-hidden FILE *__fdopen(int, const char *);
+hidden FILE *__fdopen(int, int);
 hidden int __fmodeflags(const char *);
 
 hidden FILE *__ofl_add(FILE *f);
 hidden FILE **__ofl_lock(void);
 hidden void __ofl_unlock(void);
+hidden FILE *__ofl_del_fd(int fd);
+void *__ofl_del(FILE *f);
+hidden FILE *__ofl_get_file(int fd);
 
 struct __pthread;
 hidden void __register_locked_file(FILE *, struct __pthread *);

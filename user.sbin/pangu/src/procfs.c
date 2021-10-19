@@ -201,7 +201,7 @@ int handle_procfs_event(struct file *file, struct request_entry *re)
 		ret = procfs_handle_read_request(file, &proto, strbuf);
 		kobject_reply_errcode(file->handle, proto.token, ret);
 		break;
-	case PROTO_GETDENT:
+	case PROTO_GETDENTS:
 		ret = procfs_handle_getdent_request(file, &proto, strbuf);
 		kobject_reply_errcode(file->handle, proto.token, ret);
 		break;

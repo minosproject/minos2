@@ -498,7 +498,7 @@ static int handle_event(struct epoll_event *event)
 	if (ret)
 		return ret;
 
-	if ((vreq->buf == NULL) && (proto.proto_id == PROTO_GETDENT)) {
+	if ((vreq->buf == NULL) && (proto.proto_id == PROTO_GETDENTS)) {
 		kobject_reply_errcode(vreq->handle, proto.token, -EPERM);
 		return -EPERM;
 	}
@@ -507,7 +507,7 @@ static int handle_event(struct epoll_event *event)
 	case PROTO_OPEN:
 		handle_open_request(vreq, &proto, string_buffer);
 		break;
-	case PROTO_GETDENT:
+	case PROTO_GETDENTS:
 		handle_getdent_request(vreq, &proto, string_buffer);
 		break;
 	case PROTO_REGISTER_SERVICE:

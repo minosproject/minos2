@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include "syscall.h"
 #include <string.h>
+#include "stdio_impl.h"
 
 #include <minos/proto.h>
 #include <minos/kobject.h>
@@ -22,6 +23,7 @@ int openat(int fd, const char *filename, int flags, ...)
 {
 	mode_t mode = 0;
 	int handle;
+	FILE *f;
 
 	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
 		va_list ap;
@@ -31,14 +33,16 @@ int openat(int fd, const char *filename, int flags, ...)
 	}
 
 	handle = __openat(fd, filename, flags | O_LARGEFILE, mode);
-	if (handle > 0) {
-		if (kobject_mmap(handle) == (void *)-1) {
-			kobject_close(handle);
-			return -ENOMEM;
-		}
-	}
+	if (handle <= 0)
+		return handle;
 
-	return handle;
+	f = __fdopen(fd, mode);
+	if (f)
+		return f->fd;
+
+	kobject_close(handle);
+
+	return -ENOMEM;
 }
 
 weak_alias(openat, openat64);

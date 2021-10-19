@@ -22,7 +22,7 @@ enum {
 	PROTO_WRITE,
 	PROTO_IOCTL,
 	PROTO_LSEEK,
-	PROTO_GETDENT,
+	PROTO_GETDENTS,
 	PROTO_REGISTER_SERVICE,
 	PROTO_VFS_END,
 };
@@ -85,7 +85,7 @@ struct proto_open {
 
 struct proto_openat {
 	int flags;
-	int mode;
+	char mode[4];
 };
 
 struct proto_read {

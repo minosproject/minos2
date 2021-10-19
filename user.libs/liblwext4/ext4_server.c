@@ -278,7 +278,7 @@ static int handle_vfs_in_request(struct ext4_server *vs, struct lwext4_file *fil
 	case PROTO_WRITE:
 		ret = handle_vfs_write_request(vs, file, &proto);
 		break;
-	case PROTO_GETDENT:
+	case PROTO_GETDENTS:
 		ret = handle_vfs_getdent_request(vs, file, &proto);
 		break;
 	case PROTO_LSEEK:

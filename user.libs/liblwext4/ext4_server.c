@@ -67,7 +67,7 @@ static int ext4_server_unlisten(struct ext4_server *vs, struct lwext4_file *file
 	int ret;
 
 	event.events = EPOLLIN | EPOLLWCLOSE;
-	ret = epoll_ctl(vs->epfd, EPOLL_CTL_ADD, file->handle, &event);
+	ret = epoll_ctl(vs->epfd, EPOLL_CTL_DEL, file->handle, &event);
 	if (ret)
 		pr_err("unlisten ext4 file failed\n");
 

@@ -36,7 +36,7 @@ extern handle_t sys_grant(handle_t proc, handle_t handle,
 
 extern int sys_kobject_munmap(handle_t handle);
 
-extern void *sys_kobject_mmap(handle_t handle);
+extern int sys_kobject_mmap(handle_t handle, void **addr, unsigned long *msize);
 
 extern long sys_kobject_ctl(handle_t handle, int req, unsigned long data);
 

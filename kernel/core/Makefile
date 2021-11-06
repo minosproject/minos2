@@ -41,3 +41,4 @@ obj-y += vspace.o
 obj-y += uaccess.o
 obj-y += futex.o
 obj-y += kobject.o
+obj-y += procinfo.o

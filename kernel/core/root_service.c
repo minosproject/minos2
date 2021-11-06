@@ -25,12 +25,15 @@
 #include <minos/page.h>
 #include <asm/arch.h>
 #include <minos/vspace.h>
+#include <minos/kobject.h>
+#include <minos/handle.h>
 
 #include <asm/io.h>
 
-extern struct process *create_root_process(char *name,
-			task_func_t func, void *usp, int prio,
-			int aff, unsigned long opt);
+extern struct kobject *uproc_info_pma;
+extern struct kobject *ktask_stat_pma;
+extern struct process *create_root_process( task_func_t func,
+		void *usp, int prio, int aff, unsigned long opt);
 
 struct elf_ctx {
 	Elf_Addr base_load_vbase;
@@ -326,6 +329,18 @@ static int setup_root_service_env(struct process *proc)
 		return ret;
 
 	/*
+	 * pass the uproc_info and ktask_stat pma handle to the
+	 * root service.
+	 */
+	env->max_proc = OS_NR_TASKS;
+	env->uproc_info_handle = __alloc_handle(proc, uproc_info_pma,
+			KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP);
+	env->ktask_stat_handle = __alloc_handle(proc, ktask_stat_pma,
+			KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP);
+	ASSERT(env->uproc_info_handle > 0);
+	ASSERT(env->ktask_stat_handle > 0);
+
+	/*
 	 * map env page to a fix memory address
 	 */
 	ret = map_process_memory(proc, ROOTSRV_BOOTDATA_BASE,
@@ -476,13 +491,9 @@ int load_root_service(void)
 		goto out;
 	}
 
-	proc = create_root_process("pangu.srv", NULL, NULL,
-			OS_PRIO_SYSTEM, TASK_AFF_ANY,
+	proc = create_root_process(NULL, NULL, OS_PRIO_SYSTEM, TASK_AFF_ANY,
 			TASK_FLAGS_SRV | TASK_FLAGS_NO_AUTO_START);
-	if (!proc || (proc->pid != 1)) {
-		pr_err("can not load memory service, no memory\n");
-		goto out;
-	}
+	ASSERT(proc != NULL);
 
 	entry = elf_load_process(proc, &file);
 	if (entry < MIN_ELF_LOAD_BASE) {

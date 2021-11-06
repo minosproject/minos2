@@ -90,7 +90,12 @@ static void __sys_kobject_ctl(gp_regs *regs)
 
 static void __sys_kobject_mmap(gp_regs *regs)
 {
-	regs->x0 = (unsigned long)sys_kobject_mmap((handle_t)regs->x0);
+	void *addr = 0;
+	unsigned long mapsz = 0;
+
+	regs->x0 = (unsigned long)sys_kobject_mmap((handle_t)regs->x0, &addr, &mapsz);
+	regs->x1 = (unsigned long)addr;
+	regs->x2 = mapsz;
 }
 
 static void __sys_kobject_munmap(gp_regs *regs)

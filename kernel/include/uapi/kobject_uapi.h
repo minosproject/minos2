@@ -54,8 +54,8 @@ struct process_create_arg {
 	unsigned long stack;
 	int aff;
 	int prio;
-	unsigned long flags;
-	char *name;
+	int pid;
+	int flags;
 };
 
 /*
@@ -86,7 +86,7 @@ struct pma_create_arg {
  * for kobject poll
  */
 enum {
-	KOBJ_POLL_HUB_OP_BASE = 0x2000,
+	KOBJ_POLLHUB_OP_BASE = 0x2000,
 	KOBJ_POLL_OP_ADD,
 	KOBJ_POLL_OP_DEL,
 	KOBJ_POLL_OP_MOD,

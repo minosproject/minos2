@@ -177,24 +177,24 @@ out:
 	return ret;
 }
 
-void *sys_kobject_mmap(handle_t handle)
+int sys_kobject_mmap(handle_t handle,
+		void **addr, unsigned long *map_size)
 {
 	struct kobject *kobj;
 	right_t right;
 	long ret;
-	void *out = (void *)-1;
 
 	ret = get_kobject(handle, &kobj, &right);
 	if (ret)
-		return (void *)-1;
+		return ret;
 
 	if (!(right & KOBJ_RIGHT_MMAP))
 		goto out;
 
-	out = kobject_mmap(kobj, right);
+	ret = kobject_mmap(kobj, right, addr, map_size);
 out:
 	put_kobject(kobj);
-	return out;
+	return ret;
 }
 
 int sys_kobject_munmap(handle_t handle)

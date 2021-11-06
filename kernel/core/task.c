@@ -63,6 +63,7 @@ static int request_tid(int tid)
 static void release_tid(int tid)
 {
 	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
+	release_ktask_stat(tid);
 	os_task_table[tid] = NULL;
 	clear_bit(tid, tid_map);
 }
@@ -145,6 +146,8 @@ static void task_init(struct task *task, char *name,
 		strncpy(task->name, name, MIN(strlen(name), TASK_NAME_SIZE));
 	else
 		task->name[0] = '\0';
+
+	get_and_init_ktask_stat(task);
 }
 
 static struct task *do_create_task(char *name,
@@ -238,7 +241,7 @@ void do_release_task(struct task *task)
 
 void release_task(struct task *task)
 {
-	pr_notice("release task tid: %d name: %s\n",
+	pr_debug("release task tid: %d name: %s\n",
 			task->tid, task->name);
 
 	/*

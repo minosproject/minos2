@@ -178,7 +178,6 @@ static long port_send(struct kobject *kobj, void __user *data, size_t data_size,
 	list_add_tail(&port->pending_list, &current->kobj.list);
 	__event_task_wait(port_generate_token(port),
 			TASK_EVENT_KOBJ_REPLY, timeout);
-	task = port->recv_task;
 	spin_unlock(&port->lock);
 
 	/*

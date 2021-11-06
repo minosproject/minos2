@@ -62,7 +62,7 @@ static inline int proc_can_hwctl(struct process *proc)
 #define for_all_task_in_process(proc, task)	\
 	for (task = proc->head; task != NULL; task = task->next)
 
-struct process *create_process(char *name, task_func_t func,
+struct process *create_process(int pid, task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt);
 
 struct task *create_task_for_process(struct process *proc,

@@ -15,7 +15,11 @@
 #define TASK_STACK_SIZE (2 * PAGE_SIZE)
 #endif
 
-#define OS_NR_TASKS		512
+#ifndef CONFIG_NR_TASKS
+#define CONFIG_NR_TASKS 4096
+#endif
+
+#define OS_NR_TASKS CONFIG_NR_TASKS
 
 #define OS_PRIO_MAX		8
 #define OS_PRIO_DEFAULT_0	0
@@ -98,8 +102,8 @@ struct task {
 	void *stack_top;
 	void *stack_bottom;
 
-	tid_t tid;
-	pid_t pid;
+	int pid;
+	int tid;
 
 	unsigned long flags;
 
@@ -172,6 +176,8 @@ struct task {
 		struct vcpu *vcpu;
 #endif
 	};
+
+	struct ktask_stat *kstat;
 
 	struct cpu_context cpu_context;
 } __cache_line_align;

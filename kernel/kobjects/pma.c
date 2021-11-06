@@ -166,14 +166,23 @@ static int pma_unmap(struct kobject *kobj, struct process *proc)
 	return unmap_process_memory(proc, out->base, p->psize);
 }
 
-static void *pma_mmap(struct kobject *kobj, right_t right)
+static int pma_mmap(struct kobject *kobj, right_t right,
+		void **addr, unsigned long *msize)
 {
 	struct pma *p = (struct pma *)kobj->data;
+	void *mem;
 
 	if (!p->pstart)
-		return ERROR_PTR(-EPERM);
+		return -EPERM;
 
-	return pma_map(kobj, current_proc, 0);
+	mem = pma_map(kobj, current_proc, 0);
+	if (IS_ERROR_PTR(mem))
+		return (long)mem;
+
+	*addr = mem;
+	*msize = p->psize;
+
+	return 0;
 }
 
 static int pma_munmap(struct kobject *kobj, right_t right)
@@ -401,12 +410,66 @@ static int allocate_pma_memory(struct pma *p, int cnt, int consequent, int type)
 	return 0;
 }
 
+static int __create_new_pma(struct kobject **kobj,
+		right_t *right, struct pma_create_arg *args)
+{
+	struct pma *p;
+	int ret;
+	int fixup_pmem = 0;
+
+	if ((args->type == PMA_TYPE_MMIO) || (args->type == PMA_TYPE_PMEM))
+		fixup_pmem = 1;
+
+	/*
+	 * data will be the page count of the request memory size
+	 */
+	p = zalloc(sizeof(struct pma));
+	if (!p)
+		return -ENOMEM;
+
+	args->size = PAGE_BALIGN(args->size);
+	p->vm_flags = pma_flags(args->type, args->right);
+	if (fixup_pmem) {
+		if (args->size == 0)
+			return -EINVAL;
+
+		p->pstart = args->start;
+		p->pend = args->start + args->size;
+		p->psize = args->size;
+	} else {
+		if (args->size > 0) {
+			p->psize = args->size;
+			ret = allocate_pma_memory(p, args->size >> PAGE_SHIFT,
+					!!args->consequent, args->type);
+			if (ret) {
+				free(p);
+				return -ENOMEM;
+			}
+		}
+	}
+
+	p->type = args->type;
+	p->consequent = !!args->consequent;
+	init_list(&p->mapping);
+	spin_lock_init(&p->lock);
+	p->kobj.ops = &pma_ops;
+	kobject_init(&p->kobj, KOBJ_TYPE_PMA, PMA_RIGHT_MASK, (unsigned long)p);
+	*kobj = &p->kobj;
+	*right = PMA_RIGHT;
+
+	return 0;
+}
+
+int create_new_pma(struct kobject **kobj, right_t *right, struct pma_create_arg *args)
+{
+	return __create_new_pma(kobj, right, args);
+}
+
 static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	struct pma_create_arg args;
-	int fixup_pmem = 0;
-	struct pma *p;
 	int ret;
+	int fixup_pmem = 0;
 
 	ret = copy_from_user(&args, (void __user *)data, sizeof(struct pma_create_arg));
 	if (ret <= 0)
@@ -424,43 +487,6 @@ static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 	if (!proc_is_root(current_proc) && (args.size > HUGE_PAGE_SIZE))
 		return -E2BIG;
 
-	/*
-	 * data will be the page count of the request memory size
-	 */
-	p = zalloc(sizeof(struct pma));
-	if (!p)
-		return -ENOMEM;
-
-	args.size = PAGE_BALIGN(args.size);
-	p->vm_flags = pma_flags(args.type, args.right);
-	if (fixup_pmem) {
-		if (args.size == 0)
-			return -EINVAL;
-
-		p->pstart = args.start;
-		p->pend = args.start + args.size;
-		p->psize = args.size;
-	} else {
-		if (args.size > 0) {
-			p->psize = args.size;
-			ret = allocate_pma_memory(p, args.size >> PAGE_SHIFT,
-					!!args.consequent, args.type);
-			if (ret) {
-				free(p);
-				return -ENOMEM;
-			}
-		}
-	}
-
-	p->type = args.type;
-	p->consequent = !!args.consequent;
-	init_list(&p->mapping);
-	spin_lock_init(&p->lock);
-	p->kobj.ops = &pma_ops;
-	kobject_init(&p->kobj, KOBJ_TYPE_PMA, PMA_RIGHT_MASK, (unsigned long)p);
-	*kobj = &p->kobj;
-	*right = PMA_RIGHT;
-
-	return 0;
+	return __create_new_pma(kobj, right, &args);
 }
 DEFINE_KOBJECT(pma, KOBJ_TYPE_PMA, pma_create);

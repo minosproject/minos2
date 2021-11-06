@@ -249,6 +249,9 @@ void switch_to_task(struct task *cur, struct task *next)
 			!(next->ti.flags & __TIF_DONOT_PREEMPT))
 		sched_tick_enable(MILLISECS(next->run_time));
 	next->start_ns = NOW();
+
+	update_ktask_stat(cur);
+	update_ktask_stat(next);
 }
 
 unsigned long sched_tick_handler(unsigned long data)

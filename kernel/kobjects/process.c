@@ -23,6 +23,7 @@
 #include <minos/poll.h>
 #include <minos/task.h>
 #include <minos/handle.h>
+#include <minos/procinfo.h>
 
 #include "kobject_copy.h"
 
@@ -98,9 +99,9 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 		return -ENOENT;
 
 	if (fd > 0)
-		errno = send_handle(proc, target->proc, fd, fd_right);
+		errno = send_handle(current_proc, proc, fd, fd_right);
 
-	wake_up(proc->request_current, errno);
+	wake_up(target, errno);
 	proc->request_current = NULL;
 
 	return 0;
@@ -223,7 +224,6 @@ static void process_release(struct kobject *kobj)
 	 */
 	vspace_deinit(proc);
 	process_handles_deinit(proc);
-	release_pid(proc->pid);
 	free(proc);
 }
 
@@ -242,12 +242,22 @@ static void process_kobject_init(struct process *proc)
 	proc->kobj.ops = &proc_kobj_ops;
 }
 
-struct process *create_root_process(char *name, task_func_t func,
-		void *usp, int prio, int aff, unsigned long opt)
+struct process *create_root_process(task_func_t func, void *usp,
+		int prio, int aff, unsigned long opt)
 {
 	struct process *proc;
+	struct uproc_info *ui;
 
-	proc = create_process(name, func, usp, prio, aff, opt);
+	/*
+	 * the pid of the root service will fix to 0, kernel
+	 * will only init the uproc_info of process 0.
+	 */
+	ui = get_uproc_info(0);
+	ui->valid = 1;
+	ui->pid = 0;
+	strcpy(ui->cmd, "pangu.srv");
+
+	proc = create_process(0, func, usp, prio, aff, opt);
 	if (!proc)
 		return NULL;
 
@@ -261,7 +271,6 @@ static int process_create(struct kobject **kobjr, right_t *right, unsigned long 
 {
 	struct process_create_arg args;
 	struct process *proc;
-	char name[256];
 	int ret;
 
 	/*
@@ -275,11 +284,7 @@ static int process_create(struct kobject **kobjr, right_t *right, unsigned long 
 	if (ret <= 0)
 		return -EFAULT;
 
-	ret = copy_string_from_user_safe(name, args.name, 256);
-	if (ret < 0)
-		name[0] = 0;
-
-	proc = create_process(name, (task_func_t)args.entry,
+	proc = create_process(args.pid, (task_func_t)args.entry,
 			(void *)args.stack, args.aff,
 			args.prio, args.flags);
 	if (!proc)

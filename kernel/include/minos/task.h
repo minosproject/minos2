@@ -5,6 +5,7 @@
 #include <minos/flag.h>
 #include <config/config.h>
 #include <minos/task_def.h>
+#include <minos/procinfo.h>
 
 #define to_task_info(task)	(&(task)->ti)
 

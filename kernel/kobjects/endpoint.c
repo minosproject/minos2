@@ -292,7 +292,8 @@ static void endpoint_release(struct kobject *kobj)
 	free(ep);
 }
 
-static void *endpoint_mmap(struct kobject *kobj, right_t right)
+static int endpoint_mmap(struct kobject *kobj, right_t right,
+		void **addr, unsigned long *msize)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	unsigned long base;
@@ -301,12 +302,15 @@ static void *endpoint_mmap(struct kobject *kobj, right_t right)
 	ASSERT(ep->shmem != NULL);
 	base = va2sva(ep->shmem);
 
-	ret = map_process_memory(current_proc, base,
-			ep->shmem_size, vtop(ep->shmem), VM_RW | VM_SHARED);
+	ret = map_process_memory(current_proc, base, ep->shmem_size,
+			vtop(ep->shmem), VM_RW | VM_SHARED);
 	if (ret)
-		return (void *)-1;
+		return ret;
 
-	return (void *)base;
+	*addr = (void *)base;
+	*msize = ep->shmem_size;
+
+	return 0;
 }
 
 static int endpoint_munmap(struct kobject *kobj, right_t right)

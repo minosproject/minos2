@@ -219,12 +219,13 @@ int kobject_munmap(struct kobject *kobj, right_t right)
 	return kobj->ops->munmap(kobj, right);
 }
 
-void *kobject_mmap(struct kobject *kobj, right_t right)
+int kobject_mmap(struct kobject *kobj, right_t right,
+		void **addr, unsigned long *msize)
 {
 	if (!kobj->ops || !kobj->ops->mmap)
-		return (void *)-1;
+		return -EPERM;
 
-	return kobj->ops->mmap(kobj, right);
+	return kobj->ops->mmap(kobj, right, addr, msize);
 }
 
 long kobject_ctl(struct kobject *kobj, right_t right,

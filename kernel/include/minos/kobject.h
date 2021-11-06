@@ -5,7 +5,7 @@
 #include <minos/compiler.h>
 #include <config/config.h>
 
-#include <minos/kobject_uapi.h>
+#include <uapi/kobject_uapi.h>
 
 struct task;
 struct process;
@@ -55,7 +55,7 @@ struct kobject_ops {
 	int (*reply)(struct kobject *kobj, right_t right, long token,
 			long err_code, handle_t fd, right_t fd_right);
 
-	void *(*mmap)(struct kobject *kobj, right_t right);
+	int (*mmap)(struct kobject *kobj, right_t right, void **addr, unsigned long *msize);
 
 	int (*munmap)(struct kobject *kobj, right_t right);
 
@@ -103,16 +103,21 @@ long kobject_send(struct kobject *kobj, void __user *data,
 		size_t data_size, void __user *extra,
 		size_t extra_size, uint32_t timeout);
 
-int kobject_reply(struct kobject *kobj, right_t right, unsigned long token,
-		long err_code, handle_t fd, right_t fd_right);
+int kobject_reply(struct kobject *kobj, right_t right,
+		unsigned long token, long err_code,
+		handle_t fd, right_t fd_right);
 
 int kobject_munmap(struct kobject *kobj, right_t right);
 
-void *kobject_mmap(struct kobject *kobj, right_t right);
+int kobject_mmap(struct kobject *kobj, right_t right,
+		void **addr, unsigned long *msize);
 
 long kobject_ctl(struct kobject *kobj, right_t right,
 		int req, unsigned long data);
 
 int kobject_open(struct kobject *kobj, handle_t handle, right_t right);
+
+int create_new_pma(struct kobject **kobj, right_t *right,
+		struct pma_create_arg *args);
 
 #endif

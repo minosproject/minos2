@@ -22,6 +22,9 @@ struct bootdata {
 	uint64_t heap_end;
 	uint64_t vmap_start;
 	uint64_t vmap_end;
+	int max_proc;
+	int uproc_info_handle;
+	int ktask_stat_handle;
 };
 
 #endif

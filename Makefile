@@ -187,6 +187,7 @@ rootfs: apps
 prepare: objdirs
 	$(Q) cd user.libc; ./build.sh $(TARGET_OUT_DIR) $(TARGET_ARCH) $(TARGET_CROSS_COMPILE)
 	$(Q) cd kernel; make $(TARGET_PLATFORM)_defconfig
+	cp -f kernel/include/uapi/* user.libc/include/minos/
 
 bin/% sbin/% driver/% libs/%:
 	$(Q)set -e;					\

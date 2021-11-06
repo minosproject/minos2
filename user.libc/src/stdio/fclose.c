@@ -4,7 +4,7 @@
 static void dummy(FILE *f) { }
 weak_alias(dummy, __unlist_locked_file);
 
-int fclose(FILE *f)
+static int __fclose(FILE *f, int del)
 {
 	int r;
 	
@@ -24,13 +24,28 @@ int fclose(FILE *f)
 	if (f->flags & F_PERM) return r;
 
 	/*
-	 * delete it from the open file list.
+	 * delete it from the open file list. TBD
 	 */
 	__unlist_locked_file(f);
-	__ofl_del(f);
+	if (del)
+		__ofl_del(f);
 
 	free(f->getln_buf);
 	free(f);
 
 	return r;
+}
+
+int fclose(FILE *f)
+{
+	return __fclose(f, 1);
+}
+
+int fclose_fd(int fd)
+{
+	FILE *file = __ofl_del_fd(fd);
+	if (!file)
+		return -ENOENT;
+
+	return __fclose(file, 0);
 }

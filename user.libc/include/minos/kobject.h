@@ -54,7 +54,7 @@ int kobject_reply(int handle, long token, long err_code, int fd, int right);
 
 int kobject_reply_errcode(int handle, long token, long err_code);
 
-void *kobject_mmap(int handle);
+int kobject_mmap(int handle, void *addr, size_t *msize);
 
 int kobject_munmap(int handle);
 

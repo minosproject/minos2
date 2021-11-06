@@ -58,9 +58,20 @@ int kobject_reply_errcode(int handle, long token, long err_code)
 	return kobject_reply(handle, token, err_code, -1, 0);
 }
 
-void *kobject_mmap(int handle)
+int kobject_mmap(int handle, void **addr, size_t *msize)
 {
-	return (void *)syscall(SYS_kobject_mmap, handle);
+	struct aarch64_svc_res res;
+	int ret;
+
+	aarch64_svc_call((unsigned long)handle, 0, 0, 0, 0,
+			0, 0, SYS_kobject_mmap, &res);
+	ret = (long)res.a0;
+	if (addr)
+		*addr = (void *)res.a1;
+	if (msize)
+		*msize = (size_t)res.a2;
+
+	return ret;
 }
 
 int kobject_munmap(int handle)

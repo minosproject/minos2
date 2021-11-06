@@ -5,8 +5,8 @@
 #define KOBJ_RIGHT_READ		0x0001		// can read this kobject, usually for IPC between two process.
 #define KOBJ_RIGHT_WRITE	0x0002		// can write this kobject, usually for IPC between two process.
 #define KOBJ_RIGHT_EXEC		0x0004		// can be exectued.
-#define KOBJ_RIGHT_MMAP		0x0008		// can be mmaped to current process's memory space
-#define KOBJ_RIGHT_CTL		0x0010		// can control the releated kobject
+#define KOBJ_RIGHT_MMAP		0x0008		// can be mapped to process address space
+#define KOBJ_RIGHT_CTL		0x0010		// can call kobject_ctl for this kobject
 #define KOBJ_RIGHT_MASK		0x001f
 
 #define KOBJ_RIGHT_RW		(KOBJ_RIGHT_READ | KOBJ_RIGHT_WRITE)
@@ -54,8 +54,8 @@ struct process_create_arg {
 	unsigned long stack;
 	int aff;
 	int prio;
-	unsigned long flags;
-	char *name;
+	int pid;
+	int flags;
 };
 
 /*

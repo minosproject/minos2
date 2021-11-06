@@ -18,8 +18,7 @@ static DIR *__dirfd_open(int fd)
 
 	dir->buf_size = BUFSIZ;
 	dir->fd = fd;
-	dir->buf = kobject_mmap(fd);
-	if (dir->buf == (char *)-1)
+	if (kobject_mmap(fd, &dir->buf, NULL))
 		goto out_free;
 
 	return dir;

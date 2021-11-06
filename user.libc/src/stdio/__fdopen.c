@@ -25,8 +25,7 @@ FILE *__fdopen(int fd, int flags)
 	if (strchr(mode, 'e')) __syscall(SYS_fcntl, fd, F_SETFD, FD_CLOEXEC);
 #endif
 
-	f->buf = kobject_mmap(fd);
-	if (f->buf == (void *)-1) {
+	if (kobject_mmap(fd, &f->buf, NULL)) {
 		free(f);
 		return 0;
 	}

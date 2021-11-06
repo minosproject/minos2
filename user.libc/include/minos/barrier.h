@@ -1,0 +1,32 @@
+#ifndef __LIBC_BARRIER_H__
+#define __LIBC_BARRIER_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define __isb()		asm volatile("isb" : : : "memory")
+#define __dmb(opt)	asm volatile("dmb " #opt : : : "memory")
+#define __dsb(opt)	asm volatile("dsb " #opt : : : "memory")
+
+#define isb()		__isb();
+
+#define mb()		__dsb(sy)
+#define rmb()		__dsb(ld)
+#define wmb()		__dsb(st)
+
+#define dma_rmb()	__dmb(oshld)
+#define dma_wmb()	__dmb(oshst)
+
+#define iormb()		dma_rmb()
+#define iowmb()		dma_wmb()
+
+#define smp_mb()	__dmb(ish)
+#define smp_rmb()	__dmb(ishld)
+#define smp_wmb()	__dmb(ishst)
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

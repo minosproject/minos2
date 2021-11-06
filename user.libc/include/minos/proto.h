@@ -12,6 +12,9 @@ enum {
 	PROTO_MPROTECT,
 	PROTO_BRK,
 	PROTO_EXECV,
+	PROTO_PROCCNT,
+	PROTO_PROCINFO,
+	PROTO_TASKSTAT,
 	PROTO_PROC_END,
 };
 
@@ -147,11 +150,6 @@ struct proto {
 	};
 };
 
-struct proc_info {
-	int pid;
-	char name[PROCESSNAME_MAX];
-};
-
 struct service_info {
 	int right;
 	int type;
@@ -160,11 +158,20 @@ struct service_info {
 
 #define PROTO_SIZE sizeof(struct proto)
 
-int kobject_read_proto_with_string(int handle, struct proto *proto,
+int sys_read_proto_with_string(int handle, struct proto *proto,
 		char *extra, size_t size, uint32_t timeout);
 
-int kobject_read_proto(int handle, struct proto *proto,
+int sys_read_proto(int handle, struct proto *proto,
 		char *extra, size_t size, uint32_t timeout);
+
+long sys_send_proto(int handle, struct proto *proto);
+
+long sys_send_proto_nonblock(int handle, struct proto *proto);
+
+long sys_send_proto_timeout(int handle, struct proto *proto, uint32_t to);
+
+long sys_send_proto_with_data(int handle, struct proto *proto,
+		void *data, size_t dsz, uint32_t to);
 
 void i_am_ok(void);
 

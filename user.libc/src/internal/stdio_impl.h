@@ -86,8 +86,10 @@ hidden FILE *__ofl_add(FILE *f);
 hidden FILE **__ofl_lock(void);
 hidden void __ofl_unlock(void);
 hidden FILE *__ofl_del_fd(int fd);
-void *__ofl_del(FILE *f);
+hidden void *__ofl_del(FILE *f);
 hidden FILE *__ofl_get_file(int fd);
+
+hidden int fclose_fd(int);
 
 struct __pthread;
 hidden void __register_locked_file(FILE *, struct __pthread *);

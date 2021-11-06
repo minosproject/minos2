@@ -42,10 +42,15 @@ int request_consequent_pma(size_t memsize, int right)
 
 void *request_mmio_by_handle(int handle)
 {
+	void *base;
+
 	if (kobject_open(handle) < 0)
 		return (void *)-1;
 
-	return kobject_mmap(handle);
+	if (kobject_mmap(handle, &base, NULL))
+			return (void *)-1;
+
+	return base;
 }
 
 int get_device_mmio_handle(const char *comp, int index)

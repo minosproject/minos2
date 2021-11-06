@@ -3,6 +3,7 @@
 
 #include <minos/list.h>
 #include <minos/types.h>
+#include <minos/procinfo.h>
 
 #include <pangu/mm.h>
 
@@ -20,6 +21,7 @@
 #define PROC_FLAGS_HWCTL	(1 << 1)
 
 struct request_entry;
+struct uproc_info;
 
 struct handle_desc {
 	int handle;
@@ -27,8 +29,6 @@ struct handle_desc {
 };
 
 struct process {
-	int pid;
-	int flags;
 	int proc_handle;		// used to control the process.
 
 	struct vma elf_vma;
@@ -49,7 +49,7 @@ struct process {
 	unsigned long brk_cur;
 
 	struct list_head list;		// link to all the process in the system.
-	char name[0];
+	struct uproc_info *pinfo;
 };
 
 typedef long (*syscall_hdl)(struct process *proc, struct proto *proto, void *data);
@@ -80,15 +80,21 @@ int unmap_self_memory(void *base);
 
 void wakeup_process(struct process *proc);
 
-void handle_process_request(struct epoll_event *event,
-		struct request_entry *re);
+void handle_process_request(struct epoll_event *event, struct process *proc);
 
-void handle_procfs_request(struct epoll_event *event,
-		struct request_entry *re);
+long process_procinfo_handler(struct process *proc,
+		struct proto *proto, void *data);
+long process_taskstat_handler(struct process *proc,
+		struct proto *proto, void *data);
+long process_proccnt_handler(struct process *proc,
+		struct proto *proto, void *data);
 
 struct process *load_ramdisk_process(char *path,
 		struct handle_desc *hdesc, int num_handle, int flags);
 
-struct process *find_process_by_name(const char *name);
+int register_request_entry(int handle, struct process *proc);
+
+struct uproc_info *alloc_procinfo(char *path, int flags);
+void release_procinfo(struct uproc_info *pinfo);
 
 #endif

@@ -24,7 +24,6 @@
 #include <pangu/proc.h>
 #include <pangu/ramdisk.h>
 #include <pangu/elf.h>
-#include <pangu/request.h>
 #include <pangu/mm.h>
 
 struct execv_request {
@@ -51,24 +50,16 @@ static struct process proc_self;
 struct process *self = &proc_self;
 LIST_HEAD(process_list);
 
-struct process *find_process_by_name(const char *name)
-{
-	struct process *proc;
-
-	list_for_each_entry(proc, &process_list, list) {
-		if (strcmp(proc->name, name) == 0)
-			return proc;
-	}
-
-	return NULL;
-}
-
 void release_process(struct process *proc)
 {
-
+	/*
+	 * TBD
+	 */
+	release_procinfo(proc->pinfo);	
+	kfree(proc);
 }
 
-static int sys_create_process(char *name, unsigned long entry,
+static int sys_create_process(int pid, unsigned long entry,
 		unsigned long stack, int aff,
 		int prio, unsigned long flags)
 {
@@ -78,7 +69,7 @@ static int sys_create_process(char *name, unsigned long entry,
 		.aff = aff,
 		.prio = prio,
 		.flags = flags & TASK_FLAGS_KERNEL_MASK,
-		.name = name,
+		.pid = pid,
 	};
 
 	return kobject_create(KOBJ_TYPE_PROCESS, (unsigned long)&args);
@@ -89,22 +80,22 @@ static struct process *create_new_process(char *name, unsigned long entry,
 {
 	struct process *proc;
 
-	proc = kzalloc(sizeof(struct process) + strlen(name) + 1);
+	proc = kzalloc(sizeof(struct process));
 	if (!proc)
 		return NULL;
 
-	proc->proc_handle = -1;
-	proc->flags = flags;
-	strcpy(proc->name, name);
+	proc->pinfo = alloc_procinfo(name, flags);
+	if (!proc->pinfo) {
+		kfree(proc);
+		return NULL;
+	}
 
-	proc->proc_handle = sys_create_process(name,
+	proc->proc_handle = sys_create_process(proc->pinfo->pid,
 			entry, PROCESS_STACK_BASE, -1, -1, flags);
 	if (proc->proc_handle <= 0) {
 		kfree(proc);
 		return NULL;
 	}
-
-	proc->pid = kobject_ctl(proc->proc_handle, KOBJ_PROCESS_GET_PID, 0);
 
 	if (process_mm_init(proc, elf_pma, elf_base, elf_size))
 		goto err_out;
@@ -301,7 +292,7 @@ static int setup_process(struct process *proc, char *path,
 		pr_debug("argv address is %p\n", new_argv[i]);
 	}
 
-	stack = setup_auxv(proc, stack, proc->flags);
+	stack = setup_auxv(proc, stack, proc->pinfo->flags);
 	stack = setup_envp(stack);
 	stack = setup_argv(stack, argc, new_argv);
 
@@ -338,7 +329,7 @@ static int setup_process_handles(struct process *proc, char *buf,
 				hdesc[i].handle, hdesc[i].right);
 		if (htarget[i] <= 0) {
 			pr_err("grant %d to process %s failed\n",
-					hdesc[i].handle, proc->name);
+					hdesc[i].handle, proc->pinfo->cmd);
 		}
 	}
 
@@ -354,7 +345,7 @@ static int setup_process_handles(struct process *proc, char *buf,
 	}
 
 	*tmp = 0;
-	pr_info("handle send to %s [%s]\n", proc->name, buf);
+	pr_info("handle send to %s [%s]\n", proc->pinfo->cmd, buf);
 	kfree(htarget);
 
 	return 1;
@@ -401,13 +392,13 @@ struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int 
 		goto out_err;
 	}
 
-	ret = setup_process(proc, path, ret, argv, proc->flags);
+	ret = setup_process(proc, path, ret, argv, proc->pinfo->flags);
 	if (ret) {
 		pr_err("set up process failed\n");
 		goto out_err;
 	}
 
-	register_request_entry(REQUEST_TYPE_PROCESS, proc->proc_handle, proc);
+	register_request_entry(proc->proc_handle, proc);
 	list_add_tail(&process_list, &proc->list);
 
 	return proc;
@@ -429,9 +420,12 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 	 */
 	struct vma *vma;
 
+	self->pinfo = alloc_procinfo("pangu.srv", TASK_FLAGS_SRV);
+	assert(self->pinfo != NULL);
+	assert(self->pinfo->pid == 0);
+
 	init_list(&self->vma_free);
 	init_list(&self->vma_used);
-	self->pid = 1;
 	self->proc_handle = 0;
 	list_add_tail(&process_list, &self->list);
 
@@ -587,7 +581,7 @@ static void load_init_process(void)
 	memset(&proto, 0, sizeof(struct proto));
 	memset(extra, 0, sizeof(struct execv_extra));
 	pr_info("loading init shell.app ...\n");
-	strcpy(extra->path, "/c/shell.app");
+	strcpy(extra->path, "/c/bin/shell.app");
 
 	assert(!process_execv_handler(self, &proto, extra));
 }
@@ -665,12 +659,12 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	else
 		list_add_tail(&process_list, &new->list);
 
-	register_request_entry(REQUEST_TYPE_PROCESS, new->proc_handle, new);
+	register_request_entry(new->proc_handle, new);
 
 	wakeup_process(new);
 	kfree(argv);
 
-	return new->pid;
+	return new->pinfo->pid;
 }
 
 static int do_execv(struct proto *proto, struct execv_request *er)
@@ -687,10 +681,15 @@ static long handle_nvwa_request(struct process *proc, struct proto *proto, void 
 {
 	struct execv_request *er, *next;
 
+	/*
+	 * reply nvwa service.
+	 */
 	if (proc != nvwa_proc) {
-		pr_err("not nvwa proc %s\n", proc->name);
+		pr_err("not nvwa proc %s\n", proc->pinfo->cmd);
 		kobject_reply_errcode(proc->proc_handle, proto->token, -EPERM);
 		return -EPERM;
+	} else {
+		kobject_reply_errcode(proc->proc_handle, proto->token, 0);
 	}
 
 	/*
@@ -704,7 +703,8 @@ static long handle_nvwa_request(struct process *proc, struct proto *proto, void 
 		return do_execv(proto, er);
 	}
 
-	kobject_reply_errcode(proc->proc_handle, proto->token, -ENOENT);
+	pr_err("handle_nvwa_request fail no such request\n");
+
 	return -ENOENT;
 }
 
@@ -715,6 +715,9 @@ static syscall_hdl proc_handles[] = {
 	[PROTO_MMAP]		= process_mmap_handler,
 	[PROTO_EXECV]		= process_execv_handler,
 	[PROTO_BRK]		= process_brk_handler,
+	[PROTO_PROCCNT]		= process_proccnt_handler,
+	[PROTO_TASKSTAT]	= process_taskstat_handler,
+	[PROTO_PROCINFO]	= process_procinfo_handler,
 	[PROTO_MPROTECT]	= process_mprotect_handler,
 };
 
@@ -728,8 +731,7 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 	struct proto proto;
 	long ret;
 
-	ret = kobject_read_proto_with_string(proc->proc_handle,
-			&proto, proto_buf, PAGE_SIZE, 0);
+	ret = sys_read_proto(proc->proc_handle, &proto, proto_buf, PAGE_SIZE, 0);
 	if (ret < 0)
 		return;
 
@@ -742,19 +744,18 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 
 	ret = proc_handles[proto.proto_id](proc, &proto, proto_buf);
 
-	if (proto.proto_id == PROTO_EXECV && ret)
-		kobject_reply_errcode(proc->proc_handle, proto.token, ret);
-
-	if (proto.proto_id == PROTO_ELF_INFO)
+	switch (proto.proto_id) {
+	case PROTO_ELF_INFO:
+	case PROTO_PROCINFO:
+	case PROTO_TASKSTAT:
 		return;
+	}
 
 	kobject_reply_errcode(proc->proc_handle, proto.token, ret);
 }
 
-void handle_process_request(struct epoll_event *event, struct request_entry *re)
+void handle_process_request(struct epoll_event *event, struct process *proc)
 {
-	struct process *proc = (struct process *)re->data;
-
 	switch (event->events) {
 	case EPOLLIN:
 		handle_process_in_request(proc, event);

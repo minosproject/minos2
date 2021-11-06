@@ -18,12 +18,12 @@
 #include <minos/list.h>
 #include <minos/proto.h>
 #include <minos/libc.h>
+#include <minos/procinfo.h>
 
 #include <uapi/bootdata.h>
 
 #include <pangu/kmalloc.h>
 #include <pangu/proc.h>
-#include <pangu/request.h>
 #include <pangu/bootarg.h>
 
 int proc_epfd;
@@ -44,6 +44,7 @@ extern void ramdisk_init(unsigned long base, unsigned long end);
 extern void of_init(unsigned long base, unsigned long end);
 extern void pangu_main(void);
 extern void procfs_init(void);
+extern void procinfo_init(int max_proc, int u, int t);
 
 static LIST_HEAD(request_entry_list);
 static struct bootdata *bootdata;
@@ -51,58 +52,26 @@ static char *rootfs_default = "rootfs.drv";
 
 #define MAX_EVENT 16
 
-static struct request_entry *alloc_request_entry(int type, void *data)
+int register_request_entry(int handle, struct process *proc)
 {
-	struct request_entry *re;
+       struct epoll_event event;
 
-	re = kzalloc(sizeof(struct request_entry));
-	if (!re) {
-		pr_err("register request entry failed %d\n", type);
-		return re;
-	}
+       event.events = EPOLLIN | EPOLLKERNEL;
+       event.data.ptr = proc;
 
-	re->type = type;
-	re->data = data;
-	list_add_tail(&request_entry_list, &re->list);
-
-	return re;
-}
-
-int register_request_entry(int type, int handle, void *data)
-{
-	struct request_entry *re;
-	struct epoll_event event;
-
-	re = alloc_request_entry(type, data);
-	if (!re)
-		return -ENOMEM;
-
-	event.events = EPOLLIN | EPOLLKERNEL;
-	event.data.ptr = re;
-
-	return epoll_ctl(proc_epfd, EPOLL_CTL_ADD, handle, &event);
+       return epoll_ctl(proc_epfd, EPOLL_CTL_ADD, handle, &event);
 }
 
 static void handle_event(struct epoll_event *event)
 {
-	struct request_entry *re = event->data.ptr;
+	struct process *proc = event->data.ptr;
 
-	if (!re) {
-		pr_err("invalid event receive\n");
+	if (!proc) {
+		pr_err("invalid process event receive\n");
 		return;
 	}
 
-	switch (re->type) {
-	case REQUEST_TYPE_PROCESS:
-		handle_process_request(event, re);
-		break;
-	case REQUEST_TYPE_PROCFS:
-		handle_procfs_request(event, re);
-		break;
-	default:
-		pr_err("invalid request type %d\n", re->type);
-		break;
-	}
+	return handle_process_request(event, proc);
 }
 
 void pangu_main(void)
@@ -115,7 +84,6 @@ void pangu_main(void)
 	 * wake up all the process which created by PanGu itself.
 	 * currently only need to wake up the rootfs driver process.
 	 */
-	procfs_init();
 	wakeup_process(rootfs_proc);
 
 	for (;;) {
@@ -159,6 +127,10 @@ static void dump_boot_info(void)
                        bootdata->vmap_start, bootdata->vmap_end);
 	pr_info("heap    [0x%lx 0x%lx]\n",
                        bootdata->heap_start, bootdata->heap_end);
+	
+	pr_info("sys max proc %d\n", bootdata->max_proc);
+	pr_info("uproc_info %d\n", bootdata->uproc_info_handle);
+	pr_info("ktask_stat %d\n", bootdata->ktask_stat_handle);
 }
 
 static int start_and_wait_process(struct process *proc)
@@ -169,7 +141,7 @@ static int start_and_wait_process(struct process *proc)
 	/*
 	 * start the fuxi service and wait it finish startup
 	 */
-	pr_info("Start %s and waitting ...\n", proc->name);
+	pr_info("Start %s and waitting ...\n", proc->pinfo->cmd);
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 
 	for (;;) {
@@ -183,11 +155,12 @@ static int start_and_wait_process(struct process *proc)
 	}
 
 	if (ret) {
-		pr_info("Get response from %s fail %d\n", proc->name, ret);
+		pr_info("Get response from %s fail %d\n", proc->pinfo->cmd, ret);
 		return ret;
 	}
 
-	pr_info("Get response from %s service %d\n", proc->name, proto.proto_id);
+	pr_info("Get response from %s service %d\n",
+			proc->pinfo->cmd, proto.proto_id);
 	if (proto.proto_id != PROTO_IAMOK)
 		return -EPROTO;
 
@@ -331,6 +304,8 @@ int main(int argc, char **argv)
 
 	ramdisk_init(bootdata->ramdisk_start, bootdata->ramdisk_end);
 	of_init(bootdata->dtb_start, bootdata->dtb_end);
+	procinfo_init(bootdata->max_proc, bootdata->uproc_info_handle,
+			bootdata->ktask_stat_handle);
 	self_init(bootdata->vmap_start, bootdata->vmap_end);
 
 	/*

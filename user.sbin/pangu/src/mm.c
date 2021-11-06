@@ -379,7 +379,7 @@ long handle_user_page_fault(struct process *proc,
 
 	ret = sys_map(proc->proc_handle, -1, start, PAGE_SIZE, perm);
 	if (ret)
-		pr_err("map memory for process %d failed\n", proc->pid);
+		pr_err("map memory for process %d failed\n", proc->pinfo->pid);
 
 out:
 	page_fault_ack(proc, tid, ret);

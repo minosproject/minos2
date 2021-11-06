@@ -55,7 +55,6 @@ struct pevent_item {
 };
 
 struct poll_struct {
-	int poll_events;
 	struct pevent_item *pevents[EV_MAX];
 };
 
@@ -84,7 +83,7 @@ struct poll_event_kernel {
 
 static inline int event_is_polled(struct poll_struct *ps, int ev)
 {
-	return (ps && (ps->poll_events & ev));
+	return (ps && (ps->pevents[ev]));
 }
 
 int poll_event_send_static(struct pevent_item *pi, struct poll_event_kernel *evk);

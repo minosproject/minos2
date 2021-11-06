@@ -26,6 +26,7 @@ struct handle_table_desc {
 #define WRONG_HANDLE(handle)	\
 	((handle == HANDLE_NULL) || (handle >= PROC_MAX_HANDLE))
 
+void __release_handle(struct process *proc, handle_t handle);
 int release_handle(handle_t handle, struct kobject **kobj, right_t *right);
 
 handle_t __alloc_handle(struct process *proc, struct kobject *kobj, right_t right);

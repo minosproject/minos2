@@ -93,6 +93,7 @@ struct process *load_ramdisk_process(char *path,
 		struct handle_desc *hdesc, int num_handle, int flags);
 
 int register_request_entry(int handle, struct process *proc);
+int unregister_request_entry(int handle, struct process *proc);
 
 struct uproc_info *alloc_procinfo(char *path, int flags);
 void release_procinfo(struct uproc_info *pinfo);

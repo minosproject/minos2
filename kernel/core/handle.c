@@ -86,7 +86,7 @@ static int lookup_handle_desc(struct process *proc, handle_t handle,
 	return 0;
 }
 
-static void __release_handle(struct process *proc, handle_t handle)
+void __release_handle(struct process *proc, handle_t handle)
 {
 	struct handle_desc *hd;
 	struct handle_table_desc *htd;

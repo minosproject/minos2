@@ -22,6 +22,7 @@
 #include <minos/proc.h>
 #include <minos/kobject.h>
 #include <minos/procinfo.h>
+#include <minos/poll.h>
 
 static int add_task_to_process(struct process *proc, struct task *task)
 {
@@ -166,6 +167,16 @@ static void request_process_stop(struct process *proc)
 				(tmp->wait_type == TASK_EVENT_ROOT_SERVICE))
 			wake_up(tmp, -EABORT);
 	}
+
+	/*
+	 * send process exit event to the root service, then release
+	 * the handle 0 of this process. Since the main task do not
+	 * have inc the refcount of the proc. The handle 0's ref count
+	 * will put by the task_release().
+	 */
+	__release_handle(proc, 0);
+	poll_event_send_with_data(proc->kobj.poll_struct, EV_KERNEL,
+			POLL_KEV_PROCESS_EXIT, 0, 0, 0);
 }
 
 void process_die(void)

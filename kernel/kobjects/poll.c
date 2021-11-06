@@ -70,19 +70,13 @@ int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
 {
 	struct poll_event *pe;
 	struct pevent_item *pi;
-	int event = (1 << ev);
-	int events;
 	int ret = 0;
 
 	if (!ps)
 		return -EAGAIN;
 
-	events = ps->poll_events;
 	pi = ps->pevents[ev];
 	smp_rmb();
-
-	if ((event & events) == 0)
-		return -EAGAIN;
 
 	/*
 	 * need aquire the spinlock of the poll_struct ?
@@ -92,7 +86,7 @@ int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
 		if (!pe)
 			return -ENOMEM;
 
-		pe->events = event;
+		pe->events = (1 << ev);
 		pe->data.pdata = pi->data;
 		pe->data.type = type;
 		pe->data.data0 = data0;
@@ -296,7 +290,7 @@ void release_poll_struct(struct kobject *kobj)
 	struct poll_hub *ph;
 	int i;
 
-	if (ps)
+	if (!ps)
 		return;
 
 	for (i = 0; i < EV_MAX; i++) {
@@ -316,7 +310,7 @@ void release_poll_struct(struct kobject *kobj)
 static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 		int right, int op, struct poll_event *uevent)
 {
-	int events, new_events, ev;
+	int events, ev;
 	struct pevent_item *ei;
 	struct poll_struct *ps;
 	int i, ret = 0;
@@ -335,7 +329,6 @@ static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 	}
 
 	events = uevent->events;
-	new_events = 0;
 
 	for (i = 0; i < EV_MAX; i++) {
 		ev = events & (1 << i);
@@ -359,7 +352,6 @@ static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 				ei->poller = ph;
 				ei->data = uevent->data.pdata;
 				add_new_pevent(ps, i, ei);
-				new_events |= ev;
 				kobject_get(&ph->kobj);
 			}
 			break;
@@ -375,7 +367,6 @@ static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 			if (ei) {
 				kobject_poll(&ph->kobj, ksrc, ev, 0);
 				free(ei);
-				new_events |= ev;
 				kobject_put(&ph->kobj);
 			} else {
 				pr_err("epoll_del %d is not enabled\n", ev);
@@ -386,12 +377,6 @@ static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 			break;
 		}
 	}
-
-	if (op == KOBJ_POLL_OP_ADD)
-		ps->poll_events |= new_events;
-	else if (op == KOBJ_POLL_OP_DEL)
-		ps->poll_events &= ~new_events;
-	smp_wmb();
 
 out:
 	spin_unlock(&ksrc->lock);

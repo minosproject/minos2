@@ -203,7 +203,7 @@ static void process_release(struct kobject *kobj)
 	struct task *task = proc->head, *tmp;
 
 	for_all_task_in_process(proc, tmp) {
-		if ((tmp->stat != TASK_STAT_STOPPED) || (tmp->cpu == -1))
+		if ((tmp->stat != TASK_STAT_STOPPED) || (tmp->cpu != -1))
 			panic("wrong task state detect in %s\n", __func__);
 	}
 

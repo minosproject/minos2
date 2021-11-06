@@ -144,24 +144,16 @@ int kobject_close(struct kobject *kobj, right_t right)
 		return 0;
 	}
 
-	if (!kobj->ops || !kobj->ops->close)
-		return 0;
-
-	ret = kobj->ops->close(kobj, right);
+	if (kobj->ops && kobj->ops->close)
+		ret = kobj->ops->close(kobj, right);
 
 	/*
 	 * send the close event to the poller if need.
 	 */
-	if (right & KOBJ_RIGHT_WRITE) {
+	if (right & KOBJ_RIGHT_WRITE)
 		poll_event_send(kobj->poll_struct, EV_WCLOSE);
-		if (kobj->poll_struct)
-			kobj->poll_struct->poll_events &= ~(POLLIN | POLLWOPEN | POLLWCLOSE);
-	} else if (right & KOBJ_RIGHT_READ) {
+	else if (right & KOBJ_RIGHT_READ)
 		poll_event_send(kobj->poll_struct, EV_RCLOSE);
-		if (kobj->poll_struct)
-			kobj->poll_struct->poll_events &= ~(POLLOUT |
-					POLLROPEN | POLLRCLOSE | POLLKERNEL);
-	}
 
 	/*
 	 * dec the refcount which caused by kobject_init and

@@ -57,7 +57,11 @@ static int port_close(struct kobject *kobj, right_t right)
 {
 	struct port *port = kobject_to_port(kobj);
 
-	if (!(right & KOBJ_RIGHT_WRITE))
+	/*
+	 * do nothing if the the process is a writer for
+	 * this port, only reader will close it.
+	 */
+	if (right & KOBJ_RIGHT_WRITE)
 		return 0;
 
 	port->closed = 1;

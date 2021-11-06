@@ -438,20 +438,35 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 	list_add(&self->vma_free, &vma->list);
 }
 
-struct process *get_process_by_handle(int handle)
+static void proc_mm_deinit(struct process *proc)
 {
-	struct process *proc = NULL;
+	struct vma *vma, *tmp;
 
-	list_for_each_entry(proc, &process_list, list) {
-		if (proc->proc_handle == handle)
-			return proc;
+	kobject_close(proc->elf_vma.pma_handle);
+	kobject_close(proc->init_stack_vma.pma_handle);
+
+	list_for_each_entry_safe(vma, tmp, &proc->vma_free, list) {
+		list_del(&vma->list);
+		kfree(vma);
 	}
 
-	return NULL;
+	list_for_each_entry_safe(vma, tmp, &proc->vma_used, list) {
+		list_del(&vma->list);
+		kfree(vma);
+	}
 }
 
 static long handle_process_exit(struct process *proc, uint64_t data0)
 {
+	int proc_handle = proc->proc_handle;
+
+	unregister_request_entry(proc_handle, proc);
+	proc_mm_deinit(proc);
+	list_del(&proc->list);
+	release_procinfo(proc->pinfo);
+	kfree(proc);
+	kobject_close(proc_handle);
+
 	return 0;
 }
 

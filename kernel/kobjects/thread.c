@@ -36,6 +36,7 @@ static int thread_create(struct kobject **kobj, right_t *right, unsigned long da
 	if (!task)
 		return -EBUSY;
 
+	kobject_get(&current_proc->kobj);
 	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
 			KOBJ_RIGHT_NONE, (unsigned long)task);
 	*kobj = &task->kobj;

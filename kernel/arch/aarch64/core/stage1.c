@@ -45,8 +45,8 @@
 #define S1_PTE_MASK			(~(S1_PTE_SIZE - 1))
 
 #define S1_PHYSICAL_MASK		0x0000fffffffff000UL
-#define S1_PHYSICAL_MAX			((1UL << 40) - 1)
-#define S1_VIRT_MAX			((1UL << 39) - 1)
+#define S1_PHYSICAL_MAX			(1UL << 40)
+#define S1_VIRT_MAX			(1UL << 39)
 
 /*
  * The number of PTRS across all concatenated stage1 tables given by the
@@ -575,7 +575,7 @@ phy_addr_t arch_translate_va_to_pa(struct vspace *vs, unsigned long va)
 int arch_host_map(struct vspace *vs, unsigned long start, unsigned long end,
 		unsigned long physical, unsigned long flags)
 {
-	ASSERT((start < S1_VIRT_MAX) && (end < S1_VIRT_MAX));
+	ASSERT((start < S1_VIRT_MAX) && (end <= S1_VIRT_MAX));
 	ASSERT(physical < S1_PHYSICAL_MAX);
 
 	return stage1_map_pud_range(vs, start, end, physical, flags);
@@ -583,7 +583,7 @@ int arch_host_map(struct vspace *vs, unsigned long start, unsigned long end,
 
 int arch_host_unmap(struct vspace *vs, unsigned long start, unsigned long end, int mode)
 {
-	ASSERT((start < S1_VIRT_MAX) && (end < S1_VIRT_MAX));
+	ASSERT((start < S1_VIRT_MAX) && (end <= S1_VIRT_MAX));
 	return stage1_unmap_pud_range(vs, start, end, mode);
 }
 

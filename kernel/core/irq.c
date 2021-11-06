@@ -83,7 +83,7 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	/*
 	 * whether this irq has been listened.
 	 */
-	if (event_is_polled(ps, POLLIN)) {
+	if (event_is_polled(ps, EV_IN)) {
 		ASSERT(idesc->poll_event != NULL);
 		poll_event_send_static(ps->pevents[EV_IN], idesc->poll_event);
 		return 0;

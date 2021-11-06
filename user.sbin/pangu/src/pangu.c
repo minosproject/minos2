@@ -62,6 +62,16 @@ int register_request_entry(int handle, struct process *proc)
        return epoll_ctl(proc_epfd, EPOLL_CTL_ADD, handle, &event);
 }
 
+int unregister_request_entry(int handle, struct process *proc)
+{
+	struct epoll_event event;
+
+	event.events = EPOLLIN | EPOLLKERNEL;
+	event.data.ptr = proc;
+
+	return epoll_ctl(proc_epfd, EPOLL_CTL_DEL, handle, &event);
+}
+
 static void handle_event(struct epoll_event *event)
 {
 	struct process *proc = event->data.ptr;

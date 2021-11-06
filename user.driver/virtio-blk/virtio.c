@@ -53,8 +53,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 	if (pma_handle <= 0)
 		return NULL;
 
-	page_virt = kobject_mmap(pma_handle);
-	if (page_virt == (void *)-1) {
+	if (kobject_mmap(pma_handle, &page_virt, NULL)) {
 		free(virtq);
 		kobject_close(pma_handle);
 		return NULL;

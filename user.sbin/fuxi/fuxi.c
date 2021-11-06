@@ -162,8 +162,7 @@ static struct vreq *create_new_vreq(struct vnode *node)
 	if (vreq->handle <= 0)
 		goto err_create_endpoint;
 
-	vreq->buf = kobject_mmap(vreq->handle);
-	if (vreq->buf == (void *)-1)
+	if (kobject_mmap(vreq->handle, &vreq->buf, NULL))
 		goto err_open_endpoint;
 
 	ret = epoll_new_vreq(vreq);
@@ -189,7 +188,7 @@ static int open_remote_node(struct vnode *node,
 			struct proto *proto, char *name)
 {
 	return kobject_write(node->handle, proto,
-			sizeof(struct proto), name, strlen(name), -1);
+			sizeof(struct proto), name, strlen(name), 5000);
 }
 
 static struct vnode *find_node(struct vnode *parent, char *name)
@@ -418,7 +417,7 @@ static void handle_open_request(struct vreq *vreq, struct proto *proto, char *bu
 	handle = __handle_open_request(vreq, proto, buf, &type);
 	if (handle <= 0) {
 		right = 0;
-		fuxi_info("open file successful\n");
+		fuxi_info("open file failed\n");
 	} else {
 		if (type == SRV_DIR)
 			right = KR_W;
@@ -493,7 +492,7 @@ static int handle_event(struct epoll_event *event)
 	struct proto proto;
 	int ret;
 
-	ret = kobject_read_proto_with_string(vreq->handle, &proto,
+	ret = sys_read_proto_with_string(vreq->handle, &proto,
 			string_buffer, FILENAME_MAX, 0);
 	if (ret)
 		return ret;

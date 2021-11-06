@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
+#include <string.h>
 
 #include <minos/kobject.h>
 
@@ -24,29 +26,62 @@
 #include "esh.h"
 #include "esh_internal.h"
 
+static char __pwd[FILENAME_MAX];
+
 static struct esh *pesh;
+static char *clearmsg = "\x1b[2J\x1b[H";
+
+#if 0
+static int cd_main(int argc, char **argv)
+{
+	char __pwd_buf[FILENAME_MAX];
+	char *arg;
+	char ch;
+
+	if (argc == 0 || grgc > 2) {
+		printf("invalid argument\n");
+		return -EINVAL;
+	}
+
+	if (argc == 1)
+		return 0;
+
+	memset(__pwd_buf, 0, FILENAME_MAX);
+	if (strcmp(arg, '.') == 0)
+		return 0;
+
+	ch = *arg;
+	if (ch == '/')
+		__pwd_buf[0] = '/';
+	else
+		strcpy(__pwd_buf, __pwd);
+
+	arg = argv[1];
+	while (*arg == '/')
+		arg++;
+}
+
+#define DEFINE_SHELL_CMD(name)				\
+	extern int name##_main(int argc, char **argv);	\
+	static struct shell_cmd shell_cmd_##name = {	\
+		.func = name##_main,			\
+		.cmd = #name,				\
+	}
+
+DEFINE_SHELL_CMD(cd);
+DEFINE_SHELL_CMD(pwd);
+
+static struct shell_cmd *shell_cmds[] = {
+	&shell_cmd_ps,
+	&shell_cmd_ls,
+	&shell_cmd_cd,
+	NULL,
+};
+#endif
 
 int excute_shell_command(int argc, char **argv)
 {
-#if 0
-        struct shell_command *cmd;
-        extern unsigned long __shell_command_start;
-        extern unsigned long __shell_command_end;
-
-        if ((argc == 0) || (argv[0] == NULL))
-                return -EINVAL;
-
-        section_for_each_item(__shell_command_start,
-                                __shell_command_end, cmd) {
-                if (strcmp(argv[0], cmd->name) == 0) {
-                        if (cmd->hdl == NULL)
-                                return -ENOENT;
-
-                        return cmd->hdl(argc, argv);
-                }   
-        }
-#endif
-        return -ENOENT;
+	return execv("/c/bin/ps.app", NULL);
 }
 
 static void __esh_putc(struct esh *esh, char c, void *arg)
@@ -57,10 +92,24 @@ static void __esh_putc(struct esh *esh, char c, void *arg)
 	kobject_write(2, buf, 1, NULL, 0, 0);
 }
 
+static int handle_internal_cmd(int argc, char **argv, void *arg)
+{
+	if (strcmp(argv[0], "clear") == 0) {
+		kobject_write(2, clearmsg, strlen(clearmsg), NULL, 0, -1);
+		return 1;
+	}
+
+	return 0;
+}
+
 static void esh_excute_command(struct esh *esh,
 		int argc, char **argv, void *arg)
 {
 	int ret;
+
+	ret = handle_internal_cmd(argc, argv, arg);
+	if (ret)
+		return;
 
 	ret = excute_shell_command(argc, argv);
 	if (ret == -ENOENT)

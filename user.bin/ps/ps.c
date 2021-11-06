@@ -7,38 +7,66 @@
 #include <string.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
-static void print_process_info(struct process_info *pi)
+#include <minos/procinfo.h>
+#include <minos/proto.h>
+#include <minos/kobject.h>
+
+static void print_process_info(int argc, char **argv, int proccnt,
+		struct uproc_info *upi, struct ktask_stat *kts)
 {
+	int i;
 
+	/*
+	 * TBD
+	 */
+	printf(" PID CMD \n");
+	for (i = 0; i < proccnt; i++) {
+		if (!upi[i].valid)
+			continue;
+
+		printf("%4d %s\n", upi[i].pid, upi[i].cmd);
+	}
 }
 
 int main(int argc, char **argv)
 {
-	struct process_info pi;
-	struct dirent *dent;
-	DIR *procdir;
-	int fd, ret;
+	int32_t proccnt = sys_proccnt();
+	int proc_handle, task_handle;
+	struct uproc_info *procinfo_addr;
+	struct ktask_stat *taskstat_addr;
 
-	procdir = opendir("/proc");
-	if (!procdir)
-		return -EIO;
-
-	printf("PID TIME CMD\n")
-	while (dent = readdir(procdir)) {
-		fd = openat(dirfd(procdir), dent->d_name, O_RDONLY);
-		if (fd < 0) {
-			printf("no such process %s\n", dent->d_name);
-			continue;
-		}
-
-		ret = read(fd, &pi, sizeof(struct process_info));
-		if (ret == sizeof(struct process_info))
-			print_process_info(&pi);
-		close(fd);
+	if (proccnt <= 0) {
+		printf("get procnt failed %d\n", proccnt);
+		return -ENOENT;
 	}
 
-	closedir(procdir);
+	proc_handle = sys_procinfo_handle();
+	task_handle = sys_taskstat_handle();
+	if (proc_handle <= 0 || task_handle <= 0) {
+		printf("can not get handles %d %d\n", proc_handle, task_handle);
+		return -ENOENT;
+	}
+
+	if (kobject_mmap(proc_handle, &procinfo_addr, NULL)) {
+		printf("mmap procinfo mem failed\n");
+		return -EFAULT;
+	}
+
+	if (kobject_mmap(task_handle, &taskstat_addr, NULL)) {
+		printf("mmap taskstat mem failed\n");
+		return -EFAULT;
+	}
+
+	/*
+	 * print the process information and the task stat
+	 */
+	print_process_info(argc, argv, proccnt, procinfo_addr, taskstat_addr);
 
 	return 0;
 }

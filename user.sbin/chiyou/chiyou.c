@@ -221,7 +221,7 @@ static int handle_chiyou_event(int loop)
 	int ret, right;
 
 	for (;;) {
-		ret = kobject_read_proto_with_string(chiyou_handle,
+		ret = sys_read_proto_with_string(chiyou_handle,
 				&proto, buf, BUF_SIZE, -1);
 		if (ret) {
 			pr_err("read proto fail %d\n", ret);
@@ -268,8 +268,7 @@ int main(int argc, char **argv)
 		exit(-EINVAL);
 	}
 
-	dtb_base = kobject_mmap(pmem_handle);
-	if (dtb_base == (void *)-1) {
+	if (kobject_mmap(pmem_handle, &dtb_base, NULL)) {
 		pr_err("mmap dtb address fail\n");
 		exit(-ENOMEM);
 	}

@@ -85,8 +85,7 @@ static struct lwext4_file *create_new_lwext4_file(int dir)
 	if (handle <= 0)
 		return NULL;
 
-	addr = kobject_mmap(handle);
-	if (addr == (void *)-1) {
+	if (kobject_mmap(handle, &addr, NULL)) {
 		kobject_close(handle);
 		return NULL;
 	}
@@ -264,7 +263,7 @@ static int handle_vfs_in_request(struct ext4_server *vs, struct lwext4_file *fil
 	struct proto proto;
 	int ret;
 
-	ret = kobject_read_proto_with_string(file->handle, &proto, vs->buf, PAGE_SIZE, 0);
+	ret = sys_read_proto_with_string(file->handle, &proto, vs->buf, PAGE_SIZE, 0);
 	if (ret)
 		return ret;
 

@@ -560,7 +560,7 @@ static int fuxi_loop(int handle)
 			continue;
 		}
 
-		fuxi_info("fuxi: receive service request\n");
+		// fuxi_info("fuxi: receive service request\n");
 
 		for (i = 0; i < ret; i++) {
 			switch (events[i].events) {

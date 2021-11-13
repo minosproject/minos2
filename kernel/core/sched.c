@@ -459,6 +459,7 @@ int local_sched_init(void)
 
 	init_list(&pcpu->new_list);
 	init_list(&pcpu->stop_list);
+	init_list(&pcpu->die_process);
 	init_list(&pcpu->ready_list[0]);
 	init_list(&pcpu->ready_list[1]);
 	init_list(&pcpu->ready_list[2]);

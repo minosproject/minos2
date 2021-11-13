@@ -43,7 +43,7 @@ static int alloc_tid(void)
 
 	spin_lock(&tid_lock);
 
-	tid = find_next_zero_bit(tid_map, OS_NR_TASKS, 0);
+	tid = find_next_zero_bit(tid_map, OS_NR_TASKS, 1);
 	if (tid >= OS_NR_TASKS)
 		tid = -1;
 	else
@@ -80,6 +80,16 @@ void clear_task_by_tid(tid_t tid)
 	os_task_table[tid] = NULL;
 	wmb();
 }
+
+static int tid_early_init(void)
+{
+	/*
+	 * tid is reserved for system use.
+	 */
+	set_bit(0, tid_map);
+	return 0;
+}
+early_initcall(tid_early_init);
 
 static void task_timeout_handler(unsigned long data)
 {

@@ -40,8 +40,8 @@ struct process {
 	spinlock_t kobj_lock;
 
 	struct list_head request_list;
+	struct list_head processing_list;
 	spinlock_t request_lock;
-	struct task *request_current;
 };
 
 static inline int proc_is_root(struct process *proc)
@@ -73,6 +73,6 @@ void process_die(void);
 
 void kill_process(struct process *proc);
 
-void release_pid(int pid);
+void clean_process_on_pcpu(struct pcpu *pcpu);
 
 #endif

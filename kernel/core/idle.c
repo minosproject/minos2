@@ -23,8 +23,7 @@
 #include <minos/of.h>
 #include <minos/task.h>
 #include <minos/flag.h>
-
-extern int load_root_service(void);
+#include <minos/proc.h>
 
 void system_reboot(void)
 {
@@ -55,7 +54,8 @@ int system_suspend(void)
 static inline bool pcpu_can_idle(struct pcpu *pcpu)
 {
 	return (pcpu->local_rdy_grp == (1 << OS_PRIO_IDLE)) &&
-			(is_list_empty(&pcpu->stop_list));
+			(is_list_empty(&pcpu->stop_list) &&
+			(is_list_empty(&pcpu->die_process)));
 }
 
 static void do_pcpu_cleanup_work(struct pcpu *pcpu)
@@ -77,6 +77,7 @@ static void do_pcpu_cleanup_work(struct pcpu *pcpu)
 		release_task(task);
 	}
 
+	clean_process_on_pcpu(pcpu);
 }
 
 void cpu_idle(void)

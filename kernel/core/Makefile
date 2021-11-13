@@ -23,7 +23,6 @@ obj-y += mutex.o
 obj-y += page.o
 obj-y += percpu.o
 obj-y += print.o
-obj-y += process.o
 obj-y += queue.o
 obj-y += ramdisk.o
 obj-y += root_service.o

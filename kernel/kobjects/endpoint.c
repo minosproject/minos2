@@ -42,7 +42,6 @@ struct endpoint {
 	size_t shmem_size;
 
 	struct kobject kobj;			// kobj for this endpoint.
-	uint32_t token;
 
 	spinlock_t lock;			// spinlock to prevent below member.
 	struct list_head pending_list;		// pending write task will list here.
@@ -170,22 +169,12 @@ static long endpoint_recv(struct kobject *kobj, void __user *data,
 	}
 
 	list_add_tail(&ep->processing_list, &pending->list);
-	ret = (long)writer->wait_event;
+	ret = (long)writer->tid;
 
 out:
 	spin_unlock(&ep->lock);
 
 	return ret;
-}
-
-static inline long endpoint_generate_token(struct endpoint *ep)
-{
-	/*
-	 * consider of the 32bit system.
-	 */
-	uint32_t token = ep->token++;
-
-	return (long)token;
 }
 
 static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_size,
@@ -212,8 +201,7 @@ static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_s
 	 * for.
 	 */
 	list_add_tail(&ep->pending_list, &current->kobj.list);
-	__event_task_wait(endpoint_generate_token(ep),
-			TASK_EVENT_KOBJ_REPLY, timeout);
+	__event_task_wait((unsigned long)ep, TASK_EVENT_KOBJ_REPLY, timeout);
 	spin_unlock(&ep->lock);
 
 	/*
@@ -260,7 +248,7 @@ static int endpoint_reply(struct kobject *kobj, right_t right,
 
 	list_for_each_entry_safe(wk, tmp, &ep->processing_list, list) {
 		task = (struct task *)wk->data;
-		if (task->wait_event == token) {
+		if (task->tid == token) {
 			list_del(&wk->list);
 			break;
 		}

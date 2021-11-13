@@ -30,6 +30,178 @@
 #define PROC_RIGHT	(KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL)
 #define PROC_RIGHT_MASK	(KOBJ_RIGHT_CTL)
 
+static int add_task_to_process(struct process *proc, struct task *task)
+{
+	int ret = 0;
+
+	spin_lock(&proc->lock);
+	if (proc->stopped) {
+		ret = 1;
+		goto out;
+	}
+
+	task->next = proc->head;
+	proc->tail = task;
+	proc->task_cnt++;
+	kobject_get(&proc->kobj);
+out:
+	spin_unlock(&proc->lock);
+	return ret;
+}
+
+struct task *create_task_for_process(struct process *proc,
+		unsigned long func, void *user_sp, int prio,
+		int aff, unsigned long flags)
+{
+	struct task *task;
+
+	if (proc->stopped)
+		return NULL;
+
+	task = create_task(NULL, (task_func_t)func, user_sp,
+			prio, aff, flags, proc);
+	if (!task)
+		return NULL;
+
+	task->pid = proc->pid;
+	if (add_task_to_process(proc, task)) {
+		do_release_task(task);
+		return NULL;
+	}
+
+	return task;
+}
+
+struct process *create_process(int pid, task_func_t func,
+		void *usp, int prio, int aff, unsigned long opt)
+{
+	struct uproc_info *ui = get_uproc_info(pid);
+	struct process *proc = NULL;
+	struct task *task;
+	int ret;
+
+	proc = zalloc(sizeof(struct process));
+	if (!proc)
+		return NULL;
+
+	proc->pid = pid;
+	ret = init_proc_handles(proc);
+	if (ret)
+		goto handle_init_fail;
+
+	ret = vspace_init(proc);
+	if (ret)
+		goto vspace_init_fail;
+
+	/*
+	 * create a root task for this process
+	 */
+	task = create_task(ui->cmd, func, usp, prio, aff, opt |
+			TASK_FLAGS_NO_AUTO_START | TASK_FLAGS_ROOT, proc);
+	if (!task)
+		goto task_create_fail;
+
+	/*
+	 * if the process is not root service, then its right
+	 * will be given by root service, when create the process.
+	 */
+	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
+			KOBJ_RIGHT_CTL, (unsigned long)task);
+	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS, KOBJ_RIGHT_CTL,
+			(unsigned long)proc);
+
+	proc->head = task;
+	proc->tail = task;
+	proc->task_cnt = 1;
+	task->pid = proc->pid;
+	spin_lock_init(&proc->request_lock);
+	init_list(&proc->request_list);
+	init_list(&proc->processing_list);
+
+	return proc;
+
+task_create_fail:
+	vspace_deinit(proc);
+vspace_init_fail:
+	process_handles_deinit(proc);
+handle_init_fail:
+	free(proc);
+
+	return NULL;
+}
+
+static void task_exit_helper(void *data)
+{
+
+}
+
+static void request_process_stop(struct process *proc)
+{
+	struct task *tmp;
+	int old;
+
+	/*
+	 * someone called exit() aready.
+	 */
+	old = cmpxchg(&proc->stopped, 0, 1);
+	if (old != 0)
+		return;
+
+	for_all_task_in_process(proc, tmp) {
+		/*
+		 * other task can not get the instance of this
+		 * task, but the task who already get the instance
+		 * of this task can sending data to it currently.
+		 */
+		clear_task_by_tid(tmp->tid);
+		tmp->request |= TASK_REQ_STOP;
+		if (tmp == current)
+			continue;
+
+		/*
+		 * make all the running taskes enter into kernel, so
+		 * when return to user, it can detected the task need
+		 * to exit.
+		 *
+		 * if the task is waitting for the root service, do not
+		 * wakeup it, since the root service will finnally wake
+		 * up this task.
+		 */
+		if (tmp->ti.flags & __TIF_IN_USER)
+			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
+		else if ((tmp->stat == TASK_STAT_WAIT_EVENT) &&
+				(tmp->wait_type == TASK_EVENT_ROOT_SERVICE))
+			wake_up(tmp, -EABORT);
+	}
+
+	/*
+	 * send process exit event to the root service, then release
+	 * the handle 0 of this process. Since the main task do not
+	 * have inc the refcount of the proc. The handle 0's ref count
+	 * will put by the task_release().
+	 */
+	__release_handle(proc, 0);
+	poll_event_send_with_data(proc->kobj.poll_struct, EV_KERNEL,
+			POLL_KEV_PROCESS_EXIT, 0, 0, 0);
+}
+
+void process_die(void)
+{
+	gp_regs *regs = current_regs;
+
+	if (proc_is_root(current_proc)) {
+		pr_fatal("root service exit 0x%x %d\n", regs->pc, regs->x0);
+		panic("root service hang, system crash");
+	}
+
+	request_process_stop(current_proc);
+}
+
+void kill_process(struct process *proc)
+{
+	request_process_stop(proc);
+}
+
 static long process_send(struct kobject *kobj,
 		void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size,
@@ -81,30 +253,40 @@ out:
 	task = (struct task *)thread->data;
 	ret = kobject_copy_ipc_payload(current, task,
 			actual_data, actual_extra, 1, 0);
-	if (ret < 0)
+	if (ret < 0) {
+		wake_up(task, ret);
 		return -EAGAIN;
+	}
 
-	proc->request_current = task;
+	/*
+	 * the root service will only have one task, so here
+	 * do not need to obtain the lock.
+	 */
+	list_add_tail(&proc->processing_list, &thread->list);
 
-	return 0;
+	return task->tid;
 }
 
 static int process_reply(struct kobject *kobj, right_t right, long token,
 		long errno, handle_t fd, right_t fd_right)
 {
 	struct process *proc = (struct process *)kobj->data;
-	struct task *target = proc->request_current;
+	struct kobject *entry, *tmp;
+	struct task *target = NULL;
 
-	if (target == NULL)
-		return -ENOENT;
+	WARN_ON(token <= 0, "process reply token wrong %d\n", token);
 
-	if (fd > 0)
-		errno = send_handle(current_proc, proc, fd, fd_right);
+	list_for_each_entry_safe(entry, tmp, &proc->processing_list, list) {
+		target = (struct task *)entry->data;
+		if (target->tid == token) {
+			list_del(&entry->list);
+			if (fd > 0)
+				errno = send_handle(current_proc, proc, fd, fd_right);
+			return wake_up(target, errno);
+		}
+	}
 
-	wake_up(target, errno);
-	proc->request_current = NULL;
-
-	return 0;
+	return -ENOENT;
 }
 
 static int process_page_fault_done(struct process *proc, int tid)
@@ -187,6 +369,8 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 			return -EPERM;
 		break;
 	case KOBJ_PROCESS_VA2PA:
+		if (!proc_is_root(current_proc) && (current_proc != proc))
+			return -EPERM;
 		if (!proc_can_vmctl(current_proc))
 			return -EPERM;
 		break;
@@ -197,7 +381,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 	return do_process_ctl(proc, req, data);
 }
 
-static void process_release(struct kobject *kobj)
+void do_process_release(struct kobject *kobj)
 {
 	struct process *proc = (struct process *)kobj->data;
 	struct task *task = proc->head, *tmp;
@@ -225,6 +409,39 @@ static void process_release(struct kobject *kobj)
 	vspace_deinit(proc);
 	process_handles_deinit(proc);
 	free(proc);
+}
+
+static void process_release(struct kobject *kobj)
+{
+	struct pcpu *pcpu = get_pcpu();
+
+	/*
+	 * here all the task of this process has been cloesd, now
+	 * the process can be safe released, for better perference
+	 * put it the local pcpu's process's list.
+	 */
+	list_add_tail(&pcpu->die_process, &kobj->list);
+}
+
+void clean_process_on_pcpu(struct pcpu *pcpu)
+{
+	struct kobject *kobj;
+
+	for (;;) {
+		kobj = NULL;
+		preempt_disable();
+		if (!is_list_empty(&pcpu->die_process)) {
+			kobj = list_first_entry(&pcpu->die_process,
+					struct kobject, list);
+			list_del(&kobj->list);
+		}
+		preempt_enable();
+
+		if (!kobj)
+			break;
+
+		do_process_release(kobj);
+	}
 }
 
 static struct kobject_ops proc_kobj_ops = {

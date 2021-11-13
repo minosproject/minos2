@@ -31,6 +31,8 @@ struct pcpu {
 	struct list_head new_list;
 	struct list_head stop_list;
 
+	struct list_head die_process;
+
 	struct task *running_task;	// current task
 	struct task *idle_task;
 

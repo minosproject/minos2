@@ -258,6 +258,7 @@ int unmap_process_memory(struct process *proc,
 	spin_lock(&vs->lock);
 	inuse = atomic_read(&vs->inuse);
 	ret = arch_host_unmap(&proc->vspace, vaddr, vaddr + size, UNMAP_RELEASE_ALL);
+	asm volatile("ic ialluis" : : );
 	if (inuse == 0)
 		release_vspace_pages(vs);
 	spin_unlock(&vs->lock);

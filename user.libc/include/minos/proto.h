@@ -15,6 +15,7 @@ enum {
 	PROTO_PROCCNT,
 	PROTO_PROCINFO,
 	PROTO_TASKSTAT,
+	PROTO_WAITPID,
 	PROTO_PROC_END,
 };
 
@@ -48,6 +49,11 @@ enum {
 #define VFS_PROTO_END	PROTO_GETDENT
 #define VFS_PROTO_CNT	(PROTO_VFS_END - PROTO_OPEN)
 #define VFS_PROTO_MAX	(PROTO_GETDENT - PROTO_OPEN)
+
+struct proto_waitpid {
+	int pid;
+	int options;
+};
 
 struct proto_elf_info {
 	int ret_code;
@@ -145,6 +151,7 @@ struct proto {
 		struct proto_lseek lseek;
 		struct proto_elf_info elf_info;
 		struct proto_brk brk;
+		struct proto_waitpid waitpid;
 		struct proto_register_service register_service;
 		struct proto_devinfo devinfo;
 	};

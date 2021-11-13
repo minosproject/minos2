@@ -48,14 +48,13 @@ static char argv_buf[512];
 
 static struct process proc_self;
 struct process *self = &proc_self;
-LIST_HEAD(process_list);
 
 void release_process(struct process *proc)
 {
 	/*
 	 * TBD
 	 */
-	release_procinfo(proc->pinfo);	
+	release_procinfo(proc->pinfo);
 	kfree(proc);
 }
 
@@ -75,8 +74,10 @@ static int sys_create_process(int pid, unsigned long entry,
 	return kobject_create(KOBJ_TYPE_PROCESS, (unsigned long)&args);
 }
 
-static struct process *create_new_process(char *name, unsigned long entry,
-		int elf_pma, unsigned long elf_base, size_t elf_size, int flags)
+static struct process *create_new_process(char *name,
+		struct process *parent, unsigned long entry,
+		int elf_pma, unsigned long elf_base,
+		size_t elf_size, int flags)
 {
 	struct process *proc;
 
@@ -99,6 +100,14 @@ static struct process *create_new_process(char *name, unsigned long entry,
 
 	if (process_mm_init(proc, elf_pma, elf_base, elf_size))
 		goto err_out;
+
+	/*
+	 * add the process to the process tree.
+	 */
+	init_list(&proc->wait_head);
+	init_list(&proc->children);
+	proc->parent = parent;
+	list_add_tail(&parent->children, &proc->clist);
 
 	return proc;
 
@@ -369,7 +378,7 @@ struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int 
 	if (ret)
 		return NULL;
 
-	proc = create_new_process(path, ctx.ehdr.e_entry, 0,
+	proc = create_new_process(path, self, ctx.ehdr.e_entry, 0,
 			ctx.base_load_vbase, ctx.memsz, flags);
 	if (!proc)
 		return NULL;
@@ -399,7 +408,6 @@ struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int 
 	}
 
 	register_request_entry(proc->proc_handle, proc);
-	list_add_tail(&process_list, &proc->list);
 
 	return proc;
 
@@ -426,8 +434,8 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 
 	init_list(&self->vma_free);
 	init_list(&self->vma_used);
+	init_list(&self->children);
 	self->proc_handle = 0;
-	list_add_tail(&process_list, &self->list);
 
 	vma = kzalloc(sizeof(struct vma));
 	if (!vma)
@@ -456,13 +464,58 @@ static void proc_mm_deinit(struct process *proc)
 	}
 }
 
+static void finish_wait(struct process * proc, long data0)
+{
+	struct process *parent = proc->parent;
+	struct wait_entry *entry, *tmp;
+
+	/*
+	 * wake up the task which waitting for this proc.
+	 */
+	list_for_each_entry_safe(entry, tmp, &parent->wait_head, list) {
+		if ((entry->type == PROC_WAIT_ANY) ||
+				(entry->pid == proc->pinfo->pid)) {
+			list_del(&entry->list);
+			kobject_reply_errcode(parent->proc_handle,
+					entry->token, proc->pinfo->pid);
+			kfree(entry);
+		}
+	}
+
+	/*
+	 * release the wait entry which the proc wait.
+	 */
+	list_for_each_entry_safe(entry, tmp, &proc->wait_head, list) {
+		list_del(&entry->list);
+		kfree(entry);
+	}
+}
+
+static void deal_with_child_process(struct process *proc)
+{
+	struct process *parent = proc->parent;
+	struct process *child, *tmp;
+
+	list_for_each_entry_safe(child, tmp, &proc->children, clist) {
+		list_del(&child->clist);
+		list_add_tail(&parent->children, &child->clist);
+		child->parent = parent;
+	}
+}
+
 static long handle_process_exit(struct process *proc, uint64_t data0)
 {
 	int proc_handle = proc->proc_handle;
 
+	finish_wait(proc, data0);
+
+	/*
+	 * deal with the cild process of this process.
+	 */
+	deal_with_child_process(proc);
+
 	unregister_request_entry(proc_handle, proc);
 	proc_mm_deinit(proc);
-	list_del(&proc->list);
 	release_procinfo(proc->pinfo);
 	kfree(proc);
 	kobject_close(proc_handle);
@@ -540,7 +593,7 @@ static int send_elf_load_request(struct process *proc, const char *path, struct 
 	return ret;
 }
 
-static long process_execv_handler(struct process *proc, struct proto *proto, void *data)
+static long pangu_execv(struct process *proc, struct proto *proto, void *data)
 {
 	struct execv_extra *extra = data;
 	int *argv_off = extra->argv;
@@ -585,7 +638,7 @@ static long process_execv_handler(struct process *proc, struct proto *proto, voi
 out_release_er:
 	free_execv_request(er);
 out:
-	return ret;
+	return kobject_reply_errcode(proc->proc_handle, proto->token, ret);
 }
 
 static void load_init_process(void)
@@ -598,7 +651,7 @@ static void load_init_process(void)
 	pr_info("loading init shell.app ...\n");
 	strcpy(extra->path, "/c/bin/shell.app");
 
-	assert(!process_execv_handler(self, &proto, extra));
+	assert(!pangu_execv(self, &proto, extra));
 }
 
 static void notify_chiyou_service(void)
@@ -609,7 +662,7 @@ static void notify_chiyou_service(void)
 	kobject_write(chiyou_handle, &proto, sizeof(struct proto), NULL, 0, -1);
 }
 
-static long process_iamok_handler(struct process *proc, struct proto *proto, void *data)
+static long pangu_iamok(struct process *proc, struct proto *proto, void *data)
 {
 	/*
 	 * start the init process, current start the shell process.
@@ -619,7 +672,7 @@ static long process_iamok_handler(struct process *proc, struct proto *proto, voi
 		notify_chiyou_service();
 	}
 
-	return 0;
+	return kobject_reply_errcode(proc->proc_handle, proto->token, 0);
 }
 
 static void handle_process_kernel_request(struct process *proc, struct epoll_event *event)
@@ -650,6 +703,10 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	if (!argv)
 		return -ENOMEM;
 
+	/*
+	 * only chiyou service can load the driver process
+	 * now.
+	 */
 	flags = extra->flags;
 	if (er->parent != chiyou_proc)
 		flags &= ~TASK_FLAGS_DRV;
@@ -662,20 +719,19 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	for (i = 0; i < extra->argc; i++)
 		argv[i] = string + (unsigned long)argv[i];
 
-	new = create_new_process(extra->path, proto->elf_info.entry,
+	new = create_new_process(extra->path, er->parent, proto->elf_info.entry,
 			er->pma_handle, proto->elf_info.elf_base,
 			proto->elf_info.elf_size, flags);
 	if (!new)
 		return -ENOMEM;
 
 	ret = setup_process(new, extra->path, extra->argc, argv, flags);
-	if (ret)
+	if (ret) {
 		release_process(new);
-	else
-		list_add_tail(&process_list, &new->list);
+		return ret;
+	}
 
 	register_request_entry(new->proc_handle, new);
-
 	wakeup_process(new);
 	kfree(argv);
 
@@ -692,7 +748,7 @@ static int do_execv(struct proto *proto, struct execv_request *er)
 	return kobject_reply_errcode(er->parent->proc_handle, er->reply_token, ret);
 }
 
-static long handle_nvwa_request(struct process *proc, struct proto *proto, void *data)
+static long pangu_elf_info(struct process *proc, struct proto *proto, void *data)
 {
 	struct execv_request *er, *next;
 
@@ -701,8 +757,7 @@ static long handle_nvwa_request(struct process *proc, struct proto *proto, void 
 	 */
 	if (proc != nvwa_proc) {
 		pr_err("not nvwa proc %s\n", proc->pinfo->cmd);
-		kobject_reply_errcode(proc->proc_handle, proto->token, -EPERM);
-		return -EPERM;
+		return kobject_reply_errcode(proc->proc_handle, proto->token, -EPERM);
 	} else {
 		kobject_reply_errcode(proc->proc_handle, proto->token, 0);
 	}
@@ -719,27 +774,68 @@ static long handle_nvwa_request(struct process *proc, struct proto *proto, void 
 	}
 
 	pr_err("handle_nvwa_request fail no such request\n");
-
 	return -ENOENT;
 }
 
-static syscall_hdl proc_handles[] = {
-	[0 ... PROTO_PROC_END]	= NULL,
-	[PROTO_IAMOK]		= process_iamok_handler,
-	[PROTO_ELF_INFO]	= handle_nvwa_request,
-	[PROTO_MMAP]		= process_mmap_handler,
-	[PROTO_EXECV]		= process_execv_handler,
-	[PROTO_BRK]		= process_brk_handler,
-	[PROTO_PROCCNT]		= process_proccnt_handler,
-	[PROTO_TASKSTAT]	= process_taskstat_handler,
-	[PROTO_PROCINFO]	= process_procinfo_handler,
-	[PROTO_MPROTECT]	= process_mprotect_handler,
-};
-
-static int inline proto_return_pointer(int id)
+static long pangu_waitpid(struct process *proc, struct proto *proto, void *data)
 {
-	return ((id == PROTO_MMAP) ? 1 : 0);
+	int pid = proto->waitpid.pid;
+	struct process *child;
+	struct wait_entry *we;
+	int found = 0;
+	int ret;
+
+	if ((pid != -1) && (pid <= 0)) {
+		pr_err("waitpid do not support such mode\n");
+		ret = -ENOENT;
+		goto fail;
+	}
+
+	if (pid > 0) {
+		list_for_each_entry(child, &proc->children, clist) {
+			if (child->pinfo->pid == pid) {
+				found = 1;
+				break;
+			}
+		}
+	}
+
+	if (!found) {
+		ret = -ENOENT;
+		goto fail;
+	}
+
+	we = kzalloc(sizeof(struct wait_entry));
+	if (!we) {
+		ret = - ENOMEM;
+		goto fail;
+	}
+
+	we->type = (pid == -1) ? PROC_WAIT_ANY : PROC_WAIT_PID;
+	we->pid = pid;
+	we->token = proto->token;
+	list_add_tail(&proc->wait_head, &we->list);
+
+	return 0;
+
+fail:
+	return kobject_reply_errcode(proc->proc_handle, proto->token, ret);
 }
+
+static syscall_hdl proc_syscall_handles[] = {
+	[0 ... PROTO_PROC_END]	= NULL,
+	[PROTO_IAMOK]		= pangu_iamok,
+	[PROTO_ELF_INFO]	= pangu_elf_info,
+	[PROTO_MMAP]		= pangu_mmap,
+	[PROTO_EXECV]		= pangu_execv,
+	[PROTO_BRK]		= pangu_brk,
+	[PROTO_PROCCNT]		= pangu_proccnt,
+	[PROTO_TASKSTAT]	= pangu_taskstat,
+	[PROTO_PROCINFO]	= pangu_procinfo,
+	[PROTO_MPROTECT]	= pangu_mprotect,
+	[PROTO_WAITPID]		= pangu_waitpid,
+
+};
 
 static void handle_process_in_request(struct process *proc, struct epoll_event *event)
 {
@@ -750,23 +846,15 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 	if (ret < 0)
 		return;
 
-	if ((proto.proto_id > PROTO_PROC_END) || !proc_handles[proto.proto_id]) {
-		pr_err("get unsupport request %d\n", proto.proto_id);
-		ret = proto_return_pointer(proto.proto_id) ? -1 : -ENOSYS;
-		kobject_reply_errcode(proc->proc_handle, proto.token, ret);
+	if ((proto.proto_id > PROTO_PROC_END) || !proc_syscall_handles[proto.proto_id]) {
+		// pr_err("get unsupport request %d\n", proto.proto_id);
+		kobject_reply_errcode(proc->proc_handle, proto.token, -ENOSYS);
 		return;
 	}
 
-	ret = proc_handles[proto.proto_id](proc, &proto, proto_buf);
-
-	switch (proto.proto_id) {
-	case PROTO_ELF_INFO:
-	case PROTO_PROCINFO:
-	case PROTO_TASKSTAT:
-		return;
-	}
-
-	kobject_reply_errcode(proc->proc_handle, proto.token, ret);
+	ret = proc_syscall_handles[proto.proto_id](proc, &proto, proto_buf);
+	if (ret)
+		pr_err("handle syscall %ld failed with\n", ret);
 }
 
 void handle_process_request(struct epoll_event *event, struct process *proc)

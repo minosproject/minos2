@@ -137,7 +137,7 @@ static void dump_boot_info(void)
                        bootdata->vmap_start, bootdata->vmap_end);
 	pr_info("heap    [0x%lx 0x%lx]\n",
                        bootdata->heap_start, bootdata->heap_end);
-	
+
 	pr_info("sys max proc %d\n", bootdata->max_proc);
 	pr_info("uproc_info %d\n", bootdata->uproc_info_handle);
 	pr_info("ktask_stat %d\n", bootdata->ktask_stat_handle);
@@ -157,14 +157,14 @@ static int start_and_wait_process(struct process *proc)
 	for (;;) {
 		ret = kobject_read_simple(proc->proc_handle,
 			&proto, sizeof(struct proto), -1);
-		if (ret == 0)
+		if (ret > 0)
 			break;
 
 		if (ret != -EAGAIN)
 			break;
 	}
 
-	if (ret) {
+	if (ret < 0) {
 		pr_info("Get response from %s fail %d\n", proc->pinfo->cmd, ret);
 		return ret;
 	}
@@ -174,7 +174,7 @@ static int start_and_wait_process(struct process *proc)
 	if (proto.proto_id != PROTO_IAMOK)
 		return -EPROTO;
 
-	kobject_reply_errcode(proc->proc_handle, 0, 0);
+	kobject_reply_errcode(proc->proc_handle, ret, 0);
 
 	return 0;
 }

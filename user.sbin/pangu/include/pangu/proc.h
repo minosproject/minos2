@@ -20,7 +20,10 @@
 #define PROC_FLAGS_VMCTL	(1 << 0)
 #define PROC_FLAGS_HWCTL	(1 << 1)
 
-struct request_entry;
+#define PROC_WAIT_NONE		0
+#define PROC_WAIT_PID		1
+#define PROC_WAIT_ANY		2
+
 struct uproc_info;
 
 struct handle_desc {
@@ -28,8 +31,19 @@ struct handle_desc {
 	int right;
 };
 
+struct wait_entry {
+	int pid;
+	int type;
+	long token;
+	struct list_head list;
+};
+
 struct process {
 	int proc_handle;		// used to control the process.
+
+	struct list_head children;
+	struct list_head clist;
+	struct process *parent;
 
 	struct vma elf_vma;
 	struct vma init_stack_vma;
@@ -48,7 +62,8 @@ struct process {
 	unsigned long brk_start;
 	unsigned long brk_cur;
 
-	struct list_head list;		// link to all the process in the system.
+	struct list_head wait_head;
+
 	struct uproc_info *pinfo;
 };
 
@@ -63,8 +78,6 @@ extern int fuxi_handle;
 extern int nvwa_handle;
 extern int chiyou_handle;
 extern int proc_epfd;
-
-extern struct list_head process_list;
 
 struct epoll_event;
 struct process_proto;
@@ -82,12 +95,9 @@ void wakeup_process(struct process *proc);
 
 void handle_process_request(struct epoll_event *event, struct process *proc);
 
-long process_procinfo_handler(struct process *proc,
-		struct proto *proto, void *data);
-long process_taskstat_handler(struct process *proc,
-		struct proto *proto, void *data);
-long process_proccnt_handler(struct process *proc,
-		struct proto *proto, void *data);
+long pangu_procinfo(struct process *proc, struct proto *proto, void *data);
+long pangu_taskstat(struct process *proc, struct proto *proto, void *data);
+long pangu_proccnt(struct process *proc, struct proto *proto, void *data);
 
 struct process *load_ramdisk_process(char *path,
 		struct handle_desc *hdesc, int num_handle, int flags);

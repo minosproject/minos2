@@ -66,9 +66,9 @@ int create_pma(int type, int right, unsigned long base, size_t size);
 int process_mm_init(struct process *proc, int elf_pma,
 		unsigned long elf_base, size_t elf_size);
 
-long process_mmap_handler(struct process *proc, struct proto *proto, void *data);
-long process_brk_handler(struct process *proc, struct proto *proto, void *data);
-long process_mprotect_handler(struct process *proc, struct proto *proto, void *data);
+long pangu_mmap(struct process *proc, struct proto *proto, void *data);
+long pangu_brk(struct process *proc, struct proto *proto, void *data);
+long pangu_mprotect(struct process *proc, struct proto *proto, void *data);
 
 long handle_user_page_fault(struct process *proc,
 		uint64_t virt_addr, int access_type, int tid);

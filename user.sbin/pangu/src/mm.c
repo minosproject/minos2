@@ -270,7 +270,7 @@ void *map_self_memory(int pma_handle, size_t size, int perm)
 	return (void *)vma->start;
 }
 
-long process_mmap_handler(struct process *proc, struct proto *proto, void *data)
+long pangu_mmap(struct process *proc, struct proto *proto, void *data)
 {
 	size_t len = proto->mmap.len;
 	int prot = proto->mmap.prot;
@@ -295,10 +295,12 @@ long process_mmap_handler(struct process *proc, struct proto *proto, void *data)
 	if (vma)
 		addr = (void *)vma->start;
 out:
-	return (long)addr;
+	kobject_reply_errcode(proc->proc_handle, proto->token, (long)addr);
+
+	return 0;
 }
 
-long process_brk_handler(struct process *proc, struct proto *proto, void *data)
+static unsigned long __pangu_brk(struct process *proc, struct proto *proto, void *data)
 {
 	unsigned long addr = (unsigned long)proto->brk.addr;
 
@@ -311,14 +313,24 @@ long process_brk_handler(struct process *proc, struct proto *proto, void *data)
 	return addr;
 }
 
-long process_mprotect_handler(struct process *proc, struct proto *proto, void *data)
+long pangu_brk(struct process *proc, struct proto *proto, void *data)
+{
+	unsigned long addr = __pangu_brk(proc, proto, data);
+	kobject_reply_errcode(proc->proc_handle, proto->token, addr);
+	return 0;
+}
+
+long pangu_mprotect(struct process *proc, struct proto *proto, void *data)
 {
 	unsigned long end = (unsigned long)proto->mprotect.addr + proto->mprotect.len;
 	struct vma *vma = find_vma(proc, (unsigned long)proto->mprotect.addr);
 	int prot = proto->mprotect.prot;
+	int ret = 0;
 
-	if (!vma || (end > vma->end) || !vma->anon)
-		return -EINVAL;
+	if (!vma || (end > vma->end) || !vma->anon) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	if (prot & PROT_EXEC)
 		vma->perm |= KOBJ_RIGHT_EXEC;
@@ -326,8 +338,8 @@ long process_mprotect_handler(struct process *proc, struct proto *proto, void *d
 		vma->perm |= KOBJ_RIGHT_WRITE;
 	if (prot & PROT_READ)
 		vma->perm |= KOBJ_RIGHT_READ;
-
-	return 0;
+out:
+	return kobject_reply_errcode(proc->proc_handle, proto->token, ret);
 }
 
 static int get_fault_addr(struct process *proc, unsigned long virt, int *perm)

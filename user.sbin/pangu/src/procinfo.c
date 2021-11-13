@@ -127,7 +127,7 @@ struct uproc_info *alloc_procinfo(char *path, int flags)
 	return pinfo;
 }
 
-long process_procinfo_handler(struct process *proc, struct proto *proto, void *data)
+long pangu_procinfo(struct process *proc, struct proto *proto, void *data)
 {
 	/*
 	 * TBD, read the kernel process info if need. Just send the handle
@@ -137,12 +137,12 @@ long process_procinfo_handler(struct process *proc, struct proto *proto, void *d
 	return kobject_reply_handle(proc->proc_handle, proto->token, uproc_info_handle, KR_RM);
 }
 
-long process_taskstat_handler(struct process *proc, struct proto *proto, void *data)
+long pangu_taskstat(struct process *proc, struct proto *proto, void *data)
 {
 	return kobject_reply_handle(proc->proc_handle, proto->token, ktask_stat_handle, KR_RM);
 }
 
-long process_proccnt_handler(struct process *proc, struct proto *proto, void *data)
+long pangu_proccnt(struct process *proc, struct proto *proto, void *data)
 {
-	return proc_cnt;
+	return kobject_reply_errcode(proc->proc_handle, proto->token, proc_cnt);
 }

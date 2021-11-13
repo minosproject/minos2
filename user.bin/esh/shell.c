@@ -19,6 +19,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/wait.h>
 
 #include <minos/kobject.h>
 
@@ -81,7 +82,15 @@ static struct shell_cmd *shell_cmds[] = {
 
 int excute_shell_command(int argc, char **argv)
 {
-	return execv("/c/bin/ps.app", NULL);
+	pid_t pid;
+
+	pid = execv("/c/bin/ps.app", NULL);
+	if (pid <= 0) {
+		printf("exec cmd faild %d\n", pid);
+		return pid;
+	}
+
+	return waitpid(pid, NULL, 0);
 }
 
 static void __esh_putc(struct esh *esh, char c, void *arg)

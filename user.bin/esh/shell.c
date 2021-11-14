@@ -26,72 +26,26 @@
 #include "shell_command.h"
 #include "esh.h"
 #include "esh_internal.h"
-
-static char __pwd[FILENAME_MAX];
+#include "shell.h"
 
 static struct esh *pesh;
-static char *clearmsg = "\x1b[2J\x1b[H";
 
-#if 0
-static int cd_main(int argc, char **argv)
-{
-	char __pwd_buf[FILENAME_MAX];
-	char *arg;
-	char ch;
+DEFINE_SHELL_CMD(cd, "change directory");
+DEFINE_SHELL_CMD(pwd, "current directory");
+DEFINE_SHELL_CMD(clear, "clear the screen");
+DEFINE_SHELL_CMD(help, "get help");
+DEFINE_SHELL_CMD(ls, "list directory");
+DEFINE_SHELL_CMD(exec, "run a application on the filesystem");
 
-	if (argc == 0 || grgc > 2) {
-		printf("invalid argument\n");
-		return -EINVAL;
-	}
-
-	if (argc == 1)
-		return 0;
-
-	memset(__pwd_buf, 0, FILENAME_MAX);
-	if (strcmp(arg, '.') == 0)
-		return 0;
-
-	ch = *arg;
-	if (ch == '/')
-		__pwd_buf[0] = '/';
-	else
-		strcpy(__pwd_buf, __pwd);
-
-	arg = argv[1];
-	while (*arg == '/')
-		arg++;
-}
-
-#define DEFINE_SHELL_CMD(name)				\
-	extern int name##_main(int argc, char **argv);	\
-	static struct shell_cmd shell_cmd_##name = {	\
-		.func = name##_main,			\
-		.cmd = #name,				\
-	}
-
-DEFINE_SHELL_CMD(cd);
-DEFINE_SHELL_CMD(pwd);
-
-static struct shell_cmd *shell_cmds[] = {
-	&shell_cmd_ps,
-	&shell_cmd_ls,
+struct shell_cmd *shell_cmds[] = {
 	&shell_cmd_cd,
+	&shell_cmd_pwd,
+	&shell_cmd_clear,
+	&shell_cmd_ls,
+	&shell_cmd_help,
+	&shell_cmd_exec,
 	NULL,
 };
-#endif
-
-int excute_shell_command(int argc, char **argv)
-{
-	pid_t pid;
-
-	pid = execv("/c/bin/ps.app", NULL);
-	if (pid <= 0) {
-		printf("exec cmd faild %d\n", pid);
-		return pid;
-	}
-
-	return waitpid(pid, NULL, 0);
-}
 
 static void __esh_putc(struct esh *esh, char c, void *arg)
 {
@@ -101,28 +55,29 @@ static void __esh_putc(struct esh *esh, char c, void *arg)
 	kobject_write(2, buf, 1, NULL, 0, 0);
 }
 
-static int handle_internal_cmd(int argc, char **argv, void *arg)
+static int esh_excute_fs_command(int argc, char **argv, void *arg)
 {
-	if (strcmp(argv[0], "clear") == 0) {
-		kobject_write(2, clearmsg, strlen(clearmsg), NULL, 0, -1);
-		return 1;
-	}
-
-	return 0;
+	return -ENOENT;
 }
 
-static void esh_excute_command(struct esh *esh,
-		int argc, char **argv, void *arg)
+static void esh_excute_command(struct esh *esh, int argc, char **argv, void *arg)
 {
-	int ret;
+	struct shell_cmd *command;
+	int idx = 0;
 
-	ret = handle_internal_cmd(argc, argv, arg);
-	if (ret)
-		return;
+	for (;;) {
+		command = shell_cmds[idx++];
+		if (command == NULL)
+			break;
 
-	ret = excute_shell_command(argc, argv);
-	if (ret == -ENOENT)
-		printf("Command %s not found\n", argv[0]);
+		if (strcmp(argv[0], command->cmd) == 0) {
+			command->func(argc, argv);
+			return;
+		}
+	}
+
+	if (esh_excute_fs_command(argc, argv, arg) == -ENOENT)
+		printf("Command \"%s\" not found\n", argv[0]);
 }
 
 int main(int argc, char **argv)
@@ -132,6 +87,7 @@ int main(int argc, char **argv)
 	char ch;
 
 	pesh = esh_init();
+	esh_command_init();
 	esh_register_command(pesh, esh_excute_command);
 	esh_register_print(pesh, __esh_putc);
 

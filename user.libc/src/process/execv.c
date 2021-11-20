@@ -11,7 +11,7 @@
 static int setup_argv(struct execv_extra *extra, char *const argv[])
 {
 	int left = PAGE_SIZE - sizeof(struct execv_extra);
-	int offset, len, i;
+	int offset = 0, len, i;
 	char *arg, *buf = extra->buf;
 
 	if (argv == NULL)

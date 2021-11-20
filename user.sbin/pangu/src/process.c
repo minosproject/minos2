@@ -829,18 +829,17 @@ fail:
 }
 
 static syscall_hdl proc_syscall_handles[] = {
-	[0 ... PROTO_PROC_END]	= NULL,
-	[PROTO_IAMOK]		= pangu_iamok,
-	[PROTO_ELF_INFO]	= pangu_elf_info,
-	[PROTO_MMAP]		= pangu_mmap,
-	[PROTO_EXECV]		= pangu_execv,
-	[PROTO_BRK]		= pangu_brk,
-	[PROTO_PROCCNT]		= pangu_proccnt,
-	[PROTO_TASKSTAT]	= pangu_taskstat,
-	[PROTO_PROCINFO]	= pangu_procinfo,
-	[PROTO_MPROTECT]	= pangu_mprotect,
-	[PROTO_WAITPID]		= pangu_waitpid,
-
+	[0 ... PROTO_PROC_ID_MAX] = NULL,
+	[PROTO_IAMOK_ID]	= pangu_iamok,
+	[PROTO_ELF_INFO_ID]	= pangu_elf_info,
+	[PROTO_MMAP_ID]		= pangu_mmap,
+	[PROTO_EXECV_ID]	= pangu_execv,
+	[PROTO_BRK_ID]		= pangu_brk,
+	[PROTO_PROCCNT_ID]	= pangu_proccnt,
+	[PROTO_TASKSTAT_ID]	= pangu_taskstat,
+	[PROTO_PROCINFO_ID]	= pangu_procinfo,
+	[PROTO_MPROTECT_ID]	= pangu_mprotect,
+	[PROTO_WAITPID_ID]	= pangu_waitpid,
 };
 
 static void handle_process_in_request(struct process *proc, struct epoll_event *event)
@@ -852,13 +851,13 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 	if (ret < 0)
 		return;
 
-	if ((proto.proto_id > PROTO_PROC_END) || !proc_syscall_handles[proto.proto_id]) {
-		// pr_err("get unsupport request %d\n", proto.proto_id);
+	if ((proto.proto_id >= PROTO_PANGU_END) ||
+			!proc_syscall_handles[proto.proto_id - PROTO_IAMOK]) {
 		kobject_reply_errcode(proc->proc_handle, proto.token, -ENOSYS);
 		return;
 	}
 
-	ret = proc_syscall_handles[proto.proto_id](proc, &proto, proto_buf);
+	ret = proc_syscall_handles[proto.proto_id - PROTO_IAMOK](proc, &proto, proto_buf);
 	if (ret)
 		pr_err("handle syscall failed with %ld\n", ret);
 }

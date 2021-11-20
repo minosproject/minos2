@@ -242,7 +242,7 @@ static int load_chiyou_service(void)
 static int load_fuxi_service(void)
 {
 	struct handle_desc hdesc[1];
-	int ret, handle;
+	int handle;
 
 	/*
 	 * create the endpoint for fuxi service, that it

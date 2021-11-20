@@ -230,7 +230,7 @@ static char dt_types[EXT4_DE_MAX] = {
 	DT_LNK
 };
 
-static inline ext4_file_type(int dtype)
+static inline unsigned char ext4_file_type(int dtype)
 {
 	if (dtype >= EXT4_DE_MAX)
 		return DT_UNKNOWN;

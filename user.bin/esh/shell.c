@@ -57,7 +57,38 @@ static void __esh_putc(struct esh *esh, char c, void *arg)
 
 static int esh_excute_fs_command(int argc, char **argv, void *arg)
 {
-	return -ENOENT;
+	char buf[FILENAME_MAX];
+	int len;
+	pid_t pid;
+
+	/*
+	 * the application must put under /c/bin folder, otherwise
+	 * need use exec command to exec the application.
+	 */
+	if ((strlen(argv[0]) + strlen("/c/bin/") + 1) > FILENAME_MAX)
+		return -ENAMETOOLONG;
+
+	len = sprintf(buf, "%s", "/c/bin/");
+	strcpy(&buf[len], argv[0]);
+
+	if (access(buf, X_OK) != 0) {
+		printf("no such application %s\n", buf);
+		return -EACCES;
+	}
+
+	pid = execv(buf, &argv[1]);
+	if (pid <= 0) {
+		printf("exec %s failed %d\n", buf, pid);
+		return pid;
+	}
+
+	/*
+	 * run in background ?
+	 */
+	if (strcmp(argv[argc - 1], "&") == 0)
+		return 0;
+	else
+		return waitpid(pid, NULL, 0);
 }
 
 static void esh_excute_command(struct esh *esh, int argc, char **argv, void *arg)
@@ -116,3 +147,4 @@ int main(int argc, char **argv)
 
 	return 0;
 }
+

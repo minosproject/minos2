@@ -62,7 +62,7 @@ struct esh {
      */
 #ifdef ESH_RUST
     union {
-        char * argv[ESH_ARGC_MAX];
+        char * argv[ESH_ARGC_MAX + 1];
         struct char_slice rust_argv[ESH_ARGC_MAX];
     };
 #else

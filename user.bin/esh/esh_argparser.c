@@ -71,8 +71,8 @@ int esh_parse_args(struct esh *esh)
             if (last_was_space) {
                 if (argc < ESH_ARGC_MAX) {
                     ESH_INSTANCE->argv[argc] = &ESH_INSTANCE->buffer[dest];
+		    ++argc;
                 }
-                ++argc;
             }
             if (ESH_INSTANCE->buffer[i] == '\'' || ESH_INSTANCE->buffer[i] == '\"') {
                 consume_quoted(ESH_INSTANCE, &i, &dest);
@@ -83,6 +83,7 @@ int esh_parse_args(struct esh *esh)
             last_was_space = false;
         }
     }
+    ESH_INSTANCE->argv[argc] = NULL;
     ESH_INSTANCE->buffer[dest] = 0;
     ESH_INSTANCE->buffer[ESH_BUFFER_LEN] = 0;
     return argc;

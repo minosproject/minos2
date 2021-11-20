@@ -468,14 +468,17 @@ struct ext4_inode {
 #define EXT4_DIRECTORY_FILENAME_LEN 255
 
 /**@brief   Directory entry types. */
-enum { EXT4_DE_UNKNOWN = 0,
-       EXT4_DE_REG_FILE,
-       EXT4_DE_DIR,
-       EXT4_DE_CHRDEV,
-       EXT4_DE_BLKDEV,
-       EXT4_DE_FIFO,
-       EXT4_DE_SOCK,
-       EXT4_DE_SYMLINK };
+enum {
+	EXT4_DE_UNKNOWN = 0,
+	EXT4_DE_REG_FILE,
+	EXT4_DE_DIR,
+	EXT4_DE_CHRDEV,
+	EXT4_DE_BLKDEV,
+	EXT4_DE_FIFO,
+	EXT4_DE_SOCK,
+	EXT4_DE_SYMLINK,
+	EXT4_DE_MAX,
+};
 
 #define EXT4_DIRENTRY_DIR_CSUM 0xDE
 

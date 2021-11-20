@@ -616,6 +616,7 @@ const ext4_direntry *ext4_dir_entry_next(ext4_dir *dir);
  * @param   dir Directory handle.*/
 void ext4_dir_entry_rewind(ext4_dir *dir);
 
+int ext4_dir_seek(ext4_dir *dir, int64_t offset, uint32_t origin);
 
 #ifdef __cplusplus
 }

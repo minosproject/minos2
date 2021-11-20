@@ -103,6 +103,7 @@ static struct lwext4_file *create_new_lwext4_file(int dir)
 	file->handle = handle;
 	file->sbuf = addr;
 	file->sbuf_size = PAGE_SIZE;
+	file->dir = !!dir;
 
 	return file;
 }
@@ -130,6 +131,12 @@ static int __handle_vfs_open_request(struct ext4_server *vs, struct lwext4_file 
 	new_file = create_new_lwext4_file(dir);
 	if (!new_file)
 		return -ENOMEM;
+
+	/*
+	 * open the root directory
+	 */
+	if (vs->buf[0] == 0)
+		strcpy(vs->buf, "/");
 
 	if (dir)
 		ret = ext4_dir_open(LWEXT4_DIR(new_file), vs->buf);
@@ -202,10 +209,33 @@ static int handle_vfs_lseek_request(struct ext4_server *vs,
 {
 	int ret;
 
-	ret = ext4_fseek(LWEXT4_FILE(file), proto->lseek.off, proto->lseek.whence);
+	if (file->dir)
+		ret = ext4_dir_seek(LWEXT4_DIR(file), proto->lseek.off, proto->lseek.whence);
+	else
+		ret = ext4_fseek(LWEXT4_FILE(file), proto->lseek.off, proto->lseek.whence);
+
 	kobject_reply_errcode(file->handle, proto->token, ret);
 
 	return 0;
+}
+
+static char dt_types[EXT4_DE_MAX] = {
+	DT_UNKNOWN,
+	DT_REG,
+	DT_DIR,
+	DT_CHR,
+	DT_BLK,
+	DT_FIFO,
+	DT_SOCK,
+	DT_LNK
+};
+
+static inline ext4_file_type(int dtype)
+{
+	if (dtype >= EXT4_DE_MAX)
+		return DT_UNKNOWN;
+	else
+		return dt_types[dtype];
 }
 
 static int handle_vfs_getdent_request(struct ext4_server *vs,
@@ -220,6 +250,7 @@ static int handle_vfs_getdent_request(struct ext4_server *vs,
 	if (!file->dir) {
 		pr_err("file is not a directory\n");
 		kobject_reply_errcode(file->handle, proto->token, -ENOTDIR);
+		return -ENOTDIR;
 	}
 
 	while ((d = ext4_dir_entry_next(LWEXT4_DIR(file))) != NULL) {
@@ -232,7 +263,7 @@ static int handle_vfs_getdent_request(struct ext4_server *vs,
 		de->d_ino = d->inode;
 		de->d_off = d->inode;
 		de->d_reclen = len;
-		de->d_type = d->inode_type;
+		de->d_type = ext4_file_type(d->inode_type);
 		memcpy(de->d_name, d->name, d->name_length);
 		de->d_name[d->name_length] = 0;
 

@@ -3234,6 +3234,25 @@ void ext4_dir_entry_rewind(ext4_dir *dir)
     dir->next_off = 0;
 }
 
+int ext4_dir_seek(ext4_dir *dir, int64_t offset, uint32_t origin)
+{
+	/*
+	 * TO BE DONE
+	 */
+    switch (origin) {
+    case SEEK_SET:
+	dir->next_off = offset;
+        return EOK;
+    case SEEK_CUR:
+	dir->next_off += offset;
+        return EOK;
+    case SEEK_END:
+	dir->next_off = EXT4_DIR_ENTRY_OFFSET_TERM;
+        return EOK;
+    }
+    return EINVAL;
+}
+
 /**
  * @}
  */

@@ -117,6 +117,7 @@ static void handle_elf_request(struct nvwa_proto *proto)
 		pr_info("loading elf file %d fail\n", ret);
 		memset(&elf_proto, 0, sizeof(struct proto));
 		elf_proto.elf_info.ret_code = ret;
+		elf_proto.elf_info.token = proto->token;
 	}
 
 	elf_proto.proto_id = PROTO_ELF_INFO;

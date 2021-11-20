@@ -768,8 +768,14 @@ static long pangu_elf_info(struct process *proc, struct proto *proto, void *data
 	list_for_each_entry_safe(er, next, &execv_request_list, list) {
 		if (er->token != proto->elf_info.token)
 			continue;
-
 		list_del(&er->list);
+
+		if (proto->elf_info.ret_code != 0) {
+			kobject_reply_errcode(er->parent->proc_handle,
+					er->reply_token, proto->elf_info.ret_code);
+			return -EPERM;
+		}
+
 		return do_execv(proto, er);
 	}
 
@@ -854,7 +860,7 @@ static void handle_process_in_request(struct process *proc, struct epoll_event *
 
 	ret = proc_syscall_handles[proto.proto_id](proc, &proto, proto_buf);
 	if (ret)
-		pr_err("handle syscall %ld failed with\n", ret);
+		pr_err("handle syscall failed with %ld\n", ret);
 }
 
 void handle_process_request(struct epoll_event *event, struct process *proc)

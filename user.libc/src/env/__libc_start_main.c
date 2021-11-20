@@ -11,7 +11,7 @@ static void dummy(void) {}
 weak_alias(dummy, _init);
 
 extern weak hidden void (*const __init_array_start)(void), (*const __init_array_end)(void);
-extern hidden int kmalloc_init(unsigned long base, unsigned long end);
+extern hidden void __cwd_init(void);
 
 static void dummy1(void *p) {}
 weak_alias(dummy1, __init_ssp);
@@ -82,6 +82,7 @@ static int libc_start_main_stage2(int (*main)(int,char **,char **), int argc, ch
 {
 	char **envp = argv+argc+1;
 	__libc_start_init();
+	__cwd_init();
 
 	/* Pass control to the application */
 	exit(main(argc, argv, envp));

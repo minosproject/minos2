@@ -26,6 +26,8 @@ enum {
 	PROTO_WRITE,
 	PROTO_IOCTL,
 	PROTO_LSEEK,
+	PROTO_STAT,
+	PROTO_ACCESS,
 	PROTO_GETDENTS,
 	PROTO_REGISTER_SERVICE,
 	PROTO_VFS_END,
@@ -119,6 +121,10 @@ struct proto_register_service {
 	int target_off;
 };
 
+struct proto_access {
+	int amode;
+};
+
 struct execv_extra {
 	char path[FILENAME_MAX];
 	int argv[32];
@@ -151,6 +157,7 @@ struct proto {
 		struct proto_lseek lseek;
 		struct proto_elf_info elf_info;
 		struct proto_brk brk;
+		struct proto_access access;
 		struct proto_waitpid waitpid;
 		struct proto_register_service register_service;
 		struct proto_devinfo devinfo;

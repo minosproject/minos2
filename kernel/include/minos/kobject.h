@@ -83,6 +83,8 @@ struct kobject_desc {
 
 void register_kobject_ops(struct kobject_ops *ops, int type);
 
+uint32_t kobject_token(void);
+
 int kobject_get(struct kobject *kobj);
 
 int kobject_put(struct kobject *kobj);

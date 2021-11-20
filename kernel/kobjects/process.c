@@ -218,7 +218,7 @@ static long process_send(struct kobject *kobj,
 
 	spin_lock(&proc->request_lock);
 	list_add_tail(&proc->request_list, &current->kobj.list);
-	__event_task_wait(0, TASK_EVENT_ROOT_SERVICE, 0);
+	__event_task_wait(kobject_token(), TASK_EVENT_ROOT_SERVICE, 0);
 	spin_unlock(&proc->request_lock);
 
 	poll_event_send(ps, EV_IN);
@@ -264,7 +264,7 @@ out:
 	 */
 	list_add_tail(&proc->processing_list, &thread->list);
 
-	return task->tid;
+	return task->wait_event;
 }
 
 static int process_reply(struct kobject *kobj, right_t right, long token,
@@ -278,7 +278,7 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 
 	list_for_each_entry_safe(entry, tmp, &proc->processing_list, list) {
 		target = (struct task *)entry->data;
-		if (target->tid == token) {
+		if (target->wait_event == token) {
 			list_del(&entry->list);
 			if (fd > 0)
 				errno = send_handle(current_proc, proc, fd, fd_right);

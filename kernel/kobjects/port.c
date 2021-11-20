@@ -29,7 +29,6 @@
 struct port {
 	struct task *recv_task;
 	int closed;
-	uint32_t token;
 	struct kobject kobj;
 	spinlock_t lock;
 	struct list_head pending_list;
@@ -153,13 +152,6 @@ out:
 	return ret;
 }
 
-static inline long port_generate_token(struct port *port)
-{
-	uint32_t token = port->token++;
-
-	return (long)token;
-}
-
 static long port_send(struct kobject *kobj, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout)
 {
@@ -180,8 +172,7 @@ static long port_send(struct kobject *kobj, void __user *data, size_t data_size,
 	 * for.
 	 */
 	list_add_tail(&port->pending_list, &current->kobj.list);
-	__event_task_wait(port_generate_token(port),
-			TASK_EVENT_KOBJ_REPLY, timeout);
+	__event_task_wait(kobject_token(), TASK_EVENT_KOBJ_REPLY, timeout);
 	spin_unlock(&port->lock);
 
 	/*

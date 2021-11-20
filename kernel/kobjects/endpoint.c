@@ -169,8 +169,7 @@ static long endpoint_recv(struct kobject *kobj, void __user *data,
 	}
 
 	list_add_tail(&ep->processing_list, &pending->list);
-	ret = (long)writer->tid;
-
+	ret = (long)writer->wait_event;
 out:
 	spin_unlock(&ep->lock);
 
@@ -201,7 +200,7 @@ static long endpoint_send(struct kobject *kobj, void __user *data, size_t data_s
 	 * for.
 	 */
 	list_add_tail(&ep->pending_list, &current->kobj.list);
-	__event_task_wait((unsigned long)ep, TASK_EVENT_KOBJ_REPLY, timeout);
+	__event_task_wait(kobject_token(), TASK_EVENT_KOBJ_REPLY, timeout);
 	spin_unlock(&ep->lock);
 
 	/*
@@ -248,7 +247,7 @@ static int endpoint_reply(struct kobject *kobj, right_t right,
 
 	list_for_each_entry_safe(wk, tmp, &ep->processing_list, list) {
 		task = (struct task *)wk->data;
-		if (task->tid == token) {
+		if (task->wait_event == token) {
 			list_del(&wk->list);
 			break;
 		}

@@ -20,6 +20,8 @@
 #include <minos/poll.h>
 
 static kobject_create_cb kobj_create_cbs[KOBJ_TYPE_MAX];
+static atomic_t kobj_token = { 1 };
+static atomic_t kobj_gen = { 0 };
 
 static void register_kobject_type(kobject_create_cb ops, int type)
 {
@@ -227,6 +229,21 @@ long kobject_ctl(struct kobject *kobj, right_t right,
 		return -EPERM;
 
 	return kobj->ops->ctl(kobj, req, data);
+}
+
+uint32_t kobject_token(void)
+{
+	uint32_t value;
+
+	while (1) {
+		value = (uint32_t)atomic_inc_return_old(&kobj_token);
+		if (value == 0)
+			atomic_inc(&kobj_gen);
+		else
+			break;
+	}
+
+	return value;
 }
 
 static int kobject_subsystem_init(void)

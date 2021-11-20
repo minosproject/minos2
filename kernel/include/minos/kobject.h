@@ -23,16 +23,20 @@ struct poll_struct;
  * list : list all the kernel object for a task or global.
  */
 struct kobject {
-	int type;
+	uint8_t type;
+	uint8_t flags;
+	uint16_t padding;
+
 	right_t right_mask;
 	atomic_t ref;
+
+	spinlock_t lock;
+	struct poll_struct *poll_struct;
+
 	struct kobject_ops *ops;
 	unsigned long data;
 	struct list_head list;
-
-	struct poll_struct *poll_struct;
-	spinlock_t lock;
-};
+} __packed;
 
 struct kobject_ops {
 	long (*send)(struct kobject *kobj, void __user *data,

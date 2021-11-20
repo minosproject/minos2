@@ -188,8 +188,10 @@ int sys_kobject_mmap(handle_t handle,
 	if (ret)
 		return ret;
 
-	if (!(right & KOBJ_RIGHT_MMAP))
+	if (!(right & KOBJ_RIGHT_MMAP)) {
+		ret = -EPERM;
 		goto out;
+	}
 
 	ret = kobject_mmap(kobj, right, addr, map_size);
 out:

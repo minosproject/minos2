@@ -85,11 +85,13 @@ static void free_pma_memory(struct pma *p)
 		return;
 
 	if (p->pstart) {
-		free_pages((void *)pa2va(p->pstart));
-		return;
+		if (p->type == PMA_TYPE_KCACHE)
+			free_pages((void *)p->pstart);
+		else
+			free_pages((void *)pa2va(p->pstart));
+	} else {
+		free_pma_pages(p->page_list);
 	}
-
-	free_pma_pages(p->page_list);
 }
 
 static void *pma_map(struct kobject *kobj, struct process *proc, unsigned long virt)
@@ -342,9 +344,40 @@ static long pma_ctl(struct kobject *kobj, int req, unsigned long data)
 	return ret;
 }
 
+static long pma_write(struct kobject *kobj, void __user *data, size_t data_size,
+		void __user *extra, size_t extra_size, uint32_t timeout)
+{
+	struct pma *p = (struct pma *)kobj->data;
+
+	if (p->type != PMA_TYPE_KCACHE)
+		return -EPROTO;
+
+	if (data_size > p->psize)
+		return -EINVAL;
+
+	return copy_from_user((void *)p->pstart, data, data_size);
+}
+
+static long pma_read(struct kobject *kobj, void __user *data, size_t data_size,
+		size_t *actual_data, void __user *extra, size_t extra_size,
+		size_t *actual_extra, uint32_t timeout)
+{
+	struct pma *p = (struct pma *)kobj->data;
+
+	if (p->type != PMA_TYPE_KCACHE)
+		return -EPROTO;
+
+	if (data_size > p->psize)
+		return -EINVAL;
+
+	return copy_to_user(data, (void *)p->pstart, data_size);
+}
+
 static struct kobject_ops pma_ops = {
 	.mmap		= pma_mmap,
 	.munmap		= pma_munmap,
+	.send		= pma_write,
+	.recv		= pma_read,
 	.ctl		= pma_ctl,
 	.release	= pma_release,
 };
@@ -377,8 +410,9 @@ static inline unsigned long pma_flags(int type, right_t right)
 	return flags;
 }
 
-static int allocate_pma_memory(struct pma *p, int cnt, int consequent, int type)
+static int allocate_pma_memory(struct pma *p, size_t size, int type)
 {
+	size_t cnt = size >> PAGE_SHIFT;
 	struct page *page;
 	int i;
 
@@ -386,7 +420,7 @@ static int allocate_pma_memory(struct pma *p, int cnt, int consequent, int type)
 	 * if this PMA need to shared among in different process
 	 * allocate a continuously memory region.
 	 */
-	if (consequent || (type == PMA_TYPE_DMA)) {
+	if (p->consequent || (type == PMA_TYPE_DMA)) {
 		p->pstart = va2pa(get_free_pages(cnt, GFP_USER));
 		if (!p->pstart)
 			return -ENOMEM;
@@ -413,9 +447,11 @@ static int allocate_pma_memory(struct pma *p, int cnt, int consequent, int type)
 static int __create_new_pma(struct kobject **kobj,
 		right_t *right, struct pma_create_arg *args)
 {
+	right_t right_mask = PMA_RIGHT_MASK;
+	right_t right_ret = PMA_RIGHT;
+	int fixup_pmem = 0;
 	struct pma *p;
 	int ret;
-	int fixup_pmem = 0;
 
 	if ((args->type == PMA_TYPE_MMIO) || (args->type == PMA_TYPE_PMEM))
 		fixup_pmem = 1;
@@ -436,11 +472,21 @@ static int __create_new_pma(struct kobject **kobj,
 		p->pstart = args->start;
 		p->pend = args->start + args->size;
 		p->psize = args->size;
+		p->consequent = 1;
+	} else if (args->type == PMA_TYPE_KCACHE) {
+		p->pstart = (unsigned long)get_free_page(GFP_KERNEL);
+		if (p->pstart == 0)
+			return -ENOMEM;
+		p->pend = p->pstart + PAGE_SIZE;
+		p->psize = PAGE_SIZE;
+		right_mask &= ~KOBJ_RIGHT_MMAP;
+		right_ret &= ~KOBJ_RIGHT_MMAP;
+		p->consequent = 1;
 	} else {
+		p->consequent = !!args->consequent;
 		if (args->size > 0) {
 			p->psize = args->size;
-			ret = allocate_pma_memory(p, args->size >> PAGE_SHIFT,
-					!!args->consequent, args->type);
+			ret = allocate_pma_memory(p, args->size, args->type);
 			if (ret) {
 				free(p);
 				return -ENOMEM;
@@ -449,13 +495,12 @@ static int __create_new_pma(struct kobject **kobj,
 	}
 
 	p->type = args->type;
-	p->consequent = !!args->consequent;
 	init_list(&p->mapping);
 	spin_lock_init(&p->lock);
 	p->kobj.ops = &pma_ops;
-	kobject_init(&p->kobj, KOBJ_TYPE_PMA, PMA_RIGHT_MASK, (unsigned long)p);
+	kobject_init(&p->kobj, KOBJ_TYPE_PMA, right_mask, (unsigned long)p);
 	*kobj = &p->kobj;
-	*right = PMA_RIGHT;
+	*right = right_ret;
 
 	return 0;
 }
@@ -469,7 +514,6 @@ static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 {
 	struct pma_create_arg args;
 	int ret;
-	int fixup_pmem = 0;
 
 	ret = copy_from_user(&args, (void __user *)data, sizeof(struct pma_create_arg));
 	if (ret <= 0)
@@ -478,14 +522,28 @@ static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 	if (args.type >= PMA_TYPE_MAX)
 		return -EINVAL;
 
-	if ((args.type == PMA_TYPE_MMIO) || (args.type == PMA_TYPE_PMEM))
-		fixup_pmem = 1;
-
-	if (fixup_pmem && !proc_can_vmctl(current_proc))
-		return -EPERM;
-
-	if (!proc_is_root(current_proc) && (args.size > HUGE_PAGE_SIZE))
-		return -E2BIG;
+	switch (args.type) {
+	case PMA_TYPE_DMA:
+		if (!proc_can_vmctl(current_proc))
+			return -EPERM;
+		break;
+	case PMA_TYPE_MMIO:
+	case PMA_TYPE_PMEM:
+		if (!proc_can_vmctl(current_proc))
+			return -EPERM;
+		break;
+	case PMA_TYPE_KCACHE:
+		if (args.size > PAGE_SIZE)
+			return -E2BIG;
+		break;
+	case PMA_TYPE_NORMAL:
+		if (!proc_is_root(current_proc) &&
+				(args.size > HUGE_PAGE_SIZE))
+			return -E2BIG;
+		break;
+	default:
+		break;
+	}
 
 	return __create_new_pma(kobj, right, &args);
 }

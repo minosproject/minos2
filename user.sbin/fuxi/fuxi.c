@@ -29,6 +29,7 @@
 #include <minos/debug.h>
 #include <minos/types.h>
 #include <minos/service.h>
+#include <misc.h>
 
 #define VNODENAME_MAX 64
 #define VNODE_MAX 128
@@ -274,7 +275,8 @@ static int create_service_kobject(struct vnode *node, struct proto *proto)
 	return 0;
 }
 
-static struct vnode *__handle_register_service_request(struct vreq *vreq, struct proto *proto, char *buf)
+static struct vnode *__handle_register_service_request(struct vreq *vreq,
+		struct proto *proto, char *buf)
 {
 	char *source = buf + proto->register_service.source_off;
 	char *target = buf + proto->register_service.target_off;
@@ -695,9 +697,18 @@ static void vnodes_init(void)
  * 2 - stdout
  * 3 - stderr
  */
-int main(int handle, char **argv)
+int main(int argc, char **argv)
 {
+	int handle;
+
 	fuxi_info("\n\nFuXi service start...\n\n");
+
+	if (get_handles(argc, argv, &handle, 1) != 1) {
+		pr_err("get fuxi handle fail\n");
+		return -ENOENT;
+	}
+
+	pr_info("fuxi handle %d\n", handle);
 
 	vnodes_init();
 	vreqs_init();

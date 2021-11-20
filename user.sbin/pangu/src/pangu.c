@@ -148,9 +148,6 @@ static int start_and_wait_process(struct process *proc)
 	struct proto proto;
 	int ret;
 
-	/*
-	 * start the fuxi service and wait it finish startup
-	 */
 	pr_info("Start %s and waitting ...\n", proc->pinfo->cmd);
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 
@@ -244,6 +241,7 @@ static int load_chiyou_service(void)
 
 static int load_fuxi_service(void)
 {
+	struct handle_desc hdesc[1];
 	int ret, handle;
 
 	/*
@@ -255,17 +253,12 @@ static int load_fuxi_service(void)
 	if (handle <= 0)
 		return handle;
 
-	fuxi_proc = load_ramdisk_process("fuxi.srv", NULL, 0, TASK_FLAGS_SRV);
+	hdesc[0].handle = handle;
+	hdesc[0].right = KR_R;
+
+	fuxi_proc = load_ramdisk_process("fuxi.srv", hdesc, 1, TASK_FLAGS_SRV);
 	if (fuxi_proc == NULL)
 		return -ENOMEM;
-
-	ret = grant(fuxi_proc->proc_handle, handle, KR_R);
-	if (ret <= 0)
-		return ret;
-
-	ret = kobject_ctl(fuxi_proc->proc_handle, KOBJ_PROCESS_SETUP_REG0, ret);
-	if (ret)
-		return ret;
 
 	fuxi_handle = handle;
 

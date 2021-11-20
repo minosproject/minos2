@@ -1,8 +1,11 @@
 TARGET 		:= fuxi.srv
-APP_LDFLAGS 	:= -T fuxi.ld --static -nostartfiles -e main
 
 SRC_C		:= fuxi.c
 
+APP_LINK_LIBS	= misc
+
 APP_INSTALL_DIR = ramdisk
+
+TEXT_START := 0x800000
 
 include $(projtree)/scripts/app_build.mk

@@ -289,6 +289,12 @@ static int handle_vfs_close_request(struct ext4_server *vs, struct lwext4_file *
 	return 0;
 }
 
+static int handle_vfs_access_request(struct ext4_server *vs,
+		struct lwext4_file *file, struct proto *proto)
+{
+	return 0;
+}
+
 static int handle_vfs_in_request(struct ext4_server *vs, struct lwext4_file *file)
 {
 	struct proto proto;
@@ -313,6 +319,10 @@ static int handle_vfs_in_request(struct ext4_server *vs, struct lwext4_file *fil
 		break;
 	case PROTO_LSEEK:
 		ret = handle_vfs_lseek_request(vs, file, &proto);
+		break;
+	case PROTO_ACCESS:
+		ret = handle_vfs_access_request(vs, file, &proto);
+		kobject_reply_errcode(file->handle, proto.token, ret);
 		break;
 	default:
 		ret = -ENOSYS;

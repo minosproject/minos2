@@ -62,14 +62,16 @@ static int esh_excute_fs_command(int argc, char **argv, void *arg)
 	pid_t pid;
 
 	/*
-	 * the application must put under /c/bin folder, otherwise
+	 * the application must put under /c/bin/xxx.app folder, otherwise
 	 * need use exec command to exec the application.
+	 * .app = 4
+	 * 0 = 1
 	 */
-	if ((strlen(argv[0]) + strlen("/c/bin/") + 1) > FILENAME_MAX)
+	if ((strlen(argv[0]) + strlen("/c/bin/") + 4 + 1) > FILENAME_MAX)
 		return -ENAMETOOLONG;
 
-	len = sprintf(buf, "%s", "/c/bin/");
-	strcpy(&buf[len], argv[0]);
+	len = sprintf(buf, "%s%s.app", "/c/bin/", argv[0]);
+	buf[len] = 0;
 
 	if (access(buf, X_OK) != 0) {
 		printf("no such application %s\n", buf);

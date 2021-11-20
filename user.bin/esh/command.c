@@ -141,7 +141,7 @@ static void do_ls(DIR *dir)
 		cnt++;
 	}
 
-	printf("total %d\n", cnt);
+	printf("total   %d\n", cnt);
 }
 
 int ls_main(int argc, char **argv)

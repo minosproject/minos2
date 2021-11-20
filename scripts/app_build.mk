@@ -80,18 +80,10 @@ OBJS	+= $(src_s:%.S=%.o)
 
 OBJS_D	= $(OBJS:%.o=%.d)
 
-ifeq ($(BUILD_DEBUG),1)
 $(TARGET) : $(OBJS) $(LIBS_DEPS)
 	$(PROGRESS)
 	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
 	$(QUIET) echo "Build $(TARGET) Done ..."
-else
-$(TARGET) : $(OBJS) $(LIBS_DEPS)
-	$(PROGRESS)
-	$(QUIET) $(CC) $^ -o $@ $(LDFLAGS) $(CFLAGS)
-	$(QUIET) $(STRIP) -s $(TARGET)
-	$(QUIET) echo "Build $(TARGET) Done ..."
-endif
 
 %.o : %.c
 	$(PROGRESS)

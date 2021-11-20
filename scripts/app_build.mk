@@ -105,6 +105,7 @@ endif
 
 $(TARGET_OUT_DIR)/$(APP_INSTALL_DIR)/%: %
 	$(TARGET_INSTALL) -D -m 755 $< $@
+	$(STRIP) -s $@
 
 install: $(TARGET_OUT_DIR)/$(APP_INSTALL_DIR)/$(TARGET)
 

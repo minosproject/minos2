@@ -35,6 +35,7 @@ DEFINE_SHELL_CMD(pwd, "current directory");
 DEFINE_SHELL_CMD(clear, "clear the screen");
 DEFINE_SHELL_CMD(help, "get help");
 DEFINE_SHELL_CMD(ls, "list directory");
+DEFINE_SHELL_CMD(exit, "exit the shell");
 DEFINE_SHELL_CMD(exec, "run a application on the filesystem");
 
 struct shell_cmd *shell_cmds[] = {
@@ -44,6 +45,7 @@ struct shell_cmd *shell_cmds[] = {
 	&shell_cmd_ls,
 	&shell_cmd_help,
 	&shell_cmd_exec,
+	&shell_cmd_exit,
 	NULL,
 };
 

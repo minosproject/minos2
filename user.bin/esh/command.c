@@ -30,6 +30,11 @@
 #include "esh_internal.h"
 #include "shell.h"
 
+int exit_main(int argc, char **argv)
+{
+	exit(0);
+}
+
 int cd_main(int argc, char **argv)
 {
 	char cwd[PATH_MAX];

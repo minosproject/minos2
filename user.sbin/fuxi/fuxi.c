@@ -21,6 +21,7 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <string.h>
+#include <limits.h>
 
 #include <minos/list.h>
 #include <minos/proto.h>
@@ -62,8 +63,8 @@ static struct vreq *vreq_head = NULL;
 static struct vnode root_vnode;
 static int epfd;
 
-static char string_buffer[FILENAME_MAX];
-static char filename[FILENAME_MAX];
+static char string_buffer[PATH_MAX];
+static char filename[PATH_MAX];
 
 static void fuxi_info(char *str)
 {
@@ -109,7 +110,7 @@ static int epoll_new_vreq(struct vreq *vreq)
 	event.events = EPOLLIN;
 	event.data.ptr = vreq;
 
-	return epoll_ctl(EPOLL_CTL_ADD, epfd, vreq->handle, &event);
+	return epoll_ctl(epfd, EPOLL_CTL_ADD, vreq->handle, &event);
 }
 
 static struct vnode *alloc_node(void)
@@ -234,7 +235,7 @@ static struct vnode *find_dir_node(struct vnode *root, char *buf)
 			return cur;
 
 		end = strchrnul(pathrem, '/');
-		if (end - pathrem >= FILENAME_MAX)
+		if (end - pathrem >= PATH_MAX)
 			break;
 
 		strlcpy(filename, pathrem, end - pathrem + 1);
@@ -283,10 +284,10 @@ static struct vnode *__handle_register_service_request(struct vreq *vreq, struct
 	if (parent->d_ino != -1)
 		return NULL;
 
-	if (!check_string(buf, proto->register_service.source_off, FILENAME_MAX))
+	if (!check_string(buf, proto->register_service.source_off, PATH_MAX))
 		return NULL;
 
-	if (!check_string(buf, proto->register_service.target_off, FILENAME_MAX))
+	if (!check_string(buf, proto->register_service.target_off, PATH_MAX))
 		return NULL;
 
 	if (strlen(target) >= VNODENAME_MAX)
@@ -386,7 +387,7 @@ static int __handle_open_request(struct vreq *vreq, struct proto *proto, char *b
 			return -ENOENT;
 
 		end = strchrnul(pathrem, '/');
-		if (end - pathrem >= FILENAME_MAX)
+		if (end - pathrem >= PATH_MAX)
 			return -ENAMETOOLONG;
 
 		strlcpy(filename, pathrem, end - pathrem + 1);
@@ -420,7 +421,7 @@ static void handle_open_request(struct vreq *vreq, struct proto *proto, char *bu
 		fuxi_info("open file failed\n");
 	} else {
 		if (type == SRV_DIR)
-			right = KR_W;
+			right = KR_WM;
 		else if (type == SRV_PORT)
 			right = KR_W;
 		else if (type == SRV_NOTIFY)
@@ -483,7 +484,89 @@ static void handle_getdent_request(struct vreq *vreq, struct proto *proto, char 
 
 	ret = PAGE_SIZE - size_left;
 out:
-	kobject_reply(node->handle, proto->token, ret, 0, 0);
+	kobject_reply(vreq->handle, proto->token, ret, 0, 0);
+}
+
+static int handle_remote_access(struct vnode *node, struct proto *proto, char *buf)
+{
+	struct proto rproto;
+
+	rproto.proto_id = PROTO_ACCESS;
+	rproto.access.amode = proto->access.amode;
+
+	return sys_send_proto_with_data(node->handle,
+			&rproto, buf, strlen(buf), 2000);
+}
+
+static int __handle_access_request(struct vreq *vreq, struct proto *proto, char *buf)
+{
+	struct vnode *cur = vreq->node, *next;
+	int amode = proto->access.amode;
+	char *pathrem = buf, *end;
+
+	for (;;) {
+		while (*pathrem == '/')
+			pathrem++;
+
+		/*
+		 * open a directory of the fuxi, fuxi only provide two file type
+		 * one is directory, other is service.
+		 */
+		if (*pathrem == '\0') {
+			if (cur->type == SRV_NOTIFY)
+				return ((amode & R_OK) == amode);
+			else if (cur->type == SRV_PORT)
+				return ((amode & W_OK) == amode);
+			else
+				return -EPERM;
+		}
+
+		if (cur->type != SRV_DIR)
+			return -ENOENT;
+
+		end = strchrnul(pathrem, '/');
+		if (end - pathrem >= PATH_MAX)
+			return -ENAMETOOLONG;
+
+		strlcpy(filename, pathrem, end - pathrem + 1);
+		pathrem = end;
+
+		next = find_node(cur, filename);
+		if (!next)
+			return -ENOENT;
+
+		/*
+		 * if this node is a service node, open it with remote call.
+		 */
+		if ((next->type == SRV_PORT))
+			return handle_remote_access(next, proto, pathrem);
+	}
+
+	return -ENOENT;
+}
+
+static void handle_access_request(struct vreq *vreq,
+		struct proto *proto, char *path)
+{
+	int ret = __handle_access_request(vreq, proto, path);
+	kobject_reply_errcode(vreq->handle, proto->token, ret);
+}
+
+static void handle_lseek_request(struct vreq *vreq,
+		struct proto *proto, char *sbuf)
+{
+	struct vnode *node = vreq->node;
+	int ret = -EPERM;
+
+	/*
+	 * TBD
+	 */
+	if (node->type == SRV_DIR) {
+		vreq->pdata = node->child.next;
+		ret = 0;
+	}
+
+	kobject_reply_errcode(vreq->handle, proto->token, ret);
 }
 
 static int handle_event(struct epoll_event *event)
@@ -493,7 +576,7 @@ static int handle_event(struct epoll_event *event)
 	int ret;
 
 	ret = sys_read_proto_with_string(vreq->handle, &proto,
-			string_buffer, FILENAME_MAX, 0);
+			string_buffer, PATH_MAX, 0);
 	if (ret)
 		return ret;
 
@@ -506,17 +589,23 @@ static int handle_event(struct epoll_event *event)
 	case PROTO_OPEN:
 		handle_open_request(vreq, &proto, string_buffer);
 		break;
+	case PROTO_ACCESS:
+		handle_access_request(vreq, &proto, string_buffer);
+		break;
 	case PROTO_GETDENTS:
 		handle_getdent_request(vreq, &proto, string_buffer);
 		break;
 	case PROTO_REGISTER_SERVICE:
 		handle_register_service_request(vreq, &proto, string_buffer);
 		break;
+	case PROTO_LSEEK:
+		handle_lseek_request(vreq, &proto, string_buffer);
+		break;
 	case PROTO_READ:
 	case PROTO_WRITE:
 	case PROTO_IOCTL:
 	default:
-		ret = -EPERM;
+		kobject_reply_errcode(vreq->handle, proto.token, -EPERM);
 		break;
 	};
 

@@ -96,11 +96,6 @@ static void *malloc_from_slab_heap(size_t size)
 	return ((void *)sh + SLAB_HEADER_SIZE);
 }
 
-static void xxx_debug(void)
-{
-	printf("xxx debug\n");
-}
-
 static void free_slab(void *addr)
 {
 	struct slab_header *header;
@@ -111,7 +106,6 @@ static void free_slab(void *addr)
 			SLAB_HEADER_SIZE);
 	if ((header->magic != SLAB_MAGIC) ||
 			(header->size < SLAB_MIN_DATA_SIZE)) {
-		xxx_debug();
 		pr_warn("memory is not a slab mem %p\n", addr);
 		return;
 	}

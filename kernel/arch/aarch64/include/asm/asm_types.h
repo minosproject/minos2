@@ -20,10 +20,12 @@ typedef signed char		__s8;
 #define ptov(addr)	((unsigned long)(addr) | CONFIG_PTOV_MASK)
 #define vtop(addr)	((unsigned long)(addr) & CONFIG_VTOP_MASK)
 #define __va(va)	((unsigned long)(va) & CONFIG_VTOP_MASK)
+#define is_kva(va)	(((unsigned long)(va) & CONFIG_PTOV_MASK) == CONFIG_PTOV_MASK)
 #else
 #define ptov(addr)	((unsigned long)addr)
 #define vtop(addr)	((unsigned long)addr)
 #define __va(va)	((unsigned long)(va))
+#define is_kva(va)	((unsigned long)va >= 4096)
 #endif
 
 /*

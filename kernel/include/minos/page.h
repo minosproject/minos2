@@ -29,15 +29,21 @@
  * phy_base[0:11] is the count of the continous page
  * phy_base[12:64] is the physical address of the page
  *
+ * slab_used recored the used memory when this page is used
+ * as a slab memory, once it equal to cnt, it can be return
+ * to the system.
+ *
  * when get the physical address of the page, do
  * use page_to_addr(page) or addr_to_page() to convert
  * the address to page
  */
 struct page {
-	int cnt;
+	uint16_t cnt;
+	uint16_t padding0;
+	uint32_t padding1;
 	struct page *next;
 	unsigned long vir_base;
-};
+} __packed;
 
 #define page_count(page)	(page)->cnt
 #define page_pa(page)		vtop((page)->vir_base & ~PAGE_MASK)

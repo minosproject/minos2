@@ -9,7 +9,7 @@ struct slab_header {
 		unsigned long magic;
 		struct slab_header *next;
 	};
-};
+} __packed;
 
 void *malloc(size_t size);
 void *zalloc(size_t size);

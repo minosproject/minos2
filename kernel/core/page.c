@@ -304,8 +304,10 @@ struct page *__alloc_pages(int pages, int align, int flags)
 		return NULL;
 
 	page = alloc_pages_from_section(pages, align, flags);
-	if (!page)
+	if (!page) {
+		pr_warn("no more pages\n");
 		return NULL;
+	}
 
 	return page;
 }
@@ -405,7 +407,7 @@ int free_pages(void *addr)
 	struct mem_section *section;
 	struct page *page;
 
-	ASSERT(addr != NULL);
+	ASSERT(is_kva(addr));
 
 	if (!IS_PAGE_ALIGN(addr))
 		return -EINVAL;
@@ -416,7 +418,7 @@ int free_pages(void *addr)
 	 */
 	section = addr_to_mem_section((unsigned long)addr);
 	if (!section) {
-		pr_err("bad address to free 0x%lx\n", (unsigned long)addr);
+		pr_warn("not page address 0x%lx\n", (unsigned long)addr);
 		return -EFAULT;
 	}
 

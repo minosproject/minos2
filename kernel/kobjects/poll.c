@@ -345,6 +345,7 @@ static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 
 				ei = malloc(sizeof(struct pevent_item));
 				if (!ei) {
+					pr_err("failed to allocate new pevent item\n");
 					ret = -ENOMEM;
 					goto out;
 				}

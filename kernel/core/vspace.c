@@ -241,6 +241,15 @@ int unmap_process_memory(struct process *proc,
 	struct vspace *vs = &proc->vspace;
 	int ret, inuse;
 
+	/*
+	 * the process can be NULL when close the kobject
+	 * by kernel, this is ok for kernel, since, kernel
+	 * will unmap all the memory space for a process when
+	 * the process exit.
+	 */
+	if (!proc)
+		return -EINVAL;
+
 	if (!IS_PAGE_ALIGN(vaddr) || !IS_PAGE_ALIGN(size))
 		return -EINVAL;
 

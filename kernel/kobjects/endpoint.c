@@ -87,10 +87,11 @@ static int endpoint_close(struct kobject *kobj, right_t right)
 	}
 
 out:
-	if (ep->shmem)
-		unmap_process_memory(current_proc, va2sva(ep->shmem), ep->shmem_size);
+	if (ep->shmem == NULL)
+		return 0;
 
-	return 0;
+	return unmap_process_memory(current_proc,
+			va2sva(ep->shmem), ep->shmem_size);
 }
 
 static long endpoint_recv(struct kobject *kobj, void __user *data,

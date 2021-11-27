@@ -82,7 +82,7 @@ static int esh_excute_fs_command(int argc, char **argv, void *arg)
 
 	pid = execv(buf, &argv[1]);
 	if (pid <= 0) {
-		printf("exec %s failed %d\n", buf, pid);
+		printf("exec %s failed %d\n", buf, errno);
 		return pid;
 	}
 

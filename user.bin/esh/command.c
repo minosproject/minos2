@@ -42,8 +42,8 @@ int cd_main(int argc, char **argv)
 
 	dir = (argc == 2) ? argv[1] : NULL;
 	if (dir == NULL) {
-		printf("cd : please select a directory\n");
-		return -EINVAL;
+		chdir("/");
+		return 0;
 	}
 
 	if (strcmp(dir, ".") == 0)
@@ -57,6 +57,14 @@ int cd_main(int argc, char **argv)
 
 	getcwd(cwd, PATH_MAX);
 
+	/*
+	 * need to handle below case:
+	 * cd ../../../.
+	 * cd ./../../
+	 * cd /c/../bin/../.
+	 *
+	 * TBD
+	 */
 	if (strcmp(dir, "..") == 0) {
 		if (strcmp(cwd, "/") == 0)
 			return 0;

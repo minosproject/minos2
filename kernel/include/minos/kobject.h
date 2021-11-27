@@ -36,7 +36,7 @@ struct kobject {
 	struct kobject_ops *ops;
 	unsigned long data;
 	struct list_head list;
-} __packed;
+};
 
 struct kobject_ops {
 	long (*send)(struct kobject *kobj, void __user *data,

@@ -64,8 +64,18 @@ struct process {
 
 	struct list_head wait_head;
 
+	/*
+	 * link to the global user_proc_list if this process
+	 * is a children of init process.
+	 */
+	struct list_head list;
+
 	struct uproc_info *pinfo;
 };
+
+#define proc_pid(proc) ((proc)->pinfo->pid)
+#define proc_flags(proc) ((proc)->pinfo->flags)
+#define proc_name(proc) ((proc)->pinfo->cmd)
 
 typedef long (*syscall_hdl)(struct process *proc, struct proto *proto, void *data);
 

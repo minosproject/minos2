@@ -115,6 +115,7 @@ struct process *create_process(int pid, task_func_t func,
 	proc->task_cnt = 1;
 	task->pid = proc->pid;
 	spin_lock_init(&proc->request_lock);
+	spin_lock_init(&proc->processing_lock);
 	init_list(&proc->request_list);
 	init_list(&proc->processing_list);
 
@@ -135,7 +136,7 @@ static void task_exit_helper(void *data)
 
 }
 
-static void request_process_stop(struct process *proc)
+static void request_process_stop(struct process *proc, int handle)
 {
 	struct task *tmp;
 	int old;
@@ -174,17 +175,29 @@ static void request_process_stop(struct process *proc)
 			wake_up(tmp, -EABORT);
 	}
 
-	/*
-	 * send process exit event to the root service, then release
-	 * the handle 0 of this process. Since the main task do not
-	 * have inc the refcount of the proc. The handle 0's ref count
-	 * will put by the task_release().
-	 */
-	__release_handle(proc, 0);
-	poll_event_send_with_data(proc->kobj.poll_struct, EV_KERNEL,
+	__release_handle(proc, handle);
+
+	if (handle > 0) {
+		/*
+		 * if the process is killed by root service, just put
+		 * the ref count of the process's kobject.
+		 */
+		kobject_put(&proc->kobj);
+	} else {
+		/*
+		 * send process exit event to the root service, then release
+		 * the handle 0 of this process. Since the main task do not
+		 * have inc the refcount of the proc. The handle 0's ref count
+		 * will put by the task_release().
+		 */
+		poll_event_send_with_data(proc->kobj.poll_struct, EV_KERNEL,
 			POLL_KEV_PROCESS_EXIT, 0, 0, 0);
+	}
 }
 
+/*
+ * the process call exit() itself.
+ */
 void process_die(void)
 {
 	gp_regs *regs = current_regs;
@@ -194,12 +207,15 @@ void process_die(void)
 		panic("root service hang, system crash");
 	}
 
-	request_process_stop(current_proc);
+	request_process_stop(current_proc, 0);
 }
 
-void kill_process(struct process *proc)
+/*
+ * killed by root service.
+ */
+void kill_process(struct process *proc, int handle)
 {
-	request_process_stop(proc);
+	request_process_stop(proc, handle);
 }
 
 static long process_send(struct kobject *kobj,
@@ -225,6 +241,36 @@ static long process_send(struct kobject *kobj,
 	poll_event_send(ps, EV_IN);
 
 	return wait_event();
+}
+
+int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
+{
+	struct task *task = current;
+	uint32_t token = kobject_token();
+	int ret;
+
+	spin_lock(&proc->processing_lock);
+	list_add_tail(&proc->processing_list, &task->kobj.list);
+	__event_task_wait(token, TASK_EVENT_ROOT_SERVICE, 0);
+	spin_unlock(&proc->processing_lock);
+
+	/*
+	 * send the page fault event to the root service. need
+	 * to consider when event is send failed. TBD
+	 */
+	poll_event_send_with_data(proc->kobj.poll_struct,
+			EV_KERNEL, POLL_KEV_PAGE_FAULT,
+			virtaddr, info, token);
+
+	/*
+	 * handle page_fault fail, then the ret is the handle
+	 * of this process in root service.
+	 */
+	ret = wait_event();
+	if (ret != 0)
+		kill_process(proc, ret);
+
+	return -EFAULT;
 }
 
 static long process_recv(struct kobject *kobj, void __user *data,
@@ -268,7 +314,9 @@ out:
 	 * the root service will only have one task, so here
 	 * do not need to obtain the lock.
 	 */
+	spin_lock(&proc->processing_lock);
 	list_add_tail(&proc->processing_list, &thread->list);
+	spin_unlock(&proc->processing_lock);
 
 	return task->wait_event;
 }
@@ -280,36 +328,26 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 	struct kobject *entry, *tmp;
 	struct task *target = NULL;
 
+	spin_lock(&proc->processing_lock);
 	list_for_each_entry_safe(entry, tmp, &proc->processing_list, list) {
 		target = (struct task *)entry->data;
 		if (target->wait_event == token) {
 			list_del(&entry->list);
-			if (fd > 0)
-				errno = send_handle(current_proc, proc, fd, fd_right);
-			return wake_up(target, errno);
+			break;
+		} else {
+			target = NULL;
 		}
 	}
+	spin_unlock(&proc->processing_lock);
 
-	return -ENOENT;
-}
-
-static int process_page_fault_done(struct process *proc, int tid)
-{
-	struct task *task;
-
-	if (tid < 0) {
-		kill_process(proc);
-		return 0;
+	if (target == NULL) {
+		pr_err("no such token in process %d\n", token);
+		return -ENOENT;
 	}
 
-	task = get_task_by_tid(tid);
-	if (!task)
-		return -ENOENT;
+	errno = (fd > 0) ? send_handle(current_proc, proc, fd, fd_right) : errno;
 
-	if (task->pid != proc->pid)
-		return -EPERM;
-
-	return wake_up(task, 0);
+	return wake_up(target, errno);
 }
 
 static long do_process_ctl(struct process *proc, int req, unsigned long data)
@@ -329,8 +367,9 @@ static long do_process_ctl(struct process *proc, int req, unsigned long data)
 		if (addr == INVALID_ADDR)
 			addr = -1;
 		return addr;
-	case KOBJ_PROCESS_PF_DONE:
-		return process_page_fault_done(proc, (int)data);
+	case KOBJ_PROCESS_KILL:
+		kill_process(proc, (int)data);
+		return 0;
 	case KOBJ_PROCESS_EXIT:
 		/*
 		 * task will be sched out when in return to user.
@@ -359,7 +398,7 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 	switch (req) {
 	case KOBJ_PROCESS_SETUP_SP:
 	case KOBJ_PROCESS_WAKEUP:
-	case KOBJ_PROCESS_PF_DONE:
+	case KOBJ_PROCESS_KILL:
 	case KOBJ_PROCESS_SETUP_REG0:
 	case KOBJ_PROCESS_GRANT_RIGHT:
 		/*

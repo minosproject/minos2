@@ -49,6 +49,10 @@ static char argv_buf[512];
 static struct process proc_self;
 struct process *self = &proc_self;
 
+static pid_t init_pid;
+
+static LIST_HEAD(user_proc_list);
+
 static void release_process(struct process *proc);
 
 static int sys_create_process(int pid, unsigned long entry,
@@ -101,6 +105,9 @@ static struct process *create_new_process(char *name,
 	init_list(&proc->children);
 	proc->parent = parent ? parent : self;
 	list_add_tail(&parent->children, &proc->clist);
+
+	if (proc_pid(proc->parent) == init_pid)
+		list_add_tail(&user_proc_list, &proc->list);
 
 	return proc;
 
@@ -506,30 +513,54 @@ static void deal_with_child_process(struct process *proc)
 	}
 }
 
-static void release_process(struct process *proc)
+static void __release_process(struct process *proc, int kill)
 {
 	int proc_handle;
 
 	if (!proc)
 		return;
+
 	proc_handle = proc->proc_handle;
+	unregister_request_entry(proc_handle, proc);
 	proc_mm_deinit(proc);
 	release_procinfo(proc->pinfo);
 	kfree(proc);
 
-	if (proc_handle > 0)
+	/*
+	 * if the process is killed by pangu process, the kernel
+	 * will call kobject_put, and will not get the event when
+	 * kernel release the process.
+	 */
+	if ((proc_handle > 0) && !kill)
 		kobject_close(proc_handle);
+}
+
+static void release_process(struct process *proc)
+{
+	return __release_process(proc, 0);
+}
+
+static void handle_init_process_exit(struct process *proc)
+{
+	/*
+	 * if the init process exit(), system will reboot.
+	 */
+	pr_err("init process exit, reboot system\n");
+	exit(-1);
 }
 
 static long handle_process_exit(struct process *proc, uint64_t data0)
 {
-	finish_wait(proc, data0);
-
 	/*
-	 * deal with the cild process of this process.
+	 * if the init process was exited, kill all the process and
+	 * then relaunch the init process.
 	 */
-	deal_with_child_process(proc);
-	unregister_request_entry(proc->proc_handle, proc);
+	if (proc_pid(proc) == init_pid) {
+		handle_init_process_exit(proc);
+	} else {
+		finish_wait(proc, data0);
+		deal_with_child_process(proc);
+	}
 
 	release_process(proc);
 
@@ -693,7 +724,8 @@ static void handle_process_kernel_request(struct process *proc, struct epoll_eve
 	switch (event->data.type) {
 	case EPOLL_KEV_PAGE_FAULT:
 		handle_user_page_fault(proc, event->data.data0,
-				(int)event->data.data1, (int)event->data.data2);
+				(unsigned long)event->data.data1,
+				(long)event->data.data2);
 		break;
 	case EPOLL_KEV_PROCESS_EXIT:
 		handle_process_exit(proc, event->data.data0);
@@ -757,8 +789,15 @@ static int do_execv(struct proto *proto, struct execv_request *er)
 {
 	int ret = __do_execv(proto, er);
 
-	if (er->parent == self)
+	/*
+	 * pangu will launch the init process only, so record
+	 * the pid of the init process, once the init process
+	 * is died, launched it again.
+	 */
+	if (er->parent == self) {
+		init_pid = ret;
 		return 0;
+	}
 
 	return kobject_reply_errcode(er->parent->proc_handle, er->reply_token, ret);
 }

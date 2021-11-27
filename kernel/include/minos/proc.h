@@ -42,6 +42,7 @@ struct process {
 	struct list_head request_list;
 	struct list_head processing_list;
 	spinlock_t request_lock;
+	spinlock_t processing_lock;
 };
 
 static inline int proc_is_root(struct process *proc)
@@ -71,8 +72,10 @@ struct task *create_task_for_process(struct process *proc,
 
 void process_die(void);
 
-void kill_process(struct process *proc);
+void kill_process(struct process *proc, int handle);
 
 void clean_process_on_pcpu(struct pcpu *pcpu);
+
+int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info);
 
 #endif

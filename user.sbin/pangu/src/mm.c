@@ -368,33 +368,45 @@ static int get_fault_addr(struct process *proc, unsigned long virt, int *perm)
 	return 0;
 }
 
-static void page_fault_ack(struct process *proc, int tid, int ret)
+static void page_fault_ack(struct process *proc, int ret, long token)
 {
 	/*
 	 * if the page fault handle is fail the process will
 	 * be killed. otherwise the releated task will be wake
 	 * up.
 	 */
-	ret = (ret == 0) ? tid : -EFAULT;
-	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_PF_DONE, ret);
+	ret = (ret == 0) ? 0 : proc->proc_handle;
+	kobject_reply_errcode(proc->proc_handle, token, ret);
 }
 
-long handle_user_page_fault(struct process *proc,
-		uint64_t virt_addr, int access_type, int tid)
+long handle_user_page_fault(struct process *proc, uint64_t virt_addr,
+		unsigned long info, long token)
 {
 	unsigned long start = PAGE_ALIGN(virt_addr);
-	int ret, perm = 0;
+	int ret, perm = 0, right = info & KOBJ_RIGHT_MASK;
 
 	ret = get_fault_addr(proc, start, &perm);
-	if (ret)
+	if (ret) {
+		pr_err("can not get fault address 0x%lx for %s\n",
+				virt_addr, proc_name(proc));
 		goto out;
+	}
+
+	if ((right & perm) != right) {
+		ret = -EPERM;
+		pr_err("%s page fault 0x%lx %ld\n", proc_name(proc),
+				virt_addr, info);
+		goto out;
+	}
 
 	ret = sys_map(proc->proc_handle, -1, start, PAGE_SIZE, perm);
-	if (ret)
-		pr_err("map memory for process %d failed\n", proc->pinfo->pid);
+	if (ret) {
+		pr_err("map memory for process %s at 0x%lxfailed\n",
+				proc_name(proc), virt_addr);
+	}
 
 out:
-	page_fault_ack(proc, tid, ret);
+	page_fault_ack(proc, ret, token);
 	return ret;;
 }
 

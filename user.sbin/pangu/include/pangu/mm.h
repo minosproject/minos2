@@ -71,7 +71,7 @@ long pangu_brk(struct process *proc, struct proto *proto, void *data);
 long pangu_mprotect(struct process *proc, struct proto *proto, void *data);
 
 long handle_user_page_fault(struct process *proc,
-		uint64_t virt_addr, int access_type, int tid);
+		uint64_t virt_addr, unsigned long info, long token);
 
 
 #endif

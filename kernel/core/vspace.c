@@ -380,27 +380,9 @@ int sys_map(handle_t proc_handle, handle_t pma_handle,
 
 static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int write)
 {
-	uint64_t data[3];
-	int ret;
+	uint64_t info = write ? KOBJ_RIGHT_READ : KOBJ_RIGHT_WRITE;
 
-	data[0] = virt;
-	data[1] = write ? KOBJ_RIGHT_READ : KOBJ_RIGHT_WRITE;
-	data[2] = current->tid;
-
-	__event_task_wait(0, TASK_EVENT_ROOT_SERVICE, -1);
-
-	/*
-	 * send a poll_event to the root service to handle this
-	 * page fault, and wait the root service to wake up
-	 * it again.
-	 */
-	ret = poll_event_send_with_data(proc->kobj.poll_struct,
-			EV_KERNEL, POLL_KEV_PAGE_FAULT,
-			data[0], data[1], data[2]);
-	if (ret)
-		return ret;
-
-	return wait_event();
+	return process_page_fault(proc, virt, info);
 }
 
 int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)

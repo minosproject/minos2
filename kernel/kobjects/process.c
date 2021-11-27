@@ -215,6 +215,7 @@ static long process_send(struct kobject *kobj,
 	 * request.
 	 */
 	ASSERT(proc == current_proc);
+	ASSERT(!proc_is_root(current_proc));
 
 	spin_lock(&proc->request_lock);
 	list_add_tail(&proc->request_list, &current->kobj.list);
@@ -234,6 +235,11 @@ static long process_recv(struct kobject *kobj, void __user *data,
 	struct kobject *thread = NULL;
 	struct task *task;
 	int ret = 0;
+
+	if (!proc_is_root(current_proc)) {
+		pr_err("only root service can read process request\n");
+		return -EPERM;
+	}
 
 	spin_lock(&proc->request_lock);
 	if (is_list_empty(&proc->request_list)) {
@@ -255,7 +261,7 @@ out:
 			actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
 		wake_up(task, ret);
-		return -EAGAIN;
+		return ret;
 	}
 
 	/*
@@ -273,8 +279,6 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 	struct process *proc = (struct process *)kobj->data;
 	struct kobject *entry, *tmp;
 	struct task *target = NULL;
-
-	WARN_ON(token <= 0, "process reply token wrong %d\n", token);
 
 	list_for_each_entry_safe(entry, tmp, &proc->processing_list, list) {
 		target = (struct task *)entry->data;
@@ -414,28 +418,32 @@ void do_process_release(struct kobject *kobj)
 static void process_release(struct kobject *kobj)
 {
 	struct pcpu *pcpu = get_pcpu();
+	unsigned long flags;
 
 	/*
 	 * here all the task of this process has been cloesd, now
 	 * the process can be safe released, for better perference
 	 * put it the local pcpu's process's list.
 	 */
+	local_irq_save(flags);
 	list_add_tail(&pcpu->die_process, &kobj->list);
+	local_irq_restore(flags);
 }
 
 void clean_process_on_pcpu(struct pcpu *pcpu)
 {
 	struct kobject *kobj;
+	unsigned long flags;
 
 	for (;;) {
 		kobj = NULL;
-		preempt_disable();
+		local_irq_save(flags);
 		if (!is_list_empty(&pcpu->die_process)) {
 			kobj = list_first_entry(&pcpu->die_process,
 					struct kobject, list);
 			list_del(&kobj->list);
 		}
-		preempt_enable();
+		local_irq_restore(flags);
 
 		if (!kobj)
 			break;

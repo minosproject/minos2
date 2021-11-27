@@ -169,7 +169,7 @@ clean: clean-libs clean-apps
 
 images: ramdisk rootfs kernel
 
-ramdisk: apps
+ramdisk: apps kernel
 	$(Q) echo "\n\033[32m ---> Packing Ramdisk image ... \033[0m \n"
 	$(Q) tools/make_ramdisk.sh -o out/ramdisk.bin -- out/ramdisk/*
 

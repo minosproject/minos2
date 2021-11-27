@@ -437,6 +437,7 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 	init_list(&self->vma_free);
 	init_list(&self->vma_used);
 	init_list(&self->children);
+	init_list(&self->wait_head);
 	self->proc_handle = 0;
 
 	vma = kzalloc(sizeof(struct vma));

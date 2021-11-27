@@ -49,14 +49,7 @@ static char argv_buf[512];
 static struct process proc_self;
 struct process *self = &proc_self;
 
-void release_process(struct process *proc)
-{
-	/*
-	 * TBD
-	 */
-	release_procinfo(proc->pinfo);
-	kfree(proc);
-}
+static void release_process(struct process *proc);
 
 static int sys_create_process(int pid, unsigned long entry,
 		unsigned long stack, int aff,
@@ -106,7 +99,7 @@ static struct process *create_new_process(char *name,
 	 */
 	init_list(&proc->wait_head);
 	init_list(&proc->children);
-	proc->parent = parent;
+	proc->parent = parent ? parent : self;
 	list_add_tail(&parent->children, &proc->clist);
 
 	return proc;
@@ -360,7 +353,9 @@ static int setup_process_handles(struct process *proc, char *buf,
 	return 1;
 }
 
-struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int num_handle, int flags)
+struct process *load_ramdisk_process(char *path,
+		struct handle_desc *hdesc,
+		int num_handle, int flags)
 {
 	struct process *proc;
 	struct ramdisk_file rfile;
@@ -407,7 +402,14 @@ struct process *load_ramdisk_process(char *path, struct handle_desc *hdesc, int 
 		goto out_err;
 	}
 
-	register_request_entry(proc->proc_handle, proc);
+	/*
+	 * keep this action as the latest step.
+	 */
+	ret = register_request_entry(proc->proc_handle, proc);
+	if (ret) {
+		pr_err("listen to process failed\n");
+		goto out_err;
+	}
 
 	return proc;
 
@@ -450,9 +452,6 @@ static void proc_mm_deinit(struct process *proc)
 {
 	struct vma *vma, *tmp;
 
-	kobject_close(proc->elf_vma.pma_handle);
-	kobject_close(proc->init_stack_vma.pma_handle);
-
 	list_for_each_entry_safe(vma, tmp, &proc->vma_free, list) {
 		list_del(&vma->list);
 		kfree(vma);
@@ -462,6 +461,9 @@ static void proc_mm_deinit(struct process *proc)
 		list_del(&vma->list);
 		kfree(vma);
 	}
+
+	kobject_close(proc->elf_vma.pma_handle);
+	kobject_close(proc->init_stack_vma.pma_handle);
 }
 
 static void finish_wait(struct process * proc, long data0)
@@ -503,22 +505,32 @@ static void deal_with_child_process(struct process *proc)
 	}
 }
 
+static void release_process(struct process *proc)
+{
+	int proc_handle;
+
+	if (!proc)
+		return;
+	proc_handle = proc->proc_handle;
+	proc_mm_deinit(proc);
+	release_procinfo(proc->pinfo);
+	kfree(proc);
+
+	if (proc_handle > 0)
+		kobject_close(proc_handle);
+}
+
 static long handle_process_exit(struct process *proc, uint64_t data0)
 {
-	int proc_handle = proc->proc_handle;
-
 	finish_wait(proc, data0);
 
 	/*
 	 * deal with the cild process of this process.
 	 */
 	deal_with_child_process(proc);
+	unregister_request_entry(proc->proc_handle, proc);
 
-	unregister_request_entry(proc_handle, proc);
-	proc_mm_deinit(proc);
-	release_procinfo(proc->pinfo);
-	kfree(proc);
-	kobject_close(proc_handle);
+	release_process(proc);
 
 	return 0;
 }
@@ -699,7 +711,7 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	char *string;
 	char **argv;
 
-	argv = kmalloc(sizeof(char *) * extra->argc);
+	argv = kzalloc(sizeof(char *) * extra->argc);
 	if (!argv)
 		return -ENOMEM;
 
@@ -716,8 +728,10 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	 * has been checked in handle execv function.
 	 */
 	string = extra->buf;
-	for (i = 0; i < extra->argc; i++)
+	for (i = 0; i < extra->argc; i++) {
 		argv[i] = string + (unsigned long)argv[i];
+		pr_debug("argv %d is 0x%p\n", i, argv[i]);
+	}
 
 	new = create_new_process(extra->path, er->parent, proto->elf_info.entry,
 			er->pma_handle, proto->elf_info.elf_base,
@@ -768,9 +782,10 @@ static long pangu_elf_info(struct process *proc, struct proto *proto, void *data
 	list_for_each_entry_safe(er, next, &execv_request_list, list) {
 		if (er->token != proto->elf_info.token)
 			continue;
-		list_del(&er->list);
 
+		list_del(&er->list);
 		if (proto->elf_info.ret_code != 0) {
+			pr_err("nvwa load elf failed\n");
 			kobject_reply_errcode(er->parent->proc_handle,
 					er->reply_token, proto->elf_info.ret_code);
 			return -EPERM;
@@ -823,7 +838,6 @@ static long pangu_waitpid(struct process *proc, struct proto *proto, void *data)
 	list_add_tail(&proc->wait_head, &we->list);
 
 	return 0;
-
 fail:
 	return kobject_reply_errcode(proc->proc_handle, proto->token, ret);
 }

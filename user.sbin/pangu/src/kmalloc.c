@@ -10,178 +10,190 @@
 
 #include <minos/types.h>
 #include <minos/list.h>
+#include <minos/debug.h>
 
-struct mem_meta {
-	void *addr;
-	int ispage;
+#define HASH_TABLE_SIZE	8
+
+struct slab_header {
 	unsigned long size;
+	union {
+		unsigned long magic;
+		struct slab_header *next;
+	};
+} __packed;
+
+#define SLAB_MIN_DATA_SIZE		(16)
+#define SLAB_MIN_DATA_SIZE_SHIFT	(4)
+#define SLAB_HEADER_SIZE		sizeof(struct slab_header)
+#define SLAB_MIN_SIZE			(SLAB_MIN_DATA_SIZE + SLAB_HEADER_SIZE)
+#define SLAB_MAGIC			(0xdeadbeef)
+
+struct slab_type {
+	uint32_t size;
 	struct list_head list;
+	struct slab_header *head;
 };
 
-struct list_head slab_free_list;
-struct list_head page_free_list;
-struct list_head slab_use_list;
-struct list_head page_use_list;
+/*
+ * will try to get hugepage when first time once
+ * system bootup.
+ */
+static struct list_head slab_hash_table[HASH_TABLE_SIZE];
 
-static unsigned long heap_pool_base;
-static unsigned long heap_pool_end;
+static void *slab_base;
+static void *slab_end;
+static uint32_t slab_size;
 
-static int kmalloc_has_init;
+#define hash_id(size) (((size) >> SLAB_MIN_DATA_SIZE_SHIFT) % HASH_TABLE_SIZE)
 
-static void *get_memory_unlock(size_t size, int ispage)
+static size_t inline get_slab_alloc_size(size_t size)
 {
-	unsigned long start, end;
-
-	if (ispage && (!IS_PAGE_ALIGN(size))) {
-		fprintf(stderr, "kmalloc: memory size not correct\n");
-		return NULL;
-	}
-
-	if (ispage) {
-		start = heap_pool_end - size;
-		if (start < heap_pool_base)
-			return NULL;
-
-		heap_pool_end = start;
-		return (void *)start;
-	} else {
-		end = heap_pool_base + size;
-		if (end > heap_pool_end)
-			return NULL;
-
-		start = heap_pool_base;
-		heap_pool_base = end;
-		return (void *)start;
-	}
+	return BALIGN(size, SLAB_MIN_DATA_SIZE);
 }
 
-/*
- * malloc will re-designed which only allocated the kernel
- * object, such as task process stack and others
- */
-static void *malloc_internal(size_t size, int ispage)
+static void *malloc_from_hash_table(size_t size)
 {
-	struct mem_meta *ret = NULL;
-	struct mem_meta *meta;
-	struct list_head *use_list;
-	struct list_head *free_list;
-	void *addr;
-
-	if (!kmalloc_has_init) {
-		fprintf(stderr, "kmalloc has not inited\n");
-		return NULL;
-	}
-
-	size = BALIGN(size, sizeof(unsigned long));
-
-	if (ispage) {
-		use_list = &page_use_list;
-		free_list = &page_free_list;
-	} else {
-		use_list = &slab_use_list;
-		free_list = &slab_free_list;
-	}
-
-	list_for_each_entry(meta, free_list, list) {
-		if (meta->size == size) {
-			ret = meta;
-			break;
-		}
-
-		if (meta->size > size) {
-			if (!ret)
-				ret = meta;
-
-			if (meta->size < ret->size)
-				ret = meta;
-		}
-	}
-
-	if (ret) {
-		list_del(&ret->list);
-		list_add_tail(use_list, &ret->list);
-		addr = ret->addr;
-		goto out;
-	}
+	int id = hash_id(size);
+	struct slab_type *st;
+	struct slab_header *sh;
 
 	/*
-	 * allocate a new slab with the match size
+	 * find the related slab mem id and try to fetch
+	 * a free slab memory from the hash cache.
 	 */
-	meta = get_memory_unlock(sizeof(struct mem_meta), 0);
-	addr = get_memory_unlock(size, ispage);
-	if (meta && addr) {
-		meta->addr = addr;
-		meta->size = size;
-		meta->ispage = ispage;
-		list_add_tail(use_list, &meta->list);
-		goto out;
+	list_for_each_entry(st, &slab_hash_table[id], list) {
+		if (st->size != size)
+			continue;
+
+		if (st->head == NULL)
+			return NULL;
+
+		sh = st->head;
+		st->head = sh->next;
+		sh->magic = SLAB_MAGIC;
+
+		return ((void *)sh + SLAB_HEADER_SIZE);
 	}
 
-out:
-	return addr;
+	return NULL;
 }
 
-static void mfree_internal(void *addr, int ispage)
+static void *malloc_from_slab_heap(size_t size)
 {
-	struct list_head *use_list, *free_list;
-	struct mem_meta *meta, *tmp;
+	struct slab_header *sh;
 
-	if (!kmalloc_has_init) {
-		fprintf(stderr, "kmalloc has not inited\n");
+	size += SLAB_HEADER_SIZE;
+	if (slab_size < size)
+		return NULL;
+
+	sh = (struct slab_header *)slab_base;
+	sh->magic = SLAB_MAGIC;
+	sh->size = size - SLAB_HEADER_SIZE;
+
+	slab_base += size;
+	slab_size -= size;
+
+	return ((void *)sh + SLAB_HEADER_SIZE);
+}
+
+static void xxx_debug(void)
+{
+	printf("xxx debug\n");
+}
+
+static void free_slab(void *addr)
+{
+	struct slab_header *header;
+	struct slab_type *st;
+	int id;
+
+	header = (struct slab_header *)((unsigned long)addr -
+			SLAB_HEADER_SIZE);
+	if ((header->magic != SLAB_MAGIC) ||
+			(header->size < SLAB_MIN_DATA_SIZE)) {
+		xxx_debug();
+		pr_warn("memory is not a slab mem %p\n", addr);
 		return;
 	}
 
-	if (ispage) {
-		use_list = &page_use_list;
-		free_list = &page_free_list;
-	} else {
-		use_list = &slab_use_list;
-		free_list = &slab_free_list;
+	id = hash_id(header->size);
+
+	list_for_each_entry(st, &slab_hash_table[id], list) {
+		if (st->size != header->size)
+			continue;
+
+		header->next = st->head;
+		st->head = header;
+		return;
 	}
 
-	list_for_each_entry_safe(meta, tmp, use_list, list) {
-		if (meta->addr == addr) {
-			list_del(&meta->list);
-			list_add(free_list, &meta->list);
-			break;
-		}
+	/*
+	 * create new slab type and add the new slab header
+	 * to the slab cache.
+	 */
+	st = malloc_from_slab_heap(sizeof(struct slab_type));
+	if (st == NULL) {
+		pr_err("no more memory for pangu\n");
+		exit(-ENOMEM);
 	}
-}
 
-void *kmalloc(size_t size)
-{
-	return malloc_internal(size, 0);
-}
+	st->size = header->size;
+	list_add_tail(&slab_hash_table[id], &st->list);
 
-void *kzalloc(size_t size)
-{
-	void *base;
-
-	base = kmalloc(size);
-	if (!base)
-		return NULL;
-
-	memset(base, 0, size);
-	return base;
+	header->next = NULL;
+	st->head = header;
 }
 
 void kfree(void *addr)
 {
-	mfree_internal(addr, 0);
+	free_slab(addr);
+}
+
+static void *__malloc(size_t size)
+{
+	void *mem;
+
+	mem = malloc_from_hash_table(size);
+	if (mem == NULL)
+		mem = malloc_from_slab_heap(size);
+	if (!mem)
+		pr_err("malloc fail for 0x%lx\n", size);
+
+	return mem;
+}
+
+void *kmalloc(size_t size)
+{
+	if (size == 0)
+		size = SLAB_MIN_DATA_SIZE;
+	else
+		size = get_slab_alloc_size(size);
+
+	return __malloc(size);
+}
+
+void *kzalloc(size_t size)
+{
+	void *addr = kmalloc(size);
+	if (addr)
+		memset(addr, 0, size);
+	return addr;
 }
 
 void *get_pages(int count)
 {
-	return malloc_internal(count << PAGE_SHIFT, 1);
+	return kmalloc(4096);
 }
 
 void free_pages(void *base)
 {
-	mfree_internal(base, 1);
+	return kfree(base);
 }
 
 int kmalloc_init(unsigned long base, unsigned long end)
 {
+	int i;
+
 	if ((end < base) || !IS_PAGE_ALIGN(base) || !IS_PAGE_ALIGN(end)) {
 		fprintf(stderr, "invalid heap region 0x%lx 0x%lx\n", base, end);
 		return -EINVAL;
@@ -191,14 +203,12 @@ int kmalloc_init(unsigned long base, unsigned long end)
 	 * caculate the real free memory that the process
 	 * can be used.
 	 */
-	heap_pool_base = base;
-	heap_pool_end = end;
+	slab_base = (void *)base;
+	slab_end = (void *)end;
+	slab_size = end - base;
 
-	init_list(&slab_free_list);
-	init_list(&page_free_list);
-	init_list(&slab_use_list);
-	init_list(&page_use_list);
-	kmalloc_has_init = 1;
+	for (i = 0; i < HASH_TABLE_SIZE; i++)
+		init_list(&slab_hash_table[i]);
 
 	return 0;
 }

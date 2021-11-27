@@ -46,7 +46,6 @@ extern void pangu_main(void);
 extern void procfs_init(void);
 extern void procinfo_init(int max_proc, int u, int t);
 
-static LIST_HEAD(request_entry_list);
 static struct bootdata *bootdata;
 static char *rootfs_default = "rootfs.drv";
 

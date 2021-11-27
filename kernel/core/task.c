@@ -237,16 +237,16 @@ void task_return_to_user(void)
 
 void do_release_task(struct task *task)
 {
+	arch_release_task(task);
+	free(task->stack_bottom);
+	free(task);
+
 	/*
 	 * this function can not be called at interrupt
 	 * context, use release_task is more safe
 	 */
 	release_tid(task->tid);
 	atomic_dec(&os_task_nr);
-
-	arch_release_task(task);
-	free(task->stack_bottom);
-	free(task);
 }
 
 void release_task(struct task *task)

@@ -61,15 +61,17 @@ static inline bool pcpu_can_idle(struct pcpu *pcpu)
 static void do_pcpu_cleanup_work(struct pcpu *pcpu)
 {
 	struct task *task;
+	unsigned long flags;
 
 	for (; ;) {
 		task = NULL;
-		preempt_disable();
+		local_irq_save(flags);
 		if (!is_list_empty(&pcpu->stop_list)) {
-			task = list_first_entry(&pcpu->stop_list, struct task, stat_list);
+			task = list_first_entry(&pcpu->stop_list,
+					struct task, stat_list);
 			list_del(&task->stat_list);
 		}
-		preempt_enable();
+		local_irq_restore(flags);
 
 		if (!task)
 			break;

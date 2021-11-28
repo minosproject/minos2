@@ -102,7 +102,7 @@ static long irq_kobj_write(struct kobject *kobj, void __user *data,
 	return 0;
 }
 
-static int irq_kobj_close(struct kobject *kobj, right_t right)
+static int irq_kobj_close(struct kobject *kobj, right_t right, struct process *proc)
 {
 	return 0;
 }

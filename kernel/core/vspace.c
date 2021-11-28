@@ -21,6 +21,7 @@
 #include <minos/proc.h>
 #include <minos/vspace.h>
 #include <minos/poll.h>
+#include <minos/uaccess.h>
 
 #define MAX_ASID		4096
 #define FIXED_SHARED_ASID	0
@@ -235,8 +236,7 @@ int map_process_memory(struct process *proc, unsigned long vaddr,
 	return ret;
 }
 
-int unmap_process_memory(struct process *proc,
-		unsigned long vaddr, size_t size)
+int unmap_process_memory(struct process *proc, unsigned long vaddr, size_t size)
 {
 	struct vspace *vs = &proc->vspace;
 	int ret, inuse;
@@ -247,9 +247,7 @@ int unmap_process_memory(struct process *proc,
 	 * will unmap all the memory space for a process when
 	 * the process exit.
 	 */
-	if (!proc)
-		return -EINVAL;
-
+	ASSERT(proc != NULL);
 	if (!IS_PAGE_ALIGN(vaddr) || !IS_PAGE_ALIGN(size))
 		return -EINVAL;
 
@@ -276,33 +274,37 @@ int unmap_process_memory(struct process *proc,
 }
 
 static int __map_process_page_internal(struct process *proc,
-		unsigned long virt, unsigned long flags)
+		unsigned long virt, size_t size, unsigned long flags)
 {
 	struct vspace *vs = &proc->vspace;
 	unsigned long phy;
+	int ret = 0, i;
 	void *mem;
-	int ret = 0;
 
 	spin_lock(&vs->lock);
 
-	/*
-	 * if this virtual address has been already mapped
-	 * just return 0
-	 */
-	phy = arch_translate_va_to_pa(vs, virt);
-	if (phy != 0)
-		goto out;
+	for (i = 0; i < size >> PAGE_SHIFT; i++) {
+		phy = arch_translate_va_to_pa(vs, virt);
+		if (phy != 0) {
+			pr_err("proc-%d 0x%x has been mapped\n", virt);
+			continue;
+		}
 
-	mem = get_free_page(GFP_USER);
-	if (mem == NULL) {
-		ret = -ENOMEM;
-		goto out;
+		mem = get_free_page(GFP_USER);
+		if (mem == NULL) {
+			ret = -ENOMEM;
+			break;
+		}
+
+		ret = __map_process_memory(vs, virt, virt + PAGE_SIZE, vtop(mem), flags);
+		if (ret) {
+			free_pages(mem);
+			break;
+		}
+
+		virt += PAGE_SIZE;
 	}
 
-	ret = __map_process_memory(vs, virt, virt + PAGE_SIZE, vtop(mem), flags);
-	if (ret == -ENOMEM)
-		free_pages(mem);
-out:
 	spin_unlock(&vs->lock);
 	return ret;
 }
@@ -323,18 +325,15 @@ static int handle_page_fault_internal(struct process *proc,
 	if (write)
 		flags |= __VM_WRITE;
 
-	ret = __map_process_page_internal(proc, virt, flags);
+	ret = __map_process_page_internal(proc, virt, PAGE_SIZE, flags);
 	if (ret)
 		goto out;
 
 	return 0;
-
 out:
-	/*
-	 * will nerver get here.
-	 */
 	process_die();
 	panic("kernel internal error when handle page fault\n");
+
 	return -EFAULT;
 }
 
@@ -346,6 +345,17 @@ static int sys_map_anon(handle_t proc_handle, unsigned long virt,
 	right_t right_proc;
 	int ret;
 
+	/*
+	 * only root service can do the ANON mapping.
+	 */
+	if (!proc_is_root(current_proc))
+		return -EPERM;
+
+	if (!IS_PAGE_ALIGN(virt) || !IS_PAGE_ALIGN(size) || size == 0) {
+		pr_err("%s invalid 0x%x 0x%x\n", virt, size);
+		return -EINVAL;
+	}
+
 	if (right & KOBJ_RIGHT_READ)
 		flags |= __VM_READ;
 	if (right & KOBJ_RIGHT_WRITE)
@@ -353,15 +363,32 @@ static int sys_map_anon(handle_t proc_handle, unsigned long virt,
 	if (right & KOBJ_RIGHT_EXEC)
 		flags |= __VM_EXEC;
 
-	if ((flags == 0) || !proc_is_root(current_proc))
-		return -EPERM;
-
 	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
 	if (ret)
 		return -ENOENT;
 
-	ret =  __map_process_page_internal((struct process *)kobj_proc->data, virt, flags);
+	ret =  __map_process_page_internal((struct process *)kobj_proc->data,
+			virt, size, flags);
 	put_kobject(kobj_proc);
+
+	return ret;
+}
+
+static int sys_unmap_anon(handle_t proc_handle, unsigned long virt, size_t size)
+{
+	struct kobject *kobj;
+	right_t right;
+	int ret;
+
+	if (!proc_is_root(current_proc))
+		return -EPERM;
+
+	ret = get_kobject(proc_handle, &kobj, &right);
+	if (ret)
+		return -ENOENT;
+
+	ret = unmap_process_memory((struct process *)kobj->data, virt, size);
+	put_kobject(kobj);
 
 	return ret;
 }
@@ -372,10 +399,40 @@ int sys_map(handle_t proc_handle, handle_t pma_handle,
 	extern int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
 		unsigned long virt, size_t size, right_t right);
 
+	if (!user_ranges_ok((void *)virt, size))
+		return -EFAULT;
+
+	if (!proc_can_vmctl(current_proc))
+		return -EPERM;
+
+	if (!IS_PAGE_ALIGN(virt) || !IS_PAGE_ALIGN(size))
+		return -EINVAL;
+
 	if (pma_handle <= 0)
 		return sys_map_anon(proc_handle, virt, size, right);
 	else
 		return sys_map_pma(proc_handle, pma_handle, virt, size, right);
+}
+
+int sys_unmap(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size)
+{
+	extern int sys_unmap_pma(handle_t proc_handle, handle_t pma_handle,
+			unsigned long virt, size_t size);
+
+	if (!user_ranges_ok((void *)virt, size))
+		return -EFAULT;
+
+	if (!proc_can_vmctl(current_proc))
+		return -EPERM;
+
+	if (!IS_PAGE_ALIGN(virt) || !IS_PAGE_ALIGN(size))
+		return -EINVAL;
+
+	if (pma_handle <= 0)
+		return sys_unmap_anon(proc_handle, virt, size);
+	else
+		return sys_unmap_pma(proc_handle, pma_handle, virt, size);
 }
 
 static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int write)
@@ -403,7 +460,7 @@ int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 	 */
 	pr_fatal("page fault fail %s [0x%x@0x%x]\n",
 			proc->head->name, regs->pc, virt);
-	kill_process(proc, -EFAULT);
+	kill_process(proc, ret);
 
 	return -EFAULT;
 }

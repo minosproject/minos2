@@ -69,7 +69,7 @@ static void wake_all_ep_writer(struct endpoint *ep, int errno)
 	}
 }
 
-static int endpoint_close(struct kobject *kobj, right_t right)
+static int endpoint_close(struct kobject *kobj, right_t right, struct process *proc)
 {
 	struct endpoint *ep = kobject_to_endpoint(kobj);
 	int dir = EP_DIR(right);
@@ -90,8 +90,7 @@ out:
 	if (ep->shmem == NULL)
 		return 0;
 
-	return unmap_process_memory(current_proc,
-			va2sva(ep->shmem), ep->shmem_size);
+	return unmap_process_memory(proc, va2sva(ep->shmem), ep->shmem_size);
 }
 
 static long endpoint_recv(struct kobject *kobj, void __user *data,

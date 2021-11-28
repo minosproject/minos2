@@ -25,9 +25,11 @@
 #define PMA_RIGHT_MASK	(KOBJ_RIGHT_CTL | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_RWX)
 
 struct pma_mapping_entry {
-	unsigned long base;
+	unsigned long virt;
+	size_t size;
 	struct list_head list;
-	struct process *proc;
+	struct process *mapper;		// who exected this action.
+	struct process *proc;		// mapped at where.
 };
 
 /*
@@ -38,10 +40,10 @@ struct pma_mapping_entry {
  * destroy_pma();
  */
 struct pma {
-	unsigned long vm_flags;
-	struct list_head mapping;
+	unsigned long vmflags;
 	struct kobject kobj;
-
+	struct list_head head;
+	spinlock_t lock;
 	uint8_t type;
 	uint8_t consequent;
 
@@ -58,11 +60,8 @@ struct pma {
 	 */
 	unsigned long pstart;
 	unsigned long pend;
-
-	struct page *page_list;
 	unsigned long psize;
-
-	spinlock_t lock;
+	struct page *page_list;
 };
 
 static void free_pma_pages(struct page *head)
@@ -81,7 +80,7 @@ static void free_pma_memory(struct pma *p)
 {
 	BUG_ON((p->pstart != 0) && (p->page_list != NULL));
 
-	if (p->vm_flags & __VM_PFNMAP)
+	if (p->vmflags & __VM_PFNMAP)
 		return;
 
 	if (p->pstart) {
@@ -94,94 +93,19 @@ static void free_pma_memory(struct pma *p)
 	}
 }
 
-static void *pma_map(struct kobject *kobj, struct process *proc, unsigned long virt)
-{
-	struct pma *p = (struct pma *)kobj->data;
-	struct page *page = p->page_list;
-	unsigned long start = virt;
-	unsigned long size = p->psize;
-	struct pma_mapping_entry *pme;
-	int ret;
-
-	pme = zalloc(sizeof(struct pma_mapping_entry));
-	if (!pme)
-		return ERROR_PTR(ENOMEM);
-
-	if (p->pstart) {
-		/*
-		 * the PMA region will map to the shared memory of the
-		 * process.
-		 */
-		pme->base = start = pa2sva(p->pstart);
-		ret = map_process_memory(proc, start, p->psize, p->pstart, p->vm_flags);
-		if (ret) {
-			free(pme);
-			return ERROR_PTR(ret);
-		}
-	} else {
-		pme->base = start = virt;
-		if (!IS_PAGE_ALIGN(virt))
-			return ERROR_PTR(EINVAL);
-
-		do {
-			ret = map_process_memory(proc, start,
-					PAGE_SIZE, page_pa(page), p->vm_flags);
-			if (ret) {
-				free(pme);
-				return ERROR_PTR(ENOMEM);
-			}
-
-			page = page->next;
-			start += PAGE_SIZE;
-			size -= PAGE_SIZE;
-		} while (size > 0);
-	}
-
-	/*
-	 * allocate a mapping entry to record the mapping info.
-	 */
-	pme->proc = proc;
-	spin_lock(&p->lock);
-	list_add_tail(&p->mapping, &pme->list);
-	spin_unlock(&p->lock);
-
-	return (void *)pme->base;
-}
-
-static int pma_unmap(struct kobject *kobj, struct process *proc)
-{
-	struct pma *p = (struct pma *)kobj->data;
-	struct pma_mapping_entry *pme, *tmp, *out = NULL;
-
-	spin_lock(&p->lock);
-	list_for_each_entry_safe(pme, tmp, &p->mapping, list) {
-		if (pme->proc == proc) {
-			out = pme;
-			list_del(&pme->list);
-			break;
-		}
-	}
-	spin_unlock(&p->lock);
-	if (!out)
-		return -ENOENT;
-
-	return unmap_process_memory(proc, out->base, p->psize);
-}
-
 static int pma_mmap(struct kobject *kobj, right_t right,
 		void **addr, unsigned long *msize)
 {
 	struct pma *p = (struct pma *)kobj->data;
-	void *mem;
 
 	if (!p->pstart)
 		return -EPERM;
 
-	mem = pma_map(kobj, current_proc, 0);
-	if (IS_ERROR_PTR(mem))
-		return (long)mem;
+	if (map_process_memory(current_proc, pa2sva(p->pstart), p->psize,
+				p->pstart, p->vmflags))
+		return -EFAULT;
 
-	*addr = mem;
+	*addr = (void *)pa2sva(p->pstart);
 	*msize = p->psize;
 
 	return 0;
@@ -189,7 +113,88 @@ static int pma_mmap(struct kobject *kobj, right_t right,
 
 static int pma_munmap(struct kobject *kobj, right_t right)
 {
-	return pma_unmap(kobj, current_proc);
+	struct pma *p = (struct pma *)kobj->data;
+
+	if (!p->pstart)
+		return -EPERM;
+	else
+		return unmap_process_memory(current_proc,
+				pa2sva(p->pstart), p->psize);
+}
+
+static int pma_close(struct kobject *kobj, right_t right,
+		struct process *proc)
+{
+	struct pma *p = (struct pma *)kobj->data;
+	struct pma_mapping_entry *pme, *tmp;
+	int ret;
+
+	spin_lock(&p->lock);
+	list_for_each_entry_safe(pme, tmp, &p->head, list) {
+		if (pme->mapper != proc)
+			continue;
+
+		list_del(&pme->list);
+		ret = unmap_process_memory(pme->proc, pme->virt, pme->size);
+		free(pme);
+		WARN_ON(ret, "unmap pma in %d failed\n", proc->pid);
+	}
+	spin_unlock(&p->lock);
+
+	if (!p->pstart)
+		return 0;
+	else
+		return unmap_process_memory(proc, pa2sva(p->pstart), p->psize);
+}
+
+static void *__sys_pma_map(struct pma *p, struct process *proc,
+		unsigned long virt, size_t size)
+{
+	struct page *page = p->page_list;
+	unsigned long start = virt;
+	struct pma_mapping_entry *pme;
+	int ret;
+
+	size = (size > p->psize) ? p->psize : size;
+	pme = zalloc(sizeof(struct pma_mapping_entry));
+	if (!pme)
+		return ERROR_PTR(-ENOMEM);
+	pme->virt = virt;
+	pme->size = size;
+	pme->mapper = current_proc;
+	pme->proc = proc;
+
+	if (p->pstart) {
+		ret = map_process_memory(proc, start,
+				size, p->pstart, p->vmflags);
+	} else {
+		do {
+			ret = map_process_memory(proc, start,
+					PAGE_SIZE,page_pa(page), p->vmflags);
+			if (ret)
+				break;
+			page = page->next;
+			start += PAGE_SIZE;
+			size -= PAGE_SIZE;
+		} while (size > 0);
+	}
+
+	if (ret) {
+		free(pme);
+		unmap_process_memory(proc, virt, size);
+		return ERROR_PTR(ret);
+	}
+
+	/*
+	 * allocate a mapping entry to record the mapping info.
+	 * pme->proc is set to the process who map this memory
+	 * sice only root service will call sys_map.
+	 */
+	spin_lock(&p->lock);
+	list_add_tail(&p->head, &pme->list);
+	spin_unlock(&p->lock);
+
+	return (void *)pme->virt;
 }
 
 int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
@@ -201,9 +206,13 @@ int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
 	int ret = -EACCES;
 	void *addr;
 
-	if (WRONG_HANDLE(proc_handle))
+	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))
 		return -ENOENT;
 
+	/*
+	 * only the root service can map a pma to other process's
+	 * vspace.
+	 */
 	if ((proc_handle != 0) && !proc_is_root(current_proc))
 		return -EPERM;
 
@@ -223,10 +232,10 @@ int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
 		goto out;
 	}
 
-	addr = pma_map(kobj_pma, (struct process *)kobj_proc->data, virt);
+	addr = __sys_pma_map((struct pma *)kobj_pma->data,
+			(struct process *)kobj_proc->data, virt, size);
 	if (IS_ERROR_PTR(addr))
 		ret = (int)(unsigned long)addr;
-
 out:
 	put_kobject(kobj_proc);
 	put_kobject(kobj_pma);
@@ -234,7 +243,35 @@ out:
 	return ret;
 }
 
-int sys_unmap(handle_t proc_handle, handle_t pma_handle)
+static int __sys_pma_unmap(struct pma *p, struct process *proc,
+		unsigned long virt, size_t size)
+{
+	struct pma_mapping_entry *entry, *tmp, *out = NULL;
+
+	spin_lock(&p->lock);
+	list_for_each_entry_safe(entry, tmp, &p->head, list) {
+		if ((entry->mapper == current_proc) &&
+				(entry->proc == proc) &&
+				(entry->virt == virt) &&
+				(entry->size == size)) {
+			list_del(&entry->list);
+			out = entry;
+			break;
+		}
+	}
+	spin_unlock(&p->lock);
+
+	if (!out)
+		return -ENOENT;
+
+	unmap_process_memory(proc, virt, size);
+	free(out);
+
+	return 0;
+}
+
+int sys_unmap_pma(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size)
 {
 	struct kobject *kobj_proc;
 	struct kobject *kobj_pma;
@@ -250,6 +287,7 @@ int sys_unmap(handle_t proc_handle, handle_t pma_handle)
 	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
 	if (ret)
 		return -ENOENT;
+
 	ret = get_kobject(pma_handle, &kobj_pma, &right_pma);
 	if (ret) {
 		put_kobject(kobj_proc);
@@ -262,7 +300,8 @@ int sys_unmap(handle_t proc_handle, handle_t pma_handle)
 		goto out;
 	}
 
-	ret = pma_unmap(kobj_pma, (struct process *)kobj_proc->data);
+	ret = __sys_pma_unmap((struct pma *)kobj_pma->data,
+			(struct process *)kobj_proc->data, virt, size);
 out:
 	put_kobject(kobj_proc);
 	put_kobject(kobj_pma);
@@ -273,6 +312,11 @@ out:
 static void pma_release(struct kobject *kobj)
 {
 	struct pma *p = (struct pma *)kobj->data;
+
+	if (!is_list_empty(&p->head)) {
+		pr_err("pma busy memleak error!\n");
+		return;
+	}
 
 	free_pma_memory(p);
 	free(p);
@@ -380,6 +424,7 @@ static struct kobject_ops pma_ops = {
 	.recv		= pma_read,
 	.ctl		= pma_ctl,
 	.release	= pma_release,
+	.close		= pma_close,
 };
 
 static inline unsigned long pma_flags(int type, right_t right)
@@ -464,7 +509,7 @@ static int __create_new_pma(struct kobject **kobj,
 		return -ENOMEM;
 
 	args->size = PAGE_BALIGN(args->size);
-	p->vm_flags = pma_flags(args->type, args->right);
+	p->vmflags = pma_flags(args->type, args->right);
 	if (fixup_pmem) {
 		if (args->size == 0)
 			return -EINVAL;
@@ -492,10 +537,19 @@ static int __create_new_pma(struct kobject **kobj,
 				return -ENOMEM;
 			}
 		}
+
+		/*
+		 * if the PMA is not consequented, it can not be called
+		 * kobject_mmap()
+		 */
+		if (!p->consequent) {
+			right_mask &= ~KOBJ_RIGHT_MMAP;
+			right_ret &= ~KOBJ_RIGHT_MMAP;
+		}
 	}
 
 	p->type = args->type;
-	init_list(&p->mapping);
+	init_list(&p->head);
 	spin_lock_init(&p->lock);
 	p->kobj.ops = &pma_ops;
 	kobject_init(&p->kobj, KOBJ_TYPE_PMA, right_mask, (unsigned long)p);

@@ -75,8 +75,8 @@ int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
 	if (!ps)
 		return -EAGAIN;
 
-	pi = ps->pevents[ev];
 	smp_rmb();
+	pi = ps->pevents[ev];
 
 	/*
 	 * need aquire the spinlock of the poll_struct ?
@@ -232,7 +232,7 @@ static void poll_hub_release(struct kobject *kobj)
 	free(peh);
 }
 
-static int poll_hub_close(struct kobject *kobj, right_t right)
+static int poll_hub_close(struct kobject *kobj, right_t right, struct process *proc)
 {
 	return 0;
 }
@@ -256,7 +256,7 @@ static inline void add_new_pevent(struct poll_struct *ps, int ev, struct pevent_
 
 	pi->next = head;
 	ps->pevents[ev] = pi;
-	mb();
+	smp_wmb();
 }
 
 static struct pevent_item * find_and_del_pevent_item(struct poll_struct *ps,
@@ -272,7 +272,7 @@ static struct pevent_item * find_and_del_pevent_item(struct poll_struct *ps,
 			else
 				tmp->next = pi->next;
 
-			mb();
+			smp_wmb();
 			return pi;
 		}
 
@@ -367,8 +367,8 @@ static int __poll_hub_ctl(struct poll_hub *ph, struct kobject *ksrc,
 			ei = find_and_del_pevent_item(ps, i, ph);
 			if (ei) {
 				kobject_poll(&ph->kobj, ksrc, ev, 0);
-				free(ei);
 				kobject_put(&ph->kobj);
+				free(ei);
 			} else {
 				pr_err("epoll_del %d is not enabled\n", ev);
 			}
@@ -447,6 +447,7 @@ static int poll_hub_create(struct kobject **kobj, right_t *right, unsigned long 
 	spin_lock_init(&peh->lock);
 	kobject_init(&peh->kobj, KOBJ_TYPE_POLLHUB,
 			POLLHUB_RIGHT_MASK, (unsigned long)peh);
+	peh->kobj.flags |= KOBJ_FLAGS_NON_SHARED;
 	peh->kobj.ops = &poll_hub_ops;
 	*kobj = &peh->kobj;
 	*right = POLLHUB_RIGHT;

@@ -134,7 +134,7 @@ int kobject_open(struct kobject *kobj, handle_t handle, right_t right)
 	return 0;
 }
 
-int kobject_close(struct kobject *kobj, right_t right)
+int kobject_close(struct kobject *kobj, right_t right, struct process *proc)
 {
 	int ret = 0;
 
@@ -147,7 +147,7 @@ int kobject_close(struct kobject *kobj, right_t right)
 	}
 
 	if (kobj->ops && kobj->ops->close)
-		ret = kobj->ops->close(kobj, right);
+		ret = kobj->ops->close(kobj, right, proc);
 
 	/*
 	 * send the close event to the poller if need.

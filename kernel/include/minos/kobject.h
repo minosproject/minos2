@@ -12,6 +12,8 @@ struct process;
 struct kobject_ops;
 struct poll_struct;
 
+#define KOBJ_FLAGS_NON_SHARED	(1 << 0)
+
 /*
  * Kernel object is a object than can provide some ability
  * to user space thread.
@@ -54,7 +56,7 @@ struct kobject_ops {
 
 	int (*poll)(struct kobject *ksrc, struct kobject *kdst, int event, bool enable);
 
-	int (*close)(struct kobject *kobj, right_t right);
+	int (*close)(struct kobject *kobj, right_t right, struct process *proc);
 
 	int (*reply)(struct kobject *kobj, right_t right, long token,
 			long err_code, handle_t fd, right_t fd_right);
@@ -92,7 +94,7 @@ int kobject_put(struct kobject *kobj);
 void kobject_init(struct kobject *kobj, int type,
 		right_t right_mask, unsigned long data);
 
-int kobject_close(struct kobject *kobj, right_t right);
+int kobject_close(struct kobject *kobj, right_t right, struct process *proc);
 
 int kobject_create(int type, struct kobject **kobj,
 		right_t *right, unsigned long data);

@@ -26,7 +26,8 @@ extern long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 		struct timespec __user *utime,
 		uint32_t __user *uaddr2, uint32_t val3);
 
-extern int sys_unmap(handle_t proc_handle, handle_t pma_handle);
+extern int sys_unmap(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size);
 
 extern int sys_map(handle_t proc_handle, handle_t pma_handle,
 		unsigned long virt, size_t size, right_t right);

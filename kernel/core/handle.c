@@ -257,7 +257,8 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 
 	kobj = hdesc->kobj;
 	right = hdesc->right;
-	if (!kobj || (kobj == KOBJ_PLACEHOLDER) || !right) {
+	if (!kobj || (kobj->flags & KOBJ_FLAGS_NON_SHARED) ||
+			(kobj == KOBJ_PLACEHOLDER) || !right) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -368,14 +369,14 @@ void process_handles_deinit(struct process *proc)
 	}
 }
 
-static void release_handle_table(struct handle_desc *table)
+static void release_handle_table(struct process *proc, struct handle_desc *table)
 {
 	struct handle_desc *hdesc = table;
 	int i;
 
 	for (i = 0; i < NR_DESC_PER_PAGE; i++) {
 		if ((hdesc->kobj) && (hdesc->kobj != KOBJ_PLACEHOLDER))
-			kobject_close(hdesc->kobj, hdesc->right);
+			kobject_close(hdesc->kobj, hdesc->right, proc);
 		hdesc++;
 	}
 }
@@ -389,7 +390,7 @@ void release_proc_kobjects(struct process *proc)
 	while (table != NULL) {
 		tmp = tdesc->next;
 		tdesc = to_handle_table_desc(tmp);
-		release_handle_table(table);
+		release_handle_table(proc, table);
 		table = tmp;
 	}
 }

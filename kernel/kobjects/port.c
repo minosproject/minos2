@@ -52,7 +52,7 @@ static void wake_all_port_writer(struct port *port, int errno)
 	}
 }
 
-static int port_close(struct kobject *kobj, right_t right)
+static int port_close(struct kobject *kobj, right_t right, struct process *proc)
 {
 	struct port *port = kobject_to_port(kobj);
 

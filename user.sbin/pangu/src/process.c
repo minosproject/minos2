@@ -513,7 +513,7 @@ static void deal_with_child_process(struct process *proc)
 	}
 }
 
-static void __release_process(struct process *proc, int kill)
+static void __release_process(struct process *proc)
 {
 	int proc_handle;
 
@@ -531,13 +531,13 @@ static void __release_process(struct process *proc, int kill)
 	 * will call kobject_put, and will not get the event when
 	 * kernel release the process.
 	 */
-	if ((proc_handle > 0) && !kill)
+	if (proc_handle > 0)
 		kobject_close(proc_handle);
 }
 
 static void release_process(struct process *proc)
 {
-	return __release_process(proc, 0);
+	return __release_process(proc);
 }
 
 static void handle_init_process_exit(struct process *proc)

@@ -48,7 +48,7 @@ long sys_kobject_close(handle_t handle)
 	if (ret)
 		return ret;
 
-	return kobject_close(kobj, right);
+	return kobject_close(kobj, right, current_proc);
 }
 
 handle_t sys_kobject_create(int type, unsigned long data)

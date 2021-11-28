@@ -141,6 +141,8 @@ static void request_process_stop(struct process *proc, int handle)
 	struct task *tmp;
 	int old;
 
+	ASSERT(handle >= 0);
+
 	/*
 	 * someone called exit() aready.
 	 */
@@ -175,21 +177,14 @@ static void request_process_stop(struct process *proc, int handle)
 			wake_up(tmp, -EABORT);
 	}
 
-	__release_handle(proc, handle);
-
-	if (handle > 0) {
-		/*
-		 * if the process is killed by root service, just put
-		 * the ref count of the process's kobject.
-		 */
-		kobject_put(&proc->kobj);
-	} else {
+	if (handle == 0) {
 		/*
 		 * send process exit event to the root service, then release
 		 * the handle 0 of this process. Since the main task do not
 		 * have inc the refcount of the proc. The handle 0's ref count
 		 * will put by the task_release().
 		 */
+		__release_handle(proc, handle);
 		poll_event_send_with_data(proc->kobj.poll_struct, EV_KERNEL,
 			POLL_KEV_PROCESS_EXIT, 0, 0, 0);
 	}

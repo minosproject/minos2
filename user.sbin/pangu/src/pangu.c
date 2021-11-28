@@ -189,6 +189,8 @@ static int load_nvwa_service(void)
 	if (nvwa_proc == NULL)
 		return -ENOMEM;
 
+	kobject_ctl(nvwa_proc->proc_handle, KOBJ_PROCESS_GRANT_RIGHT, PROC_FLAGS_VMCTL);
+
 	return start_and_wait_process(nvwa_proc);
 }
 

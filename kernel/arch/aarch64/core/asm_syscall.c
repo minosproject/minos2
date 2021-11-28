@@ -120,7 +120,9 @@ static void __sys_map(gp_regs *regs)
 static void __sys_unmap(gp_regs *regs)
 {
 	regs->x0 = sys_unmap((handle_t)regs->x0,
-			(handle_t)regs->x1);
+			(handle_t)regs->x1,
+			(unsigned long)regs->x2,
+			(size_t)regs->x3);
 }
 
 static void __sys_yield(gp_regs *regs)

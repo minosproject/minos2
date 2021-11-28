@@ -121,6 +121,7 @@ int irq_xlate(struct device_node *node, uint32_t *intspec,
 struct irq_desc *get_irq_desc(uint32_t irq);
 
 void __irq_enable(uint32_t irq, int enable);
+void irq_dir(uint32_t irq);
 
 static inline void irq_unmask(uint32_t irq)
 {

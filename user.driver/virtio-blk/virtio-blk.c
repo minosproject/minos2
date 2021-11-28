@@ -123,8 +123,10 @@ static int virtio_blk_poll(struct virtio_blk *blk, struct blkreq *req)
 	int ret;
 
 	ret = kobject_read(blk->intid, NULL, 0, NULL, NULL, 0, NULL, -1);
-	if (ret != 0)
+	if (ret != 0) {
+		pr_err("get wrong virtio irq state %d\n", ret);
 		return ret;
+	}
 
 	virtio_blk_isr();
 

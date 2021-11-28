@@ -75,13 +75,8 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	ASSERT(idesc != NULL);
 
 	/*
-	 * disable the interrupt line in case new irq arrived
-	 * at the same time.
-	 */
-	irq_chip->irq_mask(irq);
-
-	/*
-	 * whether this irq has been listened.
+	 * Whether this irq has been listened. If this irq is polled
+	 * by one process, just send an event to the task.
 	 */
 	if (event_is_polled(ps, EV_IN)) {
 		ASSERT(idesc->poll_event != NULL);
@@ -110,7 +105,6 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 
 static int do_handle_host_irq(int cpuid, struct irq_desc *irq_desc)
 {
-	int receiver = irq_desc->flags & IRQ_FLAGS_RECEIVER_MASK;
 	int ret;
 
 	if (cpuid != irq_desc->affinity) {
@@ -120,14 +114,13 @@ static int do_handle_host_irq(int cpuid, struct irq_desc *irq_desc)
 	}
 
 	ret = irq_desc->handler(irq_desc->hno, irq_desc->pdata);
-
 out:
 	/*
-	 * 1: if the hw irq is to vcpu do not DIR it
-	 * 2: if the hw irq is to vcpu but failed to send then DIR it
-	 * 3: if the hw irq is to userspace, DIR it
+	 * 1: if the hw irq is to vcpu do not DIR it.
+	 * 2: if the hw irq is to vcpu but failed to send then DIR it.
+	 * 3: if the hw irq is to userspace process, do not DIR it.
 	 */
-	if (ret || (receiver != IRQ_FLAGS_VCPU) || (receiver == IRQ_FLAGS_USER))
+	if (ret || !(irq_desc->flags & IRQ_FLAGS_RECEIVER_MASK))
 		irq_chip->irq_dir(irq_desc->hno);
 
 	return ret;
@@ -166,6 +159,7 @@ struct irq_desc *get_irq_desc(uint32_t irq)
 void __irq_enable(uint32_t irq, int enable)
 {
 	struct irq_desc *irq_desc;
+	unsigned long flags;
 
 	irq_desc = get_irq_desc(irq);
 	if (!irq_desc)
@@ -177,7 +171,7 @@ void __irq_enable(uint32_t irq, int enable)
 	 * which do not set the bit, so here force to excute
 	 * the action
 	 */
-	spin_lock(&irq_desc->lock);
+	spin_lock_irqsave(&irq_desc->lock, flags);
 	if (enable) {
 		irq_chip->irq_unmask(irq);
 		irq_desc->flags &= ~IRQ_FLAGS_MASKED;
@@ -185,7 +179,12 @@ void __irq_enable(uint32_t irq, int enable)
 		irq_chip->irq_mask(irq);
 		irq_desc->flags |= IRQ_FLAGS_MASKED;
 	 }
-	spin_unlock(&irq_desc->lock);
+	spin_unlock_irqrestore(&irq_desc->lock, flags);
+}
+
+void irq_dir(uint32_t irq)
+{
+	irq_chip->irq_dir(irq);
 }
 
 void irq_clear_pending(uint32_t irq)

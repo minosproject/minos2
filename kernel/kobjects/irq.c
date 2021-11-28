@@ -42,6 +42,9 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 	unsigned long flags;
 	int wait = 0, ret = 0;
 
+	if (event_is_polled(kobj->poll_struct, EV_IN))
+		return -EPERM;
+
 	/*
 	 * return as soon as fast if the irq is already pending.
 	 */
@@ -67,9 +70,10 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 out:
 	spin_unlock_irqrestore(&idesc->lock, flags);
 
-	if (wait)
-		ret = wait_event();
+	if (!wait)
+		return ret;
 
+	ret = wait_event();
 	if (ret == -EABORT) {
 		spin_lock_irqsave(&idesc->lock, flags);
 		idesc->owner = 0;
@@ -90,7 +94,10 @@ static long irq_kobj_write(struct kobject *kobj, void __user *data,
 	if (test_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags))
 		pr_warn("irq %d state not correct\n", idesc->hno);
 
-	irq_unmask(idesc->hno);
+	/*
+	 * currently only support EOImode = 1.
+	 */
+	irq_dir(idesc->hno);
 
 	return 0;
 }

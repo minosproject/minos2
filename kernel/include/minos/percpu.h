@@ -79,6 +79,17 @@ static inline int smp_processor_id(void)
 
 #define get_pcpu()	((struct pcpu *)arch_get_pcpu_data())
 
+#define __get_pcpu()		\
+({				\
+	preempt_disable();	\
+	((struct pcpu *)arch_get_pcpu_data());	\
+})
+
+#define __put_pcpu(pcpu)	\
+({				\
+	preempt_enable();	\
+ })
+
 #define get_cpu_data(name)	\
 ({				\
 	preempt_disable();	\

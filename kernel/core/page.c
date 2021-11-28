@@ -465,6 +465,7 @@ static void *get_free_block_from_section(struct mem_section *ms, unsigned long f
 	page = ms->pages + (start * PAGES_PER_BLOCK);
 	page->vir_base = ms->vir_base + (start << BLOCK_SHIFT);
 	page->vir_base |= (flags & PAGE_MASK);
+	ms->free_block--;
 
 	/*
 	 * update page bitmap for this block.

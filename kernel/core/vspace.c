@@ -403,6 +403,7 @@ int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 	 */
 	pr_fatal("page fault fail %s [0x%x@0x%x]\n",
 			proc->head->name, regs->pc, virt);
+	kill_process(proc, -EFAULT);
 
 	return -EFAULT;
 }

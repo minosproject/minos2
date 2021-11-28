@@ -168,7 +168,7 @@ static void free_slab(void *addr)
 	 */
 	st = malloc_from_slab_heap(sizeof(struct slab_type));
 	ASSERT(st != NULL);
-	pr_notice("create new slab type for %d %d\n",
+	pr_debug("create new slab type for %d %d\n",
 			header->size, id);
 	st->size = header->size;
 	list_add_tail(&slab_hash_table[id], &st->list);

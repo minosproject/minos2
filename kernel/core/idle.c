@@ -61,17 +61,23 @@ static inline bool pcpu_can_idle(struct pcpu *pcpu)
 static void do_pcpu_cleanup_work(struct pcpu *pcpu)
 {
 	struct task *task;
-	unsigned long flags;
 
+	/*
+	 * the race may happen when other task in this pcpu
+	 * call stop(), so need to disable the preempt to avoid
+	 * the idle task preempt by other task here. currently
+	 * the stop list will only write when the task request stop
+	 * so do not need to diable the interrupt.
+	 */
 	for (; ;) {
 		task = NULL;
-		local_irq_save(flags);
+		preempt_disable();
 		if (!is_list_empty(&pcpu->stop_list)) {
 			task = list_first_entry(&pcpu->stop_list,
 					struct task, stat_list);
 			list_del(&task->stat_list);
 		}
-		local_irq_restore(flags);
+		preempt_enable();
 
 		if (!task)
 			break;

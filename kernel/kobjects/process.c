@@ -247,7 +247,6 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 {
 	struct task *task = current;
 	uint32_t token = kobject_token();
-	int ret;
 
 	spin_lock(&proc->processing_lock);
 	list_add_tail(&proc->processing_list, &task->kobj.list);
@@ -266,11 +265,7 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 	 * handle page_fault fail, then the ret is the handle
 	 * of this process in root service.
 	 */
-	ret = wait_event();
-	if (ret != 0)
-		kill_process(proc, ret);
-
-	return -EFAULT;
+	return wait_event();
 }
 
 static long process_recv(struct kobject *kobj, void __user *data,
@@ -456,17 +451,15 @@ void do_process_release(struct kobject *kobj)
 
 static void process_release(struct kobject *kobj)
 {
-	struct pcpu *pcpu = get_pcpu();
-	unsigned long flags;
+	struct pcpu *pcpu = __get_pcpu();
 
 	/*
 	 * here all the task of this process has been cloesd, now
 	 * the process can be safe released, for better perference
 	 * put it the local pcpu's process's list.
 	 */
-	local_irq_save(flags);
 	list_add_tail(&pcpu->die_process, &kobj->list);
-	local_irq_restore(flags);
+	__put_pcpu(pcpu);
 }
 
 void clean_process_on_pcpu(struct pcpu *pcpu)

@@ -151,8 +151,8 @@ static int start_and_wait_process(struct process *proc)
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 
 	for (;;) {
-		ret = kobject_read_simple(proc->proc_handle,
-			&proto, sizeof(struct proto), -1);
+		ret = kobject_read_simple(proc->proc_handle, &proto,
+				sizeof(struct proto), 0);
 		if (ret > 0)
 			break;
 

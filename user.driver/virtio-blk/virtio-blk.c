@@ -109,6 +109,7 @@ static void virtio_blk_isr(void)
 
 	len = dev->virtq->len;
 	WRITE32(dev->regs->InterruptACK, READ32(dev->regs->InterruptStatus));
+	mb();
 
 	for (i = dev->virtq->seen_used; i != (dev->virtq->used->idx % len);
 	     i = wrap(i + 1, len)) {
@@ -116,17 +117,16 @@ static void virtio_blk_isr(void)
 	}
 
 	dev->virtq->seen_used = dev->virtq->used->idx % len;
+	mb();
 }
 
 static int virtio_blk_poll(struct virtio_blk *blk, struct blkreq *req)
 {
 	int ret;
 
-	ret = kobject_read(blk->intid, NULL, 0, NULL, NULL, 0, NULL, -1);
-	if (ret != 0) {
+	ret = kobject_read(blk->intid, NULL, 0, NULL, NULL, 0, NULL, 500);
+	if (ret != 0)
 		pr_err("get wrong virtio irq state %d\n", ret);
-		return ret;
-	}
 
 	virtio_blk_isr();
 
@@ -233,10 +233,10 @@ static int blkreq_wait_all(struct virtio_blk *bdev, struct list_head *breq_list)
 	struct blkreq *breq;
 
 	list_for_each_entry(breq, breq_list, list) {
-		if (breq->status != 0)
+		if (breq->status != BLKREQ_INIT)
 			continue;
 
-		while (breq->status == 0)
+		while (breq->status == BLKREQ_INIT)
 			virtio_blk_poll(bdev, breq);
 	}
 
@@ -301,6 +301,7 @@ static int request_virtio_blkdev_sectors(struct virtio_blk *vdev, void *buf,
 			goto out;
 		}
 
+		breq->status = BLKREQ_INIT;
 		breq->blkidx = start + i;
 		breq->type = op;
 		breq->buf = buf + i * VIRTIO_BLK_SECTOR_SIZE;

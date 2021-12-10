@@ -478,7 +478,7 @@ int local_sched_init(void)
 	return 0;
 }
 
-int __wake_up(struct task *task, long pend_state, void *data)
+int __wake_up(struct task *task, long ipccode, long pend_state, void *data)
 {
 	unsigned long flags;
 	uint32_t timeout;
@@ -518,6 +518,7 @@ int __wake_up(struct task *task, long pend_state, void *data)
 	 * state to running and run it again.
 	 */
 	task->pend_stat = pend_state;
+	task->ipccode = ipccode;
 	task->stat = TASK_STAT_WAKING;
 	timeout = task->delay;
 	task->delay = 0;
@@ -528,7 +529,7 @@ int __wake_up(struct task *task, long pend_state, void *data)
 	 * here it means that this task has not been timeout, so can
 	 * delete the timer for this task.
 	 */
-	if (timeout && (task->pend_stat != TASK_STAT_PEND_OK))
+	if (timeout && (task->pend_stat != TASK_STAT_PEND_TO))
 		del_timer_sync(&task->delay_timer);
 
 	/*
@@ -552,7 +553,7 @@ int wake_up_process(struct process *proc)
 		if (task->wait_type != TASK_EVENT_STARTUP)
 			continue;
 
-		ret +=  __wake_up(task, TASK_STAT_PEND_OK, NULL);
+		ret +=  __wake_up(task, 0, TASK_STAT_PEND_OK, NULL);
 	}
 
 	return ret;

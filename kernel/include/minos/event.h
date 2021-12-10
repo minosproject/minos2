@@ -43,7 +43,7 @@ void event_task_wait(void *ev, int stat, uint32_t to);
 void __event_task_wait(unsigned long token, int mode, uint32_t to);
 void event_pend_down(struct task *task);
 
-long wait_event(void);
+void wait_event(long *retcode, long *status);
 
 static inline int event_has_waiter(struct event *ev)
 {

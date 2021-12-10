@@ -112,12 +112,8 @@ struct process *create_process(int pid, task_func_t func,
 
 	proc->head = task;
 	proc->tail = task;
-	proc->task_cnt = 1;
+	spin_lock_init(&proc->lock);
 	task->pid = proc->pid;
-	spin_lock_init(&proc->request_lock);
-	spin_lock_init(&proc->processing_lock);
-	init_list(&proc->request_list);
-	init_list(&proc->processing_list);
 
 	return proc;
 
@@ -219,7 +215,6 @@ static long process_send(struct kobject *kobj,
 		uint32_t timeout)
 {
 	struct process *proc = (struct process *)kobj->data;
-	struct poll_struct *ps = kobj->poll_struct;
 
 	/*
 	 * ROOT service will always poll to the process's
@@ -228,25 +223,20 @@ static long process_send(struct kobject *kobj,
 	ASSERT(proc == current_proc);
 	ASSERT(!proc_is_root(current_proc));
 
-	spin_lock(&proc->request_lock);
-	list_add_tail(&proc->request_list, &current->kobj.list);
-	__event_task_wait(kobject_token(), TASK_EVENT_ROOT_SERVICE, 0);
-	spin_unlock(&proc->request_lock);
-
-	poll_event_send(ps, EV_IN);
-
-	return wait_event();
+	return iqueue_send(&proc->iqueue, data, data_size, extra, extra_size, timeout);
 }
 
 int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 {
+	struct iqueue *iqueue = &proc->iqueue;
 	struct task *task = current;
 	uint32_t token = kobject_token();
+	long ret;
 
-	spin_lock(&proc->processing_lock);
-	list_add_tail(&proc->processing_list, &task->kobj.list);
+	spin_lock(&iqueue->lock);
+	list_add_tail(&iqueue->processing_list, &task->kobj.list);
 	__event_task_wait(token, TASK_EVENT_ROOT_SERVICE, 0);
-	spin_unlock(&proc->processing_lock);
+	spin_unlock(&iqueue->lock);
 
 	/*
 	 * send the page fault event to the root service. need
@@ -260,7 +250,9 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 	 * handle page_fault fail, then the ret is the handle
 	 * of this process in root service.
 	 */
-	return wait_event();
+	wait_event(&ret, NULL);
+
+	return ret;
 }
 
 static long process_recv(struct kobject *kobj, void __user *data,
@@ -268,76 +260,21 @@ static long process_recv(struct kobject *kobj, void __user *data,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	struct process *proc = (struct process *)kobj->data;
-	struct kobject *thread = NULL;
-	struct task *task;
-	int ret = 0;
 
 	if (!proc_is_root(current_proc)) {
 		pr_err("only root service can read process request\n");
 		return -EPERM;
 	}
 
-	spin_lock(&proc->request_lock);
-	if (is_list_empty(&proc->request_list)) {
-		ret = -EAGAIN;
-		goto out;
-	}
-
-	thread = list_first_entry(&proc->request_list,
-			struct kobject, list);
-	list_del(&thread->list);
-out:
-	spin_unlock(&proc->request_lock);
-
-	if (!thread)
-		return ret;
-
-	task = (struct task *)thread->data;
-	ret = kobject_copy_ipc_payload(current, task,
-			actual_data, actual_extra, 1, 0);
-	if (ret < 0) {
-		wake_up(task, ret);
-		return ret;
-	}
-
-	/*
-	 * the root service will only have one task, so here
-	 * do not need to obtain the lock.
-	 */
-	spin_lock(&proc->processing_lock);
-	list_add_tail(&proc->processing_list, &thread->list);
-	spin_unlock(&proc->processing_lock);
-
-	return task->wait_event;
+	return iqueue_recv(&proc->iqueue, data, data_size, actual_data,
+			extra, extra_size, actual_extra, timeout);
 }
 
 static int process_reply(struct kobject *kobj, right_t right, long token,
 		long errno, handle_t fd, right_t fd_right)
 {
 	struct process *proc = (struct process *)kobj->data;
-	struct kobject *entry, *tmp;
-	struct task *target = NULL;
-
-	spin_lock(&proc->processing_lock);
-	list_for_each_entry_safe(entry, tmp, &proc->processing_list, list) {
-		target = (struct task *)entry->data;
-		if (target->wait_event == token) {
-			list_del(&entry->list);
-			break;
-		} else {
-			target = NULL;
-		}
-	}
-	spin_unlock(&proc->processing_lock);
-
-	if (target == NULL) {
-		pr_err("no such token in process %d\n", token);
-		return -ENOENT;
-	}
-
-	errno = (fd > 0) ? send_handle(current_proc, proc, fd, fd_right) : errno;
-
-	return wake_up(target, errno);
+	return iqueue_reply(&proc->iqueue, right, token, errno, fd, fd_right);
 }
 
 static long do_process_ctl(struct process *proc, int req, unsigned long data)
@@ -489,6 +426,7 @@ static struct kobject_ops proc_kobj_ops = {
 
 static void process_kobject_init(struct process *proc)
 {
+	iqueue_init(&proc->iqueue, 0, &proc->kobj);
 	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS,
 			PROC_RIGHT_MASK, (unsigned long)proc);
 	proc->kobj.ops = &proc_kobj_ops;
@@ -513,6 +451,7 @@ struct process *create_root_process(task_func_t func, void *usp,
 	if (!proc)
 		return NULL;
 
+	iqueue_init(&proc->iqueue, 0, &proc->kobj);
 	proc->flags |= PROC_FLAGS_ROOT | PROC_FLAGS_VMCTL | PROC_FLAGS_HWCTL;
 	proc->kobj.ops = &proc_kobj_ops;
 

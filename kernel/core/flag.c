@@ -126,7 +126,7 @@ static int flag_task_ready(struct flag_node *node, flag_t flags)
 {
 	struct task *task = node->task;
 
-	__wake_up(task, TASK_STAT_PEND_OK, (void *)(unsigned long)flags);
+	__wake_up(task, 0, TASK_STAT_PEND_OK, (void *)(unsigned long)flags);
 
 	return (task->prio < current->prio);
 }

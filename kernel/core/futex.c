@@ -77,7 +77,7 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 		uint32_t *kaddr2, uint32_t val3)
 {
 	unsigned long timeout;
-	int ret = 0;
+	long ret = 0;
 
 	timeout = ktime ? ktime->timeout : 0;
 	spin_lock(&ft->lock);
@@ -94,7 +94,7 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 out:
 	spin_unlock(&ft->lock);
 	if (ret)
-		ret = wait_event();
+		wait_event(&ret, NULL);
 
 	return ret;
 }

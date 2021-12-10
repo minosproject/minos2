@@ -92,7 +92,7 @@ void __release_handle(struct process *proc, handle_t handle)
 	struct handle_table_desc *htd;
 	int ret;
 
-	spin_lock(&proc->kobj_lock);
+	spin_lock(&proc->lock);
 	ret = lookup_handle_desc(proc, handle, &hd, &htd);
 	if (ret)
 		goto out;
@@ -104,7 +104,7 @@ void __release_handle(struct process *proc, handle_t handle)
 	hd->right = KOBJ_RIGHT_NONE;
 	htd->left++;
 out:
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 }
 
 int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
@@ -117,7 +117,7 @@ int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
 	if (WRONG_HANDLE(handle) || !proc)
 		return -ENOENT;
 
-	spin_lock(&proc->kobj_lock);
+	spin_lock(&proc->lock);
 	ret = lookup_handle_desc(proc, handle, &hd, &htd);
 	if (ret)
 		goto out;
@@ -134,7 +134,7 @@ int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
 	hd->right = KOBJ_RIGHT_NONE;
 	htd->left++;
 out:
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 
 	return ret;
 }
@@ -171,7 +171,7 @@ handle_t __alloc_handle(struct process *proc, struct kobject *kobj, right_t righ
 	ASSERT(kobj != NULL);
 	ASSERT(proc != NULL);
 
-	spin_lock(&proc->kobj_lock);
+	spin_lock(&proc->lock);
 
 	do {
 		ret = __alloc_handle_internal(hd, htd, &handle, &hdesc);
@@ -194,7 +194,7 @@ handle_t __alloc_handle(struct process *proc, struct kobject *kobj, right_t righ
 	if (kobj != KOBJ_PLACEHOLDER)
 		kobject_get(kobj);
 out:
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 	
 	return handle;
 }
@@ -213,7 +213,7 @@ static int setup_handle(struct process *proc, handle_t handle,
 
 	ASSERT(!WRONG_HANDLE(handle));
 
-	spin_lock(&proc->kobj_lock);
+	spin_lock(&proc->lock);
 	ret = lookup_handle_desc(proc, handle, &hd, &htd);
 	if (ret)
 		goto out;
@@ -223,7 +223,7 @@ static int setup_handle(struct process *proc, handle_t handle,
 	hd->right = right;
 	kobject_get(kobj);
 out:
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 	return ret;
 }
 
@@ -250,7 +250,7 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 	if (handle_ret < 0)
 		return handle_ret;
 
-	spin_lock(&proc->kobj_lock);
+	spin_lock(&proc->lock);
 	ret = lookup_handle_desc(proc, handle, &hdesc, &htd);
 	if (ret)
 		goto out;
@@ -276,14 +276,14 @@ handle_t send_handle(struct process *proc, struct process *pdst,
 	}
 
 	hdesc->right = right & (~right_send | kobj->right_mask);
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 
 	setup_handle(pdst, handle_ret, kobj, right_send);
 
 	return handle_ret;
 
 out:
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 	__release_handle(pdst, handle_ret);
 	pr_err("send handle %d with 0x%x fail\n", handle, right_send);
 
@@ -326,7 +326,7 @@ int get_kobject_from_process(struct process *proc, handle_t handle,
 	if (WRONG_HANDLE(handle) || !proc)
 		return -ENOENT;
 
-	spin_lock(&proc->kobj_lock);
+	spin_lock(&proc->lock);
 	ret = lookup_handle_desc(proc, handle, &hd, &htd);
 	if (ret)
 		goto out;
@@ -341,7 +341,7 @@ int get_kobject_from_process(struct process *proc, handle_t handle,
 		}
 	}
 out:
-	spin_unlock(&proc->kobj_lock);
+	spin_unlock(&proc->lock);
 	return ret;
 }
 
@@ -400,7 +400,6 @@ int init_proc_handles(struct process *proc)
 	extern struct kobject stdio_kobj;
 	handle_t handle;
 
-	spin_lock_init(&proc->kobj_lock);
 	proc->handle_desc_table = new_handle_desc_table(0);
 	if (!proc->handle_desc_table)
 		return -ENOMEM;

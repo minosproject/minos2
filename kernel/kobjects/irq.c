@@ -40,7 +40,8 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 {
 	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
 	unsigned long flags;
-	int wait = 0, ret = 0;
+	long ret = 0, status = TASK_STAT_PEND_OK;
+	int wait = 0;
 
 	if (event_is_polled(kobj->poll_struct, EV_IN))
 		return -EPERM;
@@ -73,8 +74,8 @@ out:
 	if (!wait)
 		return ret;
 
-	ret = wait_event();
-	if (ret == -EABORT) {
+	wait_event(&ret, &status);
+	if (task_stat_pend_abort(status)) {
 		spin_lock_irqsave(&idesc->lock, flags);
 		idesc->owner = 0;
 		spin_unlock_irqrestore(&idesc->lock, flags);

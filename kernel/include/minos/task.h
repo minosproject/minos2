@@ -60,6 +60,13 @@ static inline int task_need_resched(struct task *task)
 	return (task->ti.flags & TIF_NEED_RESCHED);
 }
 
+#define task_stat_pend_ok(status)	\
+	((status) == TASK_STAT_PEND_OK)
+#define task_stat_pend_timeout(status)	\
+	((status) == TASK_STAT_PEND_TO)
+#define task_stat_pend_abort(status)	\
+	((status) == TASK_STAT_PEND_ABORT)
+
 void task_stop(void);
 void release_task(struct task *task);
 void do_release_task(struct task *task);

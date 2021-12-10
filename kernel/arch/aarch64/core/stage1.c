@@ -577,6 +577,7 @@ int arch_host_map(struct vspace *vs, unsigned long start, unsigned long end,
 {
 	ASSERT((start < S1_VIRT_MAX) && (end <= S1_VIRT_MAX));
 	ASSERT(physical < S1_PHYSICAL_MAX);
+	ASSERT(IS_PAGE_ALIGN(start) && IS_PAGE_ALIGN(end) && IS_PAGE_ALIGN(physical));
 
 	return stage1_map_pud_range(vs, start, end, physical, flags);
 }

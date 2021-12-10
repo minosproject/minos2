@@ -506,6 +506,7 @@ int arch_guest_map(struct vspace *vs,
 		unsigned long start, unsigned long end,
 		unsigned long physical, unsigned long flags)
 {
+	ASSERT(IS_PAGE_ALIGN(start) && IS_PAGE_ALIGN(end) && IS_PAGE_ALIGN(physical));
 	return stage2_map_pud_range(vs, start, end, physical, flags);
 }
 

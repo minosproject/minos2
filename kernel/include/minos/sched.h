@@ -24,26 +24,26 @@ int task_ready(struct task *task, int preempt);
 
 int wake_up_process(struct process *proc);
 
-int __wake_up(struct task *task, long pend_state, void *data);
+int __wake_up(struct task *task, long ipccode, long pend_state, void *data);
 
 static inline int wake_up(struct task *task, long errno)
 {
-	return __wake_up(task, errno, NULL);
+	return __wake_up(task, errno, TASK_STAT_PEND_OK, NULL);
 }
 
 static inline int wake_up_ok(struct task *task)
 {
-	return __wake_up(task, TASK_STAT_PEND_OK, NULL);
+	return __wake_up(task, 0, TASK_STAT_PEND_OK, NULL);
 }
 
 static inline int wake_up_timeout(struct task *task)
 {
-	return __wake_up(task, TASK_STAT_PEND_TO, NULL);
+	return __wake_up(task, -ETIMEDOUT, TASK_STAT_PEND_TO, NULL);
 }
 
 static inline int wake_up_abort(struct task *task)
 {
-	return __wake_up(task, TASK_STAT_PEND_ABORT, NULL);
+	return __wake_up(task, -EABORT, TASK_STAT_PEND_ABORT, NULL);
 }
 
 /*

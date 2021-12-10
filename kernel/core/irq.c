@@ -70,7 +70,6 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	struct irq_desc *idesc = (struct irq_desc *)kobj->data;
 	struct poll_struct *ps = kobj->poll_struct;
 	struct task *task = NULL;
-	int wakeup = 0;
 
 	ASSERT(idesc != NULL);
 
@@ -89,16 +88,12 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 	raw_spin_lock(&idesc->lock);
 	if (idesc->owner != 0) {
 		task = get_task_by_tid(idesc->owner);
-		if (task && (task->stat == TASK_STAT_WAIT_EVENT) &&
-				(task->wait_event == TASK_EVENT_IRQ))
-			wakeup = 1;
 		idesc->owner = 0;
 	}
-
-	if (task && wakeup)
-		wake_up(task, 0);
-
 	raw_spin_unlock(&idesc->lock);
+
+	if (task)
+		wake_up(task, 0);
 
 	return 0;
 }

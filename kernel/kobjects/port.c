@@ -20,6 +20,7 @@
 #include <minos/mm.h>
 #include <minos/sched.h>
 #include <minos/poll.h>
+#include <minos/iqueue.h>
 
 #include "kobject_copy.h"
 
@@ -27,50 +28,16 @@
 #define PORT_RIGHT_MASK KOBJ_RIGHT_WRITE
 
 struct port {
-	struct task *recv_task;
-	int closed;
 	struct kobject kobj;
-	spinlock_t lock;
-	struct list_head pending_list;
-	struct list_head processing_list;
+	struct iqueue iqueue;
 };
 
 #define kobject_to_port(kobj) (struct port *)((kobj)->data)
 
-static void wake_all_port_writer(struct port *port, int errno)
-{
-	struct kobject *kobj, *tmp;
-
-	list_for_each_entry_safe(kobj, tmp, &port->pending_list, list) {
-		wake_up((struct task *)kobj->data, errno);
-		list_del(&kobj->list);
-	}
-
-	list_for_each_entry_safe(kobj, tmp, &port->processing_list, list) {
-		wake_up((struct task *)kobj->data, errno);
-		list_del(&kobj->list);
-	}
-}
-
 static int port_close(struct kobject *kobj, right_t right, struct process *proc)
 {
 	struct port *port = kobject_to_port(kobj);
-
-	/*
-	 * do nothing if the the process is a writer for
-	 * this port, only reader will close it.
-	 */
-	if (right & KOBJ_RIGHT_WRITE)
-		return 0;
-
-	port->closed = 1;
-	smp_wmb();
-
-	spin_lock(&port->lock);
-	wake_all_port_writer(port, -EOTHERSIDECLOSED);
-	spin_unlock(&port->lock);
-
-	return 0;
+	return iqueue_close(&port->iqueue, right, proc);
 }
 
 static long port_recv(struct kobject *kobj, void __user *data,
@@ -78,167 +45,22 @@ static long port_recv(struct kobject *kobj, void __user *data,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
 	struct port *port = kobject_to_port(kobj);
-	struct kobject *pending = NULL;
-	struct task *writer;
-	ssize_t ret = 0;
-
-	for (;;) {
-		spin_lock(&port->lock);
-
-		if (port->closed) {
-			spin_unlock(&port->lock);
-			return -EIO;
-		}
-
-		/*
-		 * only one task can wait for data on the port, if
-		 * there is already reading task, return -EBUSY.
-		 * if wait_event fail, then return error, before return
-		 * need set the recv_task to NULL.
-		 */
-		if ((port->recv_task != NULL) && (port->recv_task != current)) {
-			spin_unlock(&port->lock);
-			return -EBUSY;
-		}
-
-		/*
-		 * clear the recv_task in port, later this value will
-		 * be set again if need sleport.
-		 */
-		port->recv_task = NULL;
-		if (ret != 0) {
-			if (ret == -EABORT)
-				wake_all_port_writer(port, -EIO);
-			spin_unlock(&port->lock);
-			return ret;
-		}
-
-		if (!is_list_empty(&port->pending_list)) {
-			pending = list_first_entry(&port->pending_list, struct kobject, list);
-			list_del(&pending->list);
-		} else {
-			port->recv_task = current;
-			__event_task_wait((unsigned long)port, TASK_EVENT_ENDPOINT, timeout);
-		}
-
-		if (pending != NULL)
-			break;
-		else
-			spin_unlock(&port->lock);
-
-		ret = wait_event();
-	}
-
-	/*
-	 * read the data from this task. if the task's data is wrong
-	 * wake up this write task directly. otherwise mask this task
-	 * as current pending task and waitting for port_rportly
-	 */
-	writer = (struct task *)pending->data;
-	ret = kobject_copy_ipc_payload(current, writer,
-			actual_data, actual_extra, 1, 0);
-	if (ret < 0) {
-		wake_up(writer, -EFAULT);
-		ret = -EAGAIN;
-		goto out;
-	}
-
-	list_add_tail(&port->processing_list, &pending->list);
-	ret = (long)writer->wait_event;
-
-out:
-	spin_unlock(&port->lock);
-
-	return ret;
+	return iqueue_recv(&port->iqueue, data, data_size, actual_data,
+			extra, extra_size, actual_extra, timeout);
 }
 
 static long port_send(struct kobject *kobj, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout)
 {
 	struct port *port = kobject_to_port(kobj);
-	struct poll_struct *ps = kobj->poll_struct;
-	struct task *task;
-	int ret;
-
-	spin_lock(&port->lock);
-
-	if (port->closed) {
-		spin_unlock(&port->lock);
-		return -EOTHERSIDECLOSED;
-	}
-
-	/*
-	 * setup the information which the task need waitting
-	 * for.
-	 */
-	list_add_tail(&port->pending_list, &current->kobj.list);
-	__event_task_wait(kobject_token(), TASK_EVENT_KOBJ_REPLY, timeout);
-	spin_unlock(&port->lock);
-
-	/*
-	 * if the releated kobject event is not polled, try
-	 * to wake up the reading task.
-	 */
-	ret = poll_event_send(ps, EV_IN);
-	if (ret == -EAGAIN) {
-		spin_lock(&port->lock);
-		task = port->recv_task;
-		if (task)
-			wake_up(task, 0);
-		spin_unlock(&port->lock);
-	}
-
-	ret = wait_event();
-	if ((ret == 0) || (ret != -EABORT))
-		return ret;
-
-	/*
-	 * the writer has been teminated, need delete this request
-	 * from the pending list or processing list.
-	 */
-	spin_lock(&port->lock);
-	ASSERT(current->kobj.list.next != NULL);
-	list_del(&current->kobj.list);
-	spin_unlock(&port->lock);
-
-	return ret;
+	return iqueue_send(&port->iqueue, data, data_size, extra, extra_size, timeout);
 }
 
 static int port_reply(struct kobject *kobj, right_t right,
 		long token, long errno, handle_t fd, right_t fd_right)
 {
 	struct port *port = kobject_to_port(kobj);
-	struct kobject *wk, *tmp;
-	struct task *task = NULL;
-
-	/*
-	 * find the task who are waitting the rportly token, and wake
-	 * up it with the error code.
-	 */
-	spin_lock(&port->lock);
-
-	list_for_each_entry_safe(wk, tmp, &port->processing_list, list) {
-		task = (struct task *)wk->data;
-		if (task->wait_event == token) {
-			list_del(&wk->list);
-			break;
-		}
-	}
-
-	if (task) {
-		if (fd > 0) {
-			errno = send_handle(current_proc, task->proc,
-					fd, fd_right);
-		}
-		wake_up(task, errno);
-	}
-
-	spin_unlock(&port->lock);
-
-	if (!task)
-		return -ENOENT;
-
-	return 0;
+	return iqueue_reply(&port->iqueue, right, token, errno, fd, fd_right);
 }
 
 static void port_release(struct kobject *kobj)
@@ -269,8 +91,7 @@ static int port_create(struct kobject **kobj, right_t *right, unsigned long data
 	if (!port)
 		return -ENOMEM;
 
-	init_list(&port->pending_list);
-	init_list(&port->processing_list);
+	iqueue_init(&port->iqueue, 1, &port->kobj);
 	kobject_init(&port->kobj, KOBJ_TYPE_PORT, PORT_RIGHT_MASK, (unsigned long)port);
 	port->kobj.ops = &port_kobject_ops;
 	*kobj = &port->kobj;

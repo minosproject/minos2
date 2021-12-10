@@ -4,6 +4,7 @@
 #include <minos/vspace.h>
 #include <minos/kobject.h>
 #include <minos/handle.h>
+#include <minos/iqueue.h>
 
 #define PROCESS_NAME_SIZE	32
 
@@ -16,16 +17,9 @@ struct task;
 
 struct process {
 	int pid;
-	int task_cnt;
 	int flags;
-	void *pdata;
-
+	int task_cnt;
 	int stopped;
-
-	struct task *head;
-	struct task *tail;
-	struct kobject kobj;
-	spinlock_t lock;
 
 	struct vspace vspace;
 
@@ -37,12 +31,13 @@ struct process {
 	 * set the right for related kobject in kobj_table.
 	 */
 	struct handle_desc *handle_desc_table;
-	spinlock_t kobj_lock;
+	struct task *head;
+	struct task *tail;
+	spinlock_t lock;
 
-	struct list_head request_list;
-	struct list_head processing_list;
-	spinlock_t request_lock;
-	spinlock_t processing_lock;
+	struct kobject kobj;
+	struct iqueue iqueue;
+	void *pdata;
 };
 
 static inline int proc_is_root(struct process *proc)

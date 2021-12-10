@@ -8,3 +8,4 @@ obj-y	+= poll.o
 obj-y	+= kobject_copy.o
 obj-y	+= notify.o
 obj-y	+= port.o
+obj-y	+= iqueue.o

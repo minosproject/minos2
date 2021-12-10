@@ -113,7 +113,7 @@ void console_puts(char *buf, int len)
 int console_gets(char *buf, int max)
 {
 	uint32_t ridx, widx;
-	int i, copy;
+	long i, copy;
 	unsigned long flags;
 
 repeat:
@@ -132,7 +132,7 @@ repeat:
 		spin_unlock_irqrestore(&inbuf_lock, flags);
 
 		if (inbuf_task) {
-			copy = wait_event();
+			wait_event(&copy, NULL);
 			inbuf_task = NULL;
 			if (copy < 0)
 				return copy;

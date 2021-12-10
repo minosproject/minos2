@@ -91,6 +91,7 @@ void kobject_init(struct kobject *kobj, int type,
 	kobj->data = data;
 	kobj->list.pre = NULL;
 	kobj->list.next = NULL;
+	spin_lock_init(&kobj->lock);
 }
 
 int kobject_create(int type, struct kobject **kobj, right_t *right, unsigned long data)

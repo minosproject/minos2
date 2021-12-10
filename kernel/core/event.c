@@ -108,7 +108,7 @@ again:
 	 * try to wake up the task and make sure is not wakeup
 	 * by timeout handler.
 	 */
-	retry = __wake_up(task, TASK_STAT_PEND_OK, NULL);
+	retry = __wake_up(task, 0, TASK_STAT_PEND_OK, NULL);
 	if (retry)
 		goto again;
 
@@ -132,30 +132,19 @@ void event_pend_down(struct task *task)
 	task->wait_type = 0;
 }
 
-long wait_event(void)
+void wait_event(long *retcode, long *status)
 {
 	struct task *task = current;
-	long ret;
 
-	ASSERT(task->stat == TASK_STAT_WAIT_EVENT)
+	ASSERT(task->stat == TASK_STAT_WAIT_EVENT);
+
 	sched();
 
-	switch (task->pend_stat) {
-	case TASK_STAT_PEND_OK:
-		ret = 0;
-		break;
-	case TASK_STAT_PEND_TO:
-		ret = -ETIMEDOUT;
-		break;
-	case TASK_STAT_PEND_ABORT:
-		ret = -EABORT;
-		break;
-	default:
-		ret = task->pend_stat;
-		break;
-	}
+	if (retcode != NULL)
+		*retcode = task->ipccode;
+	if (status != NULL)
+		*status = task->pend_stat;
 
+	task->ipccode = 0;
 	task->pend_stat = TASK_STAT_PEND_OK;
-
-	return ret;
 }

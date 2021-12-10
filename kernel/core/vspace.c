@@ -325,7 +325,7 @@ static int handle_page_fault_internal(struct process *proc,
 	if (write)
 		flags |= __VM_WRITE;
 
-	ret = __map_process_page_internal(proc, virt, PAGE_SIZE, flags);
+	ret = __map_process_page_internal(proc, PAGE_ALIGN(virt), PAGE_SIZE, flags);
 	if (ret)
 		goto out;
 

@@ -143,6 +143,7 @@ struct task {
 	int wait_type;			// which event is task waitting for.
 	void *msg;			// used for mbox to pass data
 	unsigned long wait_event;	// the event instance which the task is waitting.
+	long ipccode;
 	struct list_head event_list;
 
 	struct flag_node *flag_node;	// used for the flag event.

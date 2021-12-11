@@ -209,9 +209,6 @@ vfunc __irq_exception_from_lower_el
 
 	LOAD_PCPU_STACK	x1			// load pcpu stack
 
-	bl	do_softirq			// do the softirq and can enable the irq in it	
-	nop
-
 	bl	irq_return_handler		// x18 will be the next task
 	nop
 
@@ -239,16 +236,7 @@ vfunc __irq_exception_from_current_el
 
 2:
 	bl	irq_from_current_el		// irq is disabled all the time
-
-	/*
-	 * if the irq is came from when do the softirq
-	 * routine. do not switch to new task, just return
-	 * to the softirq routine.
-	 */
-	add	x0, x18, #TASK_INFO_FLAGS_OFFSET
-	ldr	x0, [x0]
-	and	x0, x0, #__TIF_SOFTIRQ_MASK
-	cbnz	x0, 1f
+	nop
 
 	/*
 	 * check whether there are some task need to preempt

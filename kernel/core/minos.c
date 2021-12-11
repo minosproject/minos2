@@ -75,7 +75,6 @@ void boot_main(void)
 	smp_init();
 #endif
 
-	softirq_init();
 	init_timers();
 
 	subsys_init();

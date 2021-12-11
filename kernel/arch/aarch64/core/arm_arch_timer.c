@@ -152,8 +152,10 @@ static int __init_text timers_arch_init(void)
 
 static int timer_interrupt_handler(uint32_t irq, void *data)
 {
-	raise_softirq(TIMER_SOFTIRQ);
+	extern void soft_timer_interrupt(void);
+
 	write_sysreg32(0, ARM64_CNTSIRQ_CTL);
+	soft_timer_interrupt();
 
 	return 0;
 }

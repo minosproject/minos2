@@ -47,7 +47,6 @@ void __event_task_wait(unsigned long token, int mode, uint32_t to)
 	task->delay = (to == -1 ? 0 : to);
 	task->stat = TASK_STAT_WAIT_EVENT;
 	task->wait_event = token;
-	task->stat = TASK_STAT_WAIT_EVENT;
 }
 
 void event_task_wait(void *ev, int mode, uint32_t to)

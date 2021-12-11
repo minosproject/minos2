@@ -30,7 +30,6 @@ obj-y += sched.o
 obj-y += sem.o
 obj-y += slab.o
 obj-y += smp.o
-obj-y += softirq.o
 obj-y += stdlib.o
 obj-y += string.o
 obj-y += syscall.o

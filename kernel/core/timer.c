@@ -25,7 +25,7 @@
 
 DEFINE_PER_CPU(struct timers, timers);
 
-static void run_timer_softirq(struct softirq_action *h)
+void soft_timer_interrupt(void)
 {
 	struct timer_list *timer;
 	unsigned long expires = ~0, now;
@@ -256,6 +256,4 @@ void init_timers(void)
 		timers->running_expires = 0;
 		spin_lock_init(&timers->lock);
 	}
-
-	open_softirq(TIMER_SOFTIRQ, run_timer_softirq);
 }

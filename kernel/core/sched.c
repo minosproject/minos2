@@ -224,7 +224,8 @@ void switch_to_task(struct task *cur, struct task *next)
 	 * safe, the task is offline now.
 	 */
 	cur->cpu = -1;
-	smp_wmb();
+	cur->sched_stat = SCHED_STAT_OFF;
+	wmb();
 
 	/*
 	 * change the current task to next task.
@@ -249,6 +250,8 @@ void switch_to_task(struct task *cur, struct task *next)
 			!(next->ti.flags & __TIF_DONOT_PREEMPT))
 		sched_tick_enable(MILLISECS(next->run_time));
 	next->start_ns = NOW();
+	next->sched_stat = SCHED_STAT_ALLOW;
+	wmb();
 
 	update_ktask_stat(cur);
 	update_ktask_stat(next);
@@ -478,10 +481,20 @@ int local_sched_init(void)
 	return 0;
 }
 
+static inline void set_task_wakeup_stat(struct task *task,
+			long ipccode, long pend_state, void *data)
+{
+	task->pend_stat = pend_state;
+	task->ipccode = ipccode;
+	task->stat = TASK_STAT_WAKING;
+	task->delay = 0;
+}
+
 int __wake_up(struct task *task, long ipccode, long pend_state, void *data)
 {
 	unsigned long flags;
 	uint32_t timeout;
+	int old;
 
 	ASSERT(task != NULL);
 	if (task == current)
@@ -501,8 +514,17 @@ int __wake_up(struct task *task, long ipccode, long pend_state, void *data)
 		return 0;
 	}
 
+	old = cmpxchg(&task->sched_stat, SCHED_STAT_ALLOW, SCHED_STAT_WAKEUPED);
+	if (old == SCHED_STAT_ALLOW) {
+		task->pend_stat = pend_state;
+		task->ipccode = ipccode;
+		task->delay = 0;
+		spin_unlock_irqrestore(&task->s_lock, flags);
+		return 0;
+	}
+
 	/*
-	 * the task may in sched() routine on other cpu
+	 * the task is in sched() now, task routine on other cpu
 	 * wait the task really out of running. since the task
 	 * will not preempt in the kernel space now, so the cpu
 	 * of the task will change to -1 at one time.
@@ -517,10 +539,10 @@ int __wake_up(struct task *task, long ipccode, long pend_state, void *data)
 	 * here this cpu got this task, and can set the new
 	 * state to running and run it again.
 	 */
+	timeout = task->delay;
 	task->pend_stat = pend_state;
 	task->ipccode = ipccode;
 	task->stat = TASK_STAT_WAKING;
-	timeout = task->delay;
 	task->delay = 0;
 
 	spin_unlock_irqrestore(&task->s_lock, flags);

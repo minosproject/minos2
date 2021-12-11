@@ -153,13 +153,26 @@ long wait_event(long *retcode)
 {
 	struct task *task = current;
 	long status = TASK_STAT_PEND_OK;
+	int old;
 
 	ASSERT(task->stat == TASK_STAT_WAIT_EVENT);
-	sched();
+
+	/*
+	 * the task's request has been finished, do not need to
+	 * sleep.
+	 */
+	old = cmpxchg(&task->sched_stat, SCHED_STAT_ALLOW,
+			SCHED_STAT_INSCHED);
+	if (old == SCHED_STAT_WAKEUPED) {
+		task->sched_stat = SCHED_STAT_ALLOW;
+		task->stat = TASK_STAT_RUNNING;
+		mb();
+	} else {
+		sched();
+	}
 
 	if (retcode != NULL)
 		*retcode = task->ipccode;
-
 	status = task->pend_stat;
 	task->ipccode = 0;
 	task->pend_stat = TASK_STAT_PEND_OK;

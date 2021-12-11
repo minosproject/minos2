@@ -14,6 +14,7 @@ struct iqueue {
 	struct list_head pending_list;
 	struct list_head processing_list;
 	struct task *recv_task;
+
 	struct kobject *kobj;
 };
 

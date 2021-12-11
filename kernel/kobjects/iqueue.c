@@ -26,6 +26,8 @@
 #define IQ_STAT_CLOSED 1
 #define IQ_STAT_OPENED 0
 
+#define KOBJ_IN_PROCESSING ((void *)-1)
+
 long iqueue_recv(struct iqueue *iqueue, void __user *data,
 		size_t data_size, size_t *actual_data, void __user *extra,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
@@ -34,9 +36,8 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 	long ret = 0, status = TASK_STAT_PEND_OK;
 	struct task *writer;
 
+	spin_lock(&iqueue->lock);
 	for (;;) {
-		spin_lock(&iqueue->lock);
-
 		/*
 		 * only one task can wait for data on the endpoint, if
 		 * there is already reading task, return -EBUSY.
@@ -62,6 +63,7 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 		if (!is_list_empty(&iqueue->pending_list)) {
 			pending = list_first_entry(&iqueue->pending_list, struct kobject, list);
 			list_del(&pending->list);
+			pending->list.next = KOBJ_IN_PROCESSING;
 		} else if (iqueue->writer_stat == IQ_STAT_CLOSED){
 			spin_unlock(&iqueue->lock);
 			return -EOTHERSIDECLOSED;
@@ -70,16 +72,15 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 			return -EAGAIN;
 		} else {
 			iqueue->recv_task = current;
-			__event_task_wait((unsigned long)iqueue, TASK_EVENT_ENDPOINT, timeout);
 		}
 
 		if (pending != NULL)
 			break;
 		else
-			spin_unlock(&iqueue->lock);
-
-		wait_event(&ret, &status);
+			status = wait_event_locked(iqueue->kobj->type,
+					timeout, &ret, &iqueue->lock);
 	}
+	spin_unlock(&iqueue->lock);
 
 	/*
 	 * read the data from this task. if the task's data is wrong
@@ -89,14 +90,20 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 	writer = (struct task *)pending->data;
 	ret = kobject_copy_ipc_payload(current, writer, actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
+		pending->list.next = NULL;
+		smp_wmb();
+
 		wake_up(writer, ret);
 		goto out;
 	}
 
+	spin_lock(&iqueue->lock);
+	ASSERT(pending->list.next == KOBJ_IN_PROCESSING);
 	list_add_tail(&iqueue->processing_list, &pending->list);
 	ret = (long)writer->wait_event;
 out:
 	spin_unlock(&iqueue->lock);
+
 	return ret;
 }
 
@@ -107,43 +114,55 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 	struct task *task;
 	long ret, status;
 
-	spin_lock(&iqueue->lock);
-
-	if (iqueue->reader_stat == IQ_STAT_CLOSED)
-		return -EOTHERSIDECLOSED;
-
 	/*
-	 * setup the information which the task need wait
-	 * for.
+	 * setup the information which the task need waitting for
+	 * for. If the kobject has been closed, return directly.
 	 */
+	spin_lock(&iqueue->lock);
+	if (iqueue->reader_stat == IQ_STAT_CLOSED) {
+		spin_unlock(&iqueue->lock);
+		return -EOTHERSIDECLOSED;
+	}
 	list_add_tail(&iqueue->pending_list, &current->kobj.list);
-	__event_task_wait(kobject_token(), TASK_EVENT_KOBJ_REPLY, timeout);
+	__event_task_wait(new_event_token(), TASK_EVENT_KOBJ_REPLY, timeout);
 	spin_unlock(&iqueue->lock);
 
 	/*
 	 * if the releated kobject event is not polled, try
 	 * to wake up the reading task.
+	 *
+	 * the case of wake up here is:
+	 * 1 - reader got the lock first, the recv_task will set
+	 * 2 - writer got the lock first, the reader can see the
+	 *     data which reader add.
+	 * so here do not need require the spinlock.
 	 */
 	ret = poll_event_send(ps, EV_IN);
 	if (ret == -EAGAIN) {
-		spin_lock(&iqueue->lock);
 		task = iqueue->recv_task;
 		if (task)
 			wake_up(task, 0);
-		spin_unlock(&iqueue->lock);
 	}
 
-	wait_event(&ret, &status);
-	if (!task_stat_pend_ok(status)) {
-		/*
-		 * the writer has been teminated or timedout, need delete
-		 * this request from the pending list or processing list.
-		 */
-		spin_lock(&iqueue->lock);
-		if (current->kobj.list.next != NULL)
-			list_del(&current->kobj.list);
-		spin_unlock(&iqueue->lock);
-	}
+	status = wait_event(&ret);
+	if (task_stat_pend_ok(status))
+		return ret;
+
+	/*
+	 * wait read task to finish the processing of this request.
+	 */
+	while (current->kobj.list.next != KOBJ_IN_PROCESSING)
+		cpu_relax();
+
+	/*
+	 * the writer has been teminated or timedout, need delete
+	 * this request from the pending list or processing list.
+	 */
+	spin_lock(&iqueue->lock);
+	ASSERT(current->kobj.list.next != KOBJ_IN_PROCESSING);
+	if (current->kobj.list.next != NULL)
+		list_del(&current->kobj.list);
+	spin_unlock(&iqueue->lock);
 
 	return ret;
 }

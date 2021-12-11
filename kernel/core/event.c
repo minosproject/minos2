@@ -21,6 +21,24 @@
 #include <minos/mm.h>
 #include <minos/smp.h>
 
+static atomic_t event_token = { 1 };
+static atomic_t event_token_gen = { 0 };
+
+uint32_t new_event_token(void)
+{
+	uint32_t value;
+
+	while (1) {
+		value = (uint32_t)atomic_inc_return_old(&event_token);
+		if (value == 0)
+			atomic_inc(&event_token_gen);
+		else
+			break;
+	}
+
+	return value;
+}
+
 void event_init(struct event *event, int type, void *pdata)
 {
 	event->type = type;
@@ -131,19 +149,34 @@ void event_pend_down(struct task *task)
 	task->wait_type = 0;
 }
 
-void wait_event(long *retcode, long *status)
+long wait_event(long *retcode)
 {
 	struct task *task = current;
+	long status = TASK_STAT_PEND_OK;
 
 	ASSERT(task->stat == TASK_STAT_WAIT_EVENT);
-
 	sched();
 
 	if (retcode != NULL)
 		*retcode = task->ipccode;
-	if (status != NULL)
-		*status = task->pend_stat;
 
+	status = task->pend_stat;
 	task->ipccode = 0;
 	task->pend_stat = TASK_STAT_PEND_OK;
+
+	return status;
+}
+
+long wait_event_locked(int ev, uint32_t timeout, long *retcode,
+		spinlock_t *lock)
+{
+	long status;
+
+	__event_task_wait(new_event_token(), ev, timeout);
+
+	if (lock) spin_unlock(lock);
+	status = wait_event(retcode);
+	if (lock) spin_lock(lock);
+
+	return status;
 }

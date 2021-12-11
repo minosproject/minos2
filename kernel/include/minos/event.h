@@ -2,6 +2,7 @@
 #define __MINOS_EVENT_H__
 
 #include <minos/preempt.h>
+#include <minos/types.h>
 
 #define OS_EVENT_TYPE_UNUSED	0
 #define OS_EVENT_TYPE_MBOX	1
@@ -43,7 +44,10 @@ void event_task_wait(void *ev, int stat, uint32_t to);
 void __event_task_wait(unsigned long token, int mode, uint32_t to);
 void event_pend_down(struct task *task);
 
-void wait_event(long *retcode, long *status);
+uint32_t new_event_token(void);
+long wait_event(long *retcode);
+long wait_event_locked(int ev, uint32_t timeout, long *retcode,
+		spinlock_t *lock);
 
 static inline int event_has_waiter(struct event *ev)
 {

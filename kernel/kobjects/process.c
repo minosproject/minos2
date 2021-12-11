@@ -230,7 +230,7 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 {
 	struct iqueue *iqueue = &proc->iqueue;
 	struct task *task = current;
-	uint32_t token = kobject_token();
+	uint32_t token = new_event_token();
 	long ret;
 
 	spin_lock(&iqueue->lock);
@@ -250,7 +250,7 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 	 * handle page_fault fail, then the ret is the handle
 	 * of this process in root service.
 	 */
-	wait_event(&ret, NULL);
+	wait_event(&ret);
 
 	return ret;
 }

@@ -94,7 +94,7 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 out:
 	spin_unlock(&ft->lock);
 	if (ret)
-		wait_event(&ret, NULL);
+		wait_event(&ret);
 
 	return ret;
 }

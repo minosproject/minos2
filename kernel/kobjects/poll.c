@@ -168,7 +168,7 @@ static int __poll_hub_read(struct poll_hub *peh,
 			 * other process will not see it, so do not need to
 			 * consider the case of EABORT
 			 */
-			wait_event(&ret, &status);
+			status = wait_event(&ret);
 			if (!task_stat_pend_ok(status)) {
 				peh->task = NULL;
 				return ret;

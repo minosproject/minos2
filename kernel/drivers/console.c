@@ -132,7 +132,7 @@ repeat:
 		spin_unlock_irqrestore(&inbuf_lock, flags);
 
 		if (inbuf_task) {
-			wait_event(&copy, NULL);
+			wait_event(&copy);
 			inbuf_task = NULL;
 			if (copy < 0)
 				return copy;

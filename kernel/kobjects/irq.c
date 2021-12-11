@@ -74,7 +74,7 @@ out:
 	if (!wait)
 		return ret;
 
-	wait_event(&ret, &status);
+	status = wait_event(&ret);
 	if (task_stat_pend_abort(status)) {
 		spin_lock_irqsave(&idesc->lock, flags);
 		idesc->owner = 0;

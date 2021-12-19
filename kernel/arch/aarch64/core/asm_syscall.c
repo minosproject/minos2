@@ -149,6 +149,11 @@ static void __sys_grant(gp_regs *regs)
 			(int)regs->x3);
 }
 
+static void __sys_mtrans(gp_regs *regs)
+{
+	regs->x0 = sys_mtrans((unsigned long)regs->x0);
+}
+
 static syscall_handler_t __syscall_table[] = {
 	[0 ... __NR_syscalls] 		= aarch64_syscall_unsupport,
 
@@ -169,6 +174,7 @@ static syscall_handler_t __syscall_table[] = {
 
 	[__NR_map]			= __sys_map,
 	[__NR_unmap]			= __sys_unmap,
+	[__NR_trans]			= __sys_mtrans,
 };
 
 void aarch64_do_syscall(gp_regs *regs)

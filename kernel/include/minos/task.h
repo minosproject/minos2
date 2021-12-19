@@ -15,6 +15,8 @@
 #define TASK_RUN_TIME 100
 #endif
 
+struct process;
+
 static int inline task_is_idle(struct task *task)
 {
 	return (task->flags & TASK_FLAGS_IDLE);
@@ -67,6 +69,8 @@ static inline int task_need_resched(struct task *task)
 #define task_stat_pend_abort(status)	\
 	((status) == TASK_STAT_PEND_ABORT)
 
+#define task_to_proc(task) (task)->proc
+
 void task_stop(void);
 void release_task(struct task *task);
 void do_release_task(struct task *task);
@@ -77,9 +81,9 @@ int kill(struct task *task, int signal);
 struct task *get_task_by_tid(tid_t tid);
 void clear_task_by_tid(tid_t tid);
 
-struct task *create_task(char *name, task_func_t func,
-		void *user_sp, int prio, int aff,
-		unsigned long opt, void *arg);
+struct task *create_task(char *name, task_func_t func, void *user_sp,
+		int prio, int aff, unsigned long opt,
+		struct process *proc, void *arg);
 
 #define task_lock(task)						\
 	do {							\

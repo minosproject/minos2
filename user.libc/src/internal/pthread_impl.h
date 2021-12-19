@@ -33,6 +33,7 @@ struct pthread {
 
 	/* Part 2 -- implementation details, non-ABI. */
 	int tid;
+	int handle;
 	int errno_val;
 	volatile int detach_state;
 	volatile int cancel;
@@ -203,5 +204,7 @@ extern hidden unsigned __default_guardsize;
 #define DEFAULT_GUARD_MAX (1<<20)
 
 #define __ATTRP_C11_THREAD ((void*)(uintptr_t)-1)
+
+#define self_handle() __pthread_self()->handle
 
 #endif

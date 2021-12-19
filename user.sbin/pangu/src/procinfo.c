@@ -15,7 +15,6 @@
 #include <assert.h>
 
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/types.h>
 #include <minos/debug.h>
 #include <minos/list.h>

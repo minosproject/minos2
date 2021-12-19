@@ -12,3 +12,8 @@ int sys_unmap(int proc, int pma, unsigned long base, size_t size)
 {
 	return syscall(SYS_unmap, proc, pma, base, size);
 }
+
+unsigned long sys_mtrans(unsigned long virt)
+{
+	return syscall(SYS_mtrans, virt);
+}

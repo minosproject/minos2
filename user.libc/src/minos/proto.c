@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "stdio_impl.h"
+#include "pthread_impl.h"
 #include <sys/epoll.h>
 
 #include <minos/proto.h>
@@ -96,5 +97,5 @@ void i_am_ok(void)
 	struct proto proto;
 
 	proto.proto_id = PROTO_IAMOK;
-	kobject_write(0, &proto, PROTO_SIZE, NULL, 0, -1);
+	kobject_write(self_handle(), &proto, PROTO_SIZE, NULL, 0, -1);
 }

@@ -4,6 +4,8 @@
 #include <minos/proto.h>
 #include <minos/kobject.h>
 
+#include "pthread_impl.h"
+
 static void dummy(void) { }
 weak_alias(dummy, __vm_wait);
 
@@ -16,7 +18,7 @@ int __munmap(void *start, size_t len)
 	proto.munmap.len = len;
 	__vm_wait();
 
-	return __syscall_ret(kobject_write(0, &proto,
+	return __syscall_ret(kobject_write(self_handle(), &proto,
 				sizeof(struct proto), NULL, 0, -1));
 }
 

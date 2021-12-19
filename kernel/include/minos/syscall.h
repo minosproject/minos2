@@ -32,6 +32,8 @@ extern int sys_unmap(handle_t proc_handle, handle_t pma_handle,
 extern int sys_map(handle_t proc_handle, handle_t pma_handle,
 		unsigned long virt, size_t size, right_t right);
 
+extern unsigned long sys_mtrans(unsigned long virt);
+
 extern handle_t sys_grant(handle_t proc, handle_t handle,
 		right_t right, int release);
 

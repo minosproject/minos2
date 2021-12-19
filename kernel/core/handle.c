@@ -405,7 +405,7 @@ int init_proc_handles(struct process *proc)
 		return -ENOMEM;
 
 	/*
-	 * process kobj is 0, process can use this handle
+	 * Main task kobj is 0, process can use this handle
 	 * to control itself.
 	 *
 	 * stdout stdin and stderr will provided by kernel, for process
@@ -413,7 +413,8 @@ int init_proc_handles(struct process *proc)
 	 * handle [2] is stdin
 	 * handle [3] is stderr
 	 */
-	handle = __alloc_handle(proc, &proc->kobj, KOBJ_RIGHT_WRITE | KOBJ_RIGHT_CTL);
+	handle = __alloc_handle(proc, &proc->head->kobj,
+			KOBJ_RIGHT_WRITE | KOBJ_RIGHT_CTL);
 	ASSERT(handle == 0);
 	handle = __alloc_handle(proc, &stdio_kobj, KOBJ_RIGHT_READ);
 	ASSERT(handle == 1);

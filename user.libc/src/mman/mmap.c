@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include "syscall.h"
+#include "pthread_impl.h"
 
 #include <minos/proto.h>
 #include <minos/kobject.h>
@@ -39,7 +40,7 @@ void *__mmap(void *start, size_t len, int prot, int flags, int fd, off_t off)
 		__vm_wait();
 	}
 
-	ret = kobject_write(0, &proto, sizeof(struct proto), NULL, 0, -1);
+	ret = kobject_write(self_handle(), &proto, sizeof(struct proto), NULL, 0, -1);
 
 	/* Fixup incorrect EPERM from kernel. */
 	if (ret == -EPERM && !start && (flags&MAP_ANON) && !(flags&MAP_FIXED))

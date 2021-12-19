@@ -13,7 +13,6 @@
 #include <sys/epoll.h>
 
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/proto.h>
 
@@ -42,12 +41,12 @@ static int nvwa_pma_init(int pma_handle, size_t size)
 
 static int unmap_elf_memory(int pma_handle, size_t size)
 {
-	return sys_unmap(0, pma_handle, MAPPING_BASE, size);
+	return sys_unmap(-1, pma_handle, MAPPING_BASE, size);
 }
 
 static int map_elf_memory(int pma_handle, size_t size, int perm)
 {
-	return sys_map(0, pma_handle, MAPPING_BASE, size, perm);
+	return sys_map(-1, pma_handle, MAPPING_BASE, size, perm);
 }
 
 static int __handle_elf_request(struct nvwa_proto *proto,

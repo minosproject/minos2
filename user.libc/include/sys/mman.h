@@ -140,6 +140,10 @@ int mincore (void *, size_t, unsigned char *);
 int shm_open (const char *, int, mode_t);
 int shm_unlink (const char *);
 
+int sys_map(int proc, int pma, unsigned long base, size_t size, int right);
+int sys_unmap(int proc, int pma, unsigned long base, size_t size);
+unsigned long sys_mtrans(unsigned long virt);
+
 #if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)
 #define mmap64 mmap
 #define off64_t off_t

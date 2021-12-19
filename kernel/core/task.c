@@ -19,6 +19,7 @@
 #include <minos/mm.h>
 #include <minos/atomic.h>
 #include <minos/task.h>
+#include <minos/proc.h>
 
 static DEFINE_SPIN_LOCK(tid_lock);
 static DECLARE_BITMAP(tid_map, OS_NR_TASKS);
@@ -100,8 +101,9 @@ static void task_timeout_handler(unsigned long data)
 }
 
 static void task_init(struct task *task, char *name,
-		void *stack, uint32_t stk_size, void *arg,
-		int prio, int tid, int aff, unsigned long opt)
+		void *stack, uint32_t stk_size, int prio,
+		int tid, int aff, unsigned long opt,
+		struct process *proc, void *arg)
 {
 	int cpu;
 
@@ -121,9 +123,9 @@ static void task_init(struct task *task, char *name,
 	cpu = (aff == TASK_AFF_ANY) ? 0 : aff;
 
 	task->cpu = -1;
-	task->pdata = arg;
 	task->tid = tid;
 	task->prio = prio;
+	task->proc = proc;
 	task->pend_stat = 0;
 	task->flags = opt;
 	task->pdata = arg;
@@ -167,6 +169,7 @@ static struct task *do_create_task(char *name,
 				  int tid,
 				  int aff,
 				  unsigned long opt,
+				  struct process *proc,
 				  void *arg)
 {
 	size_t stk_size = PAGE_BALIGN(ssize);
@@ -193,8 +196,8 @@ static struct task *do_create_task(char *name,
 	os_task_table[tid] = task;
 	atomic_inc(&os_task_nr);
 
-	task_init(task, name, stack, stk_size, arg,
-			prio, tid, aff, opt);
+	task_init(task, name, stack, stk_size, prio,
+			tid, aff, opt, proc, arg);
 
 	return task;
 }
@@ -255,13 +258,11 @@ void release_task(struct task *task)
 			task->tid, task->name);
 
 	/*
-	 * if this task is belong to a process, just call
-	 * the kobject_put() to dec the process kobject
-	 * reference count.
+	 * if this task is belong to a process, just do
+	 * nothing, otherwise it means this task is kernel
+	 * task, release the task directly.
 	 */
-	if (task->proc)
-		kobject_put(&task->proc->kobj);
-	else
+	if (!task->proc)
 		do_release_task(task);
 }
 
@@ -272,6 +273,7 @@ struct task *__create_task(char *name,
 			int prio,
 			int aff,
 			unsigned long opt,
+			struct process *proc,
 			void *arg)
 {
 	struct task *task;
@@ -296,7 +298,7 @@ struct task *__create_task(char *name,
 	preempt_disable();
 
 	task = do_create_task(name, func, stk_size, prio,
-			tid, aff, opt, arg);
+			tid, aff, opt, proc, arg);
 	if (!task) {
 		release_tid(tid);
 		preempt_enable();
@@ -329,6 +331,7 @@ struct task *create_task(char *name,
 		int prio,
 		int aff,
 		unsigned long opt,
+		struct process *proc,
 		void *arg)
 {
 	if (prio < 0) {
@@ -342,8 +345,8 @@ struct task *create_task(char *name,
 			prio = OS_PRIO_DEFAULT;
 	}
 
-	return __create_task(name, func, user_sp,
-			TASK_STACK_SIZE, prio, aff, opt, arg);
+	return __create_task(name, func, user_sp, TASK_STACK_SIZE,
+			prio, aff, opt, proc, arg);
 }
 
 int create_idle_task(void)
@@ -363,8 +366,8 @@ int create_idle_task(void)
 	atomic_inc(&os_task_nr);
 	sprintf(task_name, "idle@%d", aff);
 
-	task_init(task, task_name, NULL, 0, NULL, OS_PRIO_IDLE,
-			tid, aff, TASK_FLAGS_IDLE | TASK_FLAGS_KERNEL);
+	task_init(task, task_name, NULL, 0, OS_PRIO_IDLE, tid, aff,
+			TASK_FLAGS_IDLE | TASK_FLAGS_KERNEL, NULL, NULL);
 
 	task->stack_top = (void *)ptov(minos_stack_top) - (aff << CONFIG_TASK_STACK_SHIFT);
 	task->stack_bottom = task->stack_top - CONFIG_TASK_STACK_SIZE;
@@ -434,7 +437,7 @@ int create_percpu_tasks(char *name, task_func_t func,
 		return -EINVAL;
 
 	for_each_online_cpu(cpu) {
-		ret = create_task(name, func, NULL, prio, cpu, flags, pdata);
+		ret = create_task(name, func, NULL, prio, cpu, flags, NULL, pdata);
 		if (ret == NULL)
 			pr_err("create [%s] fail on cpu%d\n", name, cpu);
 	}

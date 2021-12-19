@@ -13,7 +13,6 @@
 #include <assert.h>
 
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/list.h>
 #include <minos/proto.h>
@@ -206,7 +205,7 @@ static int load_chiyou_service(void)
 	 * data, each driver or service will get information
 	 * from it.
 	 */
-	pbase = (unsigned long)kobject_ctl(0, KOBJ_PROCESS_VA2PA, bootdata->dtb_start);
+	pbase = sys_mtrans(bootdata->dtb_start);
 	assert(pbase != -1);
 
 	args.type = PMA_TYPE_PMEM;
@@ -310,7 +309,7 @@ int main(int argc, char **argv)
 	of_init(bootdata->dtb_start, bootdata->dtb_end);
 	procinfo_init(bootdata->max_proc, bootdata->uproc_info_handle,
 			bootdata->ktask_stat_handle);
-	self_init(bootdata->vmap_start, bootdata->vmap_end);
+	self_init(bootdata->proc_handle, bootdata->vmap_start, bootdata->vmap_end);
 
 	/*
 	 * create the epoll fd for pangu, pangu will use this handle

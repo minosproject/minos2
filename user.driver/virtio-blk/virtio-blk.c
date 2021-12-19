@@ -7,13 +7,13 @@
 #include <string.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <sys/mman.h>
 
 #include <minos/debug.h>
 #include <minos/list.h>
 #include <minos/types.h>
 #include <minos/sched.h>
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/proto.h>
 #include <minos/service.h>
 #include <minos/device.h>

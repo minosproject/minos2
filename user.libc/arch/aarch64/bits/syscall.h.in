@@ -13,6 +13,7 @@
 #define __NR_yield 12
 #define __NR_map 13
 #define __NR_unmap 14
+#define __NR_mtrans 15
 
 /*
  * the below syscall will be delete later

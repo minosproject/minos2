@@ -49,10 +49,7 @@ int kobject_get(struct kobject *kobj)
 		return 0;
 
 	old = atomic_inc_if_postive(&kobj->ref);
-	if (old < 0) {
-		pr_err("%s: wrong refcount %d 0x%p\n", __func__, old, kobj);
-		return 0;
-	}
+	ASSERT(old >= 0);
 
 	return 1;
 }
@@ -65,10 +62,7 @@ int kobject_put(struct kobject *kobj)
 		return 0;
 
 	old = atomic_dec_set_negtive_if_zero(&kobj->ref);
-	if (old <= 0) {
-		pr_err("%s: wrong refcount %d 0x%p\n", __func__, old, kobj);
-		return 0;
-	}
+	ASSERT(old > 0);
 
 	/*
 	 * if the old value is 1, then release the kobject.

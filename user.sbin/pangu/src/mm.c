@@ -14,7 +14,6 @@
 #include <minos/debug.h>
 #include <minos/list.h>
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/proto.h>
 
 #include <pangu/kmalloc.h>

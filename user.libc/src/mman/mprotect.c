@@ -1,6 +1,7 @@
 #include <sys/mman.h>
 #include "libc.h"
 #include "syscall.h"
+#include "pthread_impl.h"
 
 #include <minos/proto.h>
 #include <minos/kobject.h>
@@ -17,7 +18,7 @@ int __mprotect(void *addr, size_t len, int prot)
 	proto.mprotect.len = end - start;
 	proto.mprotect.prot = prot;
 
-	return kobject_write(0, &proto,
+	return kobject_write(self_handle(), &proto,
 			sizeof(struct proto), NULL, 0, -1);
 }
 

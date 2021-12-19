@@ -15,7 +15,6 @@
 #include <assert.h>
 
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/list.h>
 #include <minos/proto.h>
@@ -430,7 +429,7 @@ void wakeup_process(struct process *proc)
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 }
 
-void self_init(unsigned long vma_base, unsigned long vma_end)
+void self_init(int proc_handle, unsigned long vma_base, unsigned long vma_end)
 {
 	/*
 	 * init the root service
@@ -445,7 +444,7 @@ void self_init(unsigned long vma_base, unsigned long vma_end)
 	init_list(&self->vma_used);
 	init_list(&self->children);
 	init_list(&self->wait_head);
-	self->proc_handle = 0;
+	self->proc_handle = proc_handle;
 
 	vma = kzalloc(sizeof(struct vma));
 	if (!vma)

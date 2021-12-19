@@ -19,9 +19,10 @@
 
 #define __NR_map 13
 #define __NR_unmap 14
+#define __NR_trans 15
 
 #undef __NR_syscalls
-#define __NR_syscalls 15
+#define __NR_syscalls 16
 
 struct syscall_regs {
 	unsigned long regs[8];

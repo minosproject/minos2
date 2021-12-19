@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/mman.h>
 #include <minos/debug.h>
 #include <minos/kobject.h>
 #include <minos/types.h>
@@ -66,7 +67,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 	memset(page_virt, 0, memsize);
 	virtq->len = len;
 	virtq->vq_virt = (unsigned long)page_virt;
-	virtq->vq_phys = kobject_ctl(0, KOBJ_PROCESS_VA2PA, (unsigned long)page_virt);
+	virtq->vq_phys = sys_mtrans((unsigned long)page_virt);
 	if (virtq->vq_phys == -1) {
 		free(virtq);
 		kobject_close(pma_handle);
@@ -98,8 +99,7 @@ uint32_t virtq_alloc_desc(struct virtqueue *virtq, void *addr)
 		printf("ran out of virtqueue descriptors\n");
 	virtq->free_desc = next;
 
-	virtq->desc[desc].addr = kobject_ctl(0, KOBJ_PROCESS_VA2PA,
-			(unsigned long)addr);
+	virtq->desc[desc].addr = sys_mtrans((unsigned long)addr);
 	if (virtq->desc[desc].addr == -1) {
 		pr_err("translate VA to PA failed\n");
 		exit(-EFAULT);

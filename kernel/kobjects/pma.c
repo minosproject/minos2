@@ -197,52 +197,6 @@ static void *__sys_pma_map(struct pma *p, struct process *proc,
 	return (void *)pme->virt;
 }
 
-int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
-		unsigned long virt, size_t size, right_t right)
-{
-	struct kobject *kobj_proc;
-	struct kobject *kobj_pma;
-	right_t right_proc, right_pma;
-	int ret = -EACCES;
-	void *addr;
-
-	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))
-		return -ENOENT;
-
-	/*
-	 * only the root service can map a pma to other process's
-	 * vspace.
-	 */
-	if ((proc_handle != 0) && !proc_is_root(current_proc))
-		return -EPERM;
-
-	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
-	if (ret)
-		return -ENOENT;
-
-	ret = get_kobject(pma_handle, &kobj_pma, &right_pma);
-	if (ret) {
-		put_kobject(kobj_proc);
-		return -ENOENT;
-	}
-
-	if ((kobj_proc->type != KOBJ_TYPE_PROCESS) ||
-			(kobj_pma->type != KOBJ_TYPE_PMA)) {
-		ret = -EBADF;
-		goto out;
-	}
-
-	addr = __sys_pma_map((struct pma *)kobj_pma->data,
-			(struct process *)kobj_proc->data, virt, size);
-	if (IS_ERROR_PTR(addr))
-		ret = (int)(unsigned long)addr;
-out:
-	put_kobject(kobj_proc);
-	put_kobject(kobj_pma);
-
-	return ret;
-}
-
 static int __sys_pma_unmap(struct pma *p, struct process *proc,
 		unsigned long virt, size_t size)
 {
@@ -270,43 +224,77 @@ static int __sys_pma_unmap(struct pma *p, struct process *proc,
 	return 0;
 }
 
-int sys_unmap_pma(handle_t proc_handle, handle_t pma_handle,
-		unsigned long virt, size_t size)
+static int sys_handle_pma(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size, right_t right, int map)
 {
-	struct kobject *kobj_proc;
-	struct kobject *kobj_pma;
 	right_t right_proc, right_pma;
-	int ret;
+	struct kobject *kobj_proc = NULL;
+	struct kobject *kobj_pma = NULL;
+	struct process *proc;
+	int ret = -EACCES;
+	void *addr;
 
-	if ((proc_handle != 0) && !proc_is_root(current_proc))
-		return -EPERM;
+	/*
+	 * only the root service can map a pma to other process's
+	 * vspace.
+	 */
+	if (proc_handle != -1) {
+		if (!proc_is_root(current_proc))
+			return -EPERM;
 
-	if (WRONG_HANDLE(proc_handle) || WRONG_HANDLE(pma_handle))
-		return -ENOENT;
+		ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
+		if (ret)
+			return -ENOENT;
 
-	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
-	if (ret)
-		return -ENOENT;
+		if (kobj_proc->type != KOBJ_TYPE_PROCESS) {
+			kobject_put(kobj_proc);
+			return -EBADF;
+		}
+		proc = (struct process *)kobj_proc->data;
+	} else {
+		proc = current_proc;
+	}
 
 	ret = get_kobject(pma_handle, &kobj_pma, &right_pma);
 	if (ret) {
-		put_kobject(kobj_proc);
-		return -ENOENT;
+		ret = -ENOENT;
+		goto out_pma_kobj;
 	}
 
-	if ((kobj_proc->type != KOBJ_TYPE_PROCESS) ||
-			(kobj_pma->type != KOBJ_TYPE_PMA)) {
+	if (kobj_pma->type != KOBJ_TYPE_PMA) {
 		ret = -EBADF;
 		goto out;
 	}
 
-	ret = __sys_pma_unmap((struct pma *)kobj_pma->data,
-			(struct process *)kobj_proc->data, virt, size);
+	if (map) {
+		addr = __sys_pma_map((struct pma *)kobj_pma->data, proc,
+				virt, size);
+		if (IS_ERROR_PTR(addr))
+			ret = (int)(unsigned long)addr;
+	} else {
+		ret = __sys_pma_unmap((struct pma *)kobj_pma->data, proc,
+				virt, size);
+	}
+
 out:
-	put_kobject(kobj_proc);
 	put_kobject(kobj_pma);
+out_pma_kobj:
+	if (kobj_proc)
+		put_kobject(kobj_proc);
 
 	return ret;
+}
+
+int sys_map_pma(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size, right_t right)
+{
+	return sys_handle_pma(proc_handle, pma_handle, virt, size, right, 1);
+}
+
+int sys_unmap_pma(handle_t proc_handle, handle_t pma_handle,
+		unsigned long virt, size_t size)
+{
+	return sys_handle_pma(proc_handle, pma_handle, virt, size, 0, 0);
 }
 
 static void pma_release(struct kobject *kobj)

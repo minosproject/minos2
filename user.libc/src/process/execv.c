@@ -8,6 +8,8 @@
 #include <minos/proto.h>
 #include <minos/types.h>
 
+#include "pthread_impl.h"
+
 static int setup_argv(struct execv_extra *extra, char *const argv[])
 {
 	int left = PAGE_SIZE - sizeof(struct execv_extra);
@@ -61,7 +63,8 @@ int execv(const char *path, char *const argv[])
 	strcpy(extra->path, path);
 
 	proto.proto_id = PROTO_EXECV;
-	ret = kobject_write(0, &proto, PROTO_SIZE, extra, PAGE_SIZE, -1);
+	ret = kobject_write(self_handle(), &proto, PROTO_SIZE,
+			extra, PAGE_SIZE, -1);
 out:
 	free(extra);
 	return ret;

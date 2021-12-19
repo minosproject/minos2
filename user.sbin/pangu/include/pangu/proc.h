@@ -95,7 +95,7 @@ struct process_proto;
 typedef long (*proc_event_handle_t)(struct process *proc,
 		struct process_proto *proto, void *data, size_t size);
 
-void self_init(unsigned long vma_base, unsigned long vma_end);
+void self_init(int proc_handle, unsigned long vma_base, unsigned long vma_end);
 
 void *map_self_memory(int pma_handle, size_t size, int perm);
 

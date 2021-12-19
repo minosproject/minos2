@@ -13,7 +13,6 @@
 #include <sys/epoll.h>
 
 #include <minos/kobject.h>
-#include <minos/map.h>
 #include <minos/debug.h>
 #include <minos/proto.h>
 #include <minos/service.h>

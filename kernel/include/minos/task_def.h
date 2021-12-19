@@ -135,6 +135,7 @@ struct task {
 	 * the next task belongs to the same process
 	 */
 	struct task *next;
+	struct process *proc;
 
 	/*
 	 * the spinlock will use to protect the below member
@@ -190,7 +191,6 @@ struct task {
 
 	union {
 		void *pdata;			// the private data of this task, such as vcpu.
-		struct process *proc;
 #ifdef CONFIG_VIRT
 		struct vcpu *vcpu;
 #endif

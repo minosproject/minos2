@@ -363,6 +363,10 @@ static int sys_map_anon(handle_t proc_handle, unsigned long virt,
 	if (right & KOBJ_RIGHT_EXEC)
 		flags |= __VM_EXEC;
 
+	/*
+	 * only root service can call this function, so the
+	 * proc_handle will awlays bigger than 0.
+	 */
 	ret = get_kobject(proc_handle, &kobj_proc, &right_proc);
 	if (ret)
 		return -ENOENT;
@@ -433,6 +437,21 @@ int sys_unmap(handle_t proc_handle, handle_t pma_handle,
 		return sys_unmap_anon(proc_handle, virt, size);
 	else
 		return sys_unmap_pma(proc_handle, pma_handle, virt, size);
+}
+
+unsigned long sys_mtrans(unsigned long virt)
+{
+	unsigned long addr;
+
+	if (!user_ranges_ok((void *)virt, sizeof(unsigned long)))
+		return -EFAULT;
+
+	if (!proc_can_vmctl(current_proc))
+		return -EPERM;
+
+	addr = translate_va_to_pa(&current_proc->vspace, virt);
+
+	return (addr == 0 ? -1 : addr);
 }
 
 static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int write)

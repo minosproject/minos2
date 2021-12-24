@@ -75,7 +75,7 @@ out:
 		return ret;
 
 	status = wait_event(&ret);
-	if (task_stat_pend_abort(status)) {
+	if (!task_stat_pend_ok(status)) {
 		spin_lock_irqsave(&idesc->lock, flags);
 		idesc->owner = 0;
 		spin_unlock_irqrestore(&idesc->lock, flags);
@@ -91,15 +91,7 @@ static long irq_kobj_write(struct kobject *kobj, void __user *data,
 		size_t extra_size, uint32_t timeout)
 {
 	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
-
-	if (test_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags))
-		pr_warn("irq %d state not correct\n", idesc->hno);
-
-	/*
-	 * currently only support EOImode = 1.
-	 */
-	irq_dir(idesc->hno);
-
+	irq_unmask(idesc->hno);
 	return 0;
 }
 

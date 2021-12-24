@@ -73,6 +73,8 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 
 	ASSERT(idesc != NULL);
 
+	irq_mask(irq);
+
 	/*
 	 * Whether this irq has been listened. If this irq is polled
 	 * by one process, just send an event to the task.
@@ -109,13 +111,14 @@ static int do_handle_host_irq(int cpuid, struct irq_desc *irq_desc)
 	}
 
 	ret = irq_desc->handler(irq_desc->hno, irq_desc->pdata);
+	irq_chip->irq_eoi(irq_desc->hno);
 out:
 	/*
 	 * 1: if the hw irq is to vcpu do not DIR it.
 	 * 2: if the hw irq is to vcpu but failed to send then DIR it.
 	 * 3: if the hw irq is to userspace process, do not DIR it.
 	 */
-	if (ret || !(irq_desc->flags & IRQ_FLAGS_RECEIVER_MASK))
+	if (ret || !(irq_desc->flags & IRQ_FLAGS_VCPU))
 		irq_chip->irq_dir(irq_desc->hno);
 
 	return ret;
@@ -243,11 +246,10 @@ int do_irq_handler(void)
 		if (irq >= BAD_IRQ)
 			return 0;
 
-		irq_chip->irq_eoi(irq);
-
 		irq_desc = get_irq_desc_cpu(cpuid, irq);
 		if (unlikely(!irq_desc)) {
 			pr_err("irq is not actived %d\n", irq);
+			irq_chip->irq_eoi(irq);
 			irq_chip->irq_dir(irq);
 			continue;
 		}

@@ -148,11 +148,6 @@ struct task {
 	int stat;
 	long pend_stat;
 	long request;
-#define SCHED_STAT_OFF 0
-#define SCHED_STAT_WAKEUPED 1
-#define SCHED_STAT_INSCHED 2
-#define SCHED_STAT_ALLOW 3
-	int sched_stat;
 
 	/*
 	 * below data used for userspace ipc and event.

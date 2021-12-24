@@ -368,9 +368,14 @@ static int __init_text gicv2_init(struct device_node *node)
 		array[0], array[1], array[2], array[3],
 		array[4], array[5], array[6], array[7]);
 
+	ASSERT((array[0] != 0) && (array[1] != 0))
 	gicv2_dbase = io_remap((virt_addr_t)array[0], (size_t)array[1]);
+	ASSERT((array[2] != 0) && array[3] !=0);
 	gicv2_cbase = io_remap((virt_addr_t)array[2], (size_t)array[3]);
+#ifdef CONFIG_VIRT
+	ASSERT((array[4] != 0) && (array[5] != 0))
 	gicv2_hbase = io_remap((virt_addr_t)array[4], (size_t)array[5]);
+#endif
 
 	if (gicv2_is_aliased((unsigned long)array[2],
 				(unsigned long)array[3])) {

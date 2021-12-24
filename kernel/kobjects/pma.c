@@ -97,12 +97,19 @@ static int pma_mmap(struct kobject *kobj, right_t right,
 		void **addr, unsigned long *msize)
 {
 	struct pma *p = (struct pma *)kobj->data;
+	unsigned long vstart, pstart, size;
 
 	if (!p->pstart)
 		return -EPERM;
 
-	if (map_process_memory(current_proc, pa2sva(p->pstart), p->psize,
-				p->pstart, p->vmflags))
+	/*
+	 * TBD
+	 */
+	vstart = PAGE_ALIGN(pa2sva(p->pstart));
+	pstart = PAGE_ALIGN(p->pstart);
+	size = PAGE_BALIGN(p->pstart + p->psize) - pstart;
+
+	if (map_process_memory(current_proc, vstart, size, pstart, p->vmflags))
 		return -EFAULT;
 
 	*addr = (void *)pa2sva(p->pstart);
@@ -114,12 +121,15 @@ static int pma_mmap(struct kobject *kobj, right_t right,
 static int pma_munmap(struct kobject *kobj, right_t right)
 {
 	struct pma *p = (struct pma *)kobj->data;
+	unsigned long vstart, size;
 
 	if (!p->pstart)
 		return -EPERM;
-	else
-		return unmap_process_memory(current_proc,
-				pa2sva(p->pstart), p->psize);
+
+	vstart = PAGE_ALIGN(pa2sva(p->pstart));
+	size = PAGE_BALIGN(vstart + p->psize) - vstart;
+
+	return unmap_process_memory(current_proc, vstart, size);
 }
 
 static int pma_close(struct kobject *kobj, right_t right,
@@ -496,7 +506,6 @@ static int __create_new_pma(struct kobject **kobj,
 	if (!p)
 		return -ENOMEM;
 
-	args->size = PAGE_BALIGN(args->size);
 	p->vmflags = pma_flags(args->type, args->right);
 	if (fixup_pmem) {
 		if (args->size == 0)

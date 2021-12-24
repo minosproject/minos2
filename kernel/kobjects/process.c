@@ -192,7 +192,7 @@ void process_die(void)
 
 	if (proc_is_root(current_proc)) {
 		pr_fatal("root service exit 0x%x %d\n", regs->pc, regs->x0);
-		panic("root service hang, system crash");
+		panic("root service hang, system crash\n");
 	}
 
 	request_process_stop(current_proc, 0);

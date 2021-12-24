@@ -35,7 +35,7 @@ struct virtqueue *virtq_create(virtio_regs *regs, uint32_t len)
 
 	max_queue_size = READ32(regs->QueueNumMax);
 	if (len > max_queue_size) {
-		printf("virtio queue size not ready or too big %d %d\n",
+		pr_warn("virtio queue size not ready or too big %d %d\n",
 				len, max_queue_size);
 		len = max_queue_size;
 	}
@@ -96,7 +96,7 @@ uint32_t virtq_alloc_desc(struct virtqueue *virtq, void *addr)
 	uint32_t desc = virtq->free_desc;
 	uint32_t next = virtq->desc[desc].next;
 	if (desc == virtq->len)
-		printf("ran out of virtqueue descriptors\n");
+		pr_err("ran out of virtqueue descriptors\n");
 	virtq->free_desc = next;
 
 	virtq->desc[desc].addr = sys_mtrans((unsigned long)addr);
@@ -173,9 +173,9 @@ void virtq_show(struct virtqueue *virtq)
 {
 	int count = 0;
 	uint32_t i = virtq->free_desc;
-	printf("Current free_desc: %lu, len=%lu\n", virtq->free_desc, virtq->len);
+	pr_info("Current free_desc: %lu, len=%lu\n", virtq->free_desc, virtq->len);
 	while (i != virtq->len && count++ <= virtq->len) {
-		printf("  next: %u -> %u\n", i, virtq->desc[i].next);
+		pr_info("  next: %u -> %u\n", i, virtq->desc[i].next);
 		i = virtq->desc[i].next;
 	}
 	if (count > virtq->len) {
@@ -202,7 +202,7 @@ void virtio_check_capabilities(virtio_regs *regs, struct virtio_cap *caps,
 			mb();
 			WRITE32(regs->DriverFeatures, driver);
 			if (device) {
-				printf("%s: device supports unknown bits"
+				pr_info("%s: device supports unknown bits"
 				       " 0x%x in bank %u\n", whom, device,bank);
 			}
 			/* Now we set these variables for next time. */
@@ -215,7 +215,7 @@ void virtio_check_capabilities(virtio_regs *regs, struct virtio_cap *caps,
 			if (caps[i].support) {
 				driver |= (1 << caps[i].bit);
 			} else {
-				printf("virtio supports unsupported option %s (%s)\n",
+				pr_info("virtio supports unsupported option %s (%s)\n",
 				       caps[i].name, caps[i].help);
 			}
 			/* clear this from device now */
@@ -228,7 +228,7 @@ void virtio_check_capabilities(virtio_regs *regs, struct virtio_cap *caps,
 	mb();
 	WRITE32(regs->DriverFeatures, driver);
 	if (device) {
-		printf("%s: device supports unknown bits"
+		pr_info("%s: device supports unknown bits"
 		       " 0x%x in bank %u\n", whom, device, bank);
 	}
 }
@@ -238,21 +238,19 @@ int virtio_dev_init(unsigned long virt, uint32_t intid)
 	virtio_regs *regs = (virtio_regs *)virt;
 
 	if (READ32(regs->MagicValue) != VIRTIO_MAGIC) {
-		printf("error: virtio at 0x%lx had wrong magic value 0x%x, "
+		pr_err("error: virtio at 0x%lx had wrong magic value 0x%x, "
 		       "expected 0x%x\n",
 		       virt, regs->MagicValue, VIRTIO_MAGIC);
 		return -1;
 	}
 
 	if (READ32(regs->Version) == 1) {
-		printf("virtio-dev: legacy mode\n");
+		pr_err("virtio-dev: legacy mode\n");
 		WRITE32(regs->GuestPageSize, PAGE_SIZE);
 	}
 
 	if (READ32(regs->DeviceID) == 0) {
-		/*On QEMU, this is pretty common, don't print a message */
-		/*printf("warn: virtio at 0x%x has DeviceID=0, skipping\n",
-		 * virt);*/
+		pr_warn("warn: virtio has DeviceID=0, skipping\n");
 		return -1;
 	}
 
@@ -271,7 +269,7 @@ int virtio_dev_init(unsigned long virt, uint32_t intid)
 	case VIRTIO_DEV_BLK:
 		return virtio_blk_init(regs, intid);
 	default:
-		printf("unsupported virtio device ID 0x%x\n",
+		pr_err("unsupported virtio device ID 0x%x\n",
 		       READ32(regs->DeviceID));
 	}
 	return 0;

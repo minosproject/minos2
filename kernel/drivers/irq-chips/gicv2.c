@@ -266,6 +266,8 @@ static void __init_text gicv2_cpu_init(void)
 
 	gic_cpu_mask[cpuid] = readl_gicd(GICD_ITARGETSR) & 0xff;
 	pr_debug("gicv2 gic mask of cpu%d: 0x%x\n", cpuid, gic_cpu_mask[cpuid]);
+	if (gic_cpu_mask[cpuid] == 0)
+		gic_cpu_mask[cpuid] = 1 << cpuid;
 
 	/* The first 32 interrupts (PPI and SGI) are banked per-cpu, so
 	 * even though they are controlled with GICD registers, they must
@@ -295,10 +297,12 @@ static void __init_text gicv2_cpu_init(void)
 	dsb();
 }
 
+#ifdef CONFIG_VIRT
 static void __init_text gicv2_hyp_init(void)
 {
 
 }
+#endif
 
 static void __init_text gicv2_dist_init(void)
 {
@@ -309,6 +313,7 @@ static void __init_text gicv2_dist_init(void)
 	int i;
 
 	cpumask = readl_gicd(GICD_ITARGETSR) & 0xff;
+	cpumask = (cpumask == 0) ? (1 << 0) : cpumask;
 	cpumask |= cpumask << 8;
 	cpumask |= cpumask << 16;
 
@@ -405,10 +410,10 @@ static int __init_text gicv2_init(struct device_node *node)
 static int __init_text gicv2_secondary_init(void)
 {
 	spin_lock(&gicv2_lock);
-
 	gicv2_cpu_init();
+#ifdef CONFIG_VIRT
 	gicv2_hyp_init();
-
+#endif
 	spin_unlock(&gicv2_lock);
 
 	return 0;

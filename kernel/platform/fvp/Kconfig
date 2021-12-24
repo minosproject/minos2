@@ -28,4 +28,8 @@ config UART_IO_SIZE
 	hex "uart controller iomem size"
 	default 0x1000
 
+config UART_IRQ
+	int "the irq number for uart"
+	default 38
+
 endif

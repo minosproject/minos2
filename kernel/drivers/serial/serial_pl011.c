@@ -75,7 +75,7 @@ static int pl011_irq_handler(uint32_t irq, void *data)
 
 static int pl011_irq_init(void)
 {
-	return request_irq(38, pl011_irq_handler, 0, "pl011", NULL);
+	return request_irq(CONFIG_UART_IRQ, pl011_irq_handler, 0, "pl011", NULL);
 }
 device_initcall(pl011_irq_init);
 

@@ -22,10 +22,17 @@
 
 static struct platform platform_qemu = {
 	.name 		 = "linux,qemu-arm64",
+#ifdef CONFIG_VIRT
 	.cpu_on		 = psci_cpu_on,
 	.cpu_off	 = psci_cpu_off,
 	.system_reboot	 = psci_system_reboot,
 	.system_shutdown = psci_system_shutdown,
+#else
+	.cpu_on		 = psci_cpu_on_hvc,
+	.cpu_off	 = psci_cpu_off_hvc,
+	.system_reboot	 = psci_system_reboot_hvc,
+	.system_shutdown = psci_system_shutdown_hvc,
+#endif
 };
 
 DEFINE_PLATFORM(platform_qemu);

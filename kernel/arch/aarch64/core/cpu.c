@@ -36,6 +36,16 @@ static inline unsigned long psci_fn(uint32_t id, unsigned long a1,
 	return res.a0;
 }
 
+static inline unsigned long psci_fn_hvc(uint32_t id, unsigned long a1,
+		unsigned long a2, unsigned long a3)
+{
+	struct arm_smc_res res;
+
+	hvc_call(id, a1, a2, a3, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
 int psci_cpu_on(unsigned long cpu, unsigned long entry)
 {
 	return (int)psci_fn(PSCI_0_2_FN_CPU_ON, cpu, entry, 0);
@@ -54,6 +64,26 @@ void psci_system_reboot(int mode, const char *cmd)
 void psci_system_shutdown(void)
 {
 	psci_fn(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
+}
+
+int psci_cpu_on_hvc(unsigned long cpu, unsigned long entry)
+{
+	return (int)psci_fn_hvc(PSCI_0_2_FN_CPU_ON, cpu, entry, 0);
+}
+
+int psci_cpu_off_hvc(unsigned long cpu)
+{
+	return (int)psci_fn_hvc(PSCI_0_2_FN_CPU_OFF, cpu, 0, 0);
+}
+
+void psci_system_reboot_hvc(int mode, const char *cmd)
+{
+	psci_fn_hvc(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
+}
+
+void psci_system_shutdown_hvc(void)
+{
+	psci_fn_hvc(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
 }
 
 int spin_table_cpu_on(unsigned long affinity, unsigned long entry)

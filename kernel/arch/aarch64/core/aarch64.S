@@ -23,6 +23,7 @@
 	.global arch_get_lr
 	.global arch_get_sp
 	.global smc_call
+	.global hvc_call
 	.global aarch64_task_exit
 
 func arch_raw_smp_processor_id
@@ -66,6 +67,14 @@ func smc_call
 	stp	x2, x3, [x4, #16]
 	ret
 endfunc smc_call
+
+func hvc_call
+	hvc	#0
+	ldr	x4, [sp]
+	stp	x0, x1, [x4, #0]
+	stp	x2, x3, [x4, #16]
+	ret
+endfunc hvc_call
 
 func aarch64_task_exit
 	mov	x0, x0

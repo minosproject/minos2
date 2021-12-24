@@ -61,13 +61,13 @@ _start:
 	/* interrupt disabled mmu/dcache/icache off */
 	msr	daifset, #2
 	b	do_start
-	.quad   CONFIG_MINOS_ENTRY_ADDRESS	     /* Image load offset from start of RAM */
-        .quad   __code_end - _start		     /* reserved */
-        .quad   0				     /* reserved */
-        .quad   0				     /* reserved */
-        .quad   0				     /* reserved */
-        .quad   0				     /* reserved */
-        .byte   0x41				     /* Magic number, "ARM\x64" */
+	.quad   0				/* Image load offset from start of RAM */
+        .quad   __code_end - _start		/* reserved */
+        .quad   8				/* kernel flags */
+        .quad   0				/* reserved */
+        .quad   0				/* reserved */
+        .quad   0				/* reserved */
+        .byte   0x41				/* Magic number, "ARM\x64" */
         .byte   0x52
         .byte   0x4d
         .byte   0x64

@@ -392,7 +392,7 @@ static int stage1_map_pte_range(struct vspace *vs, pte_t *ptep, unsigned long st
 	do {
 		old_pte = *pte;
 		if (old_pte)
-			pr_err("error: pte remaped 0x%lx\n", start);
+			pr_err("error: pte remaped 0x%x\n", start);
 		stage1_set_pte(pte, pte_attr | physical);
 	} while (pte++, start += PAGE_SIZE, physical += PAGE_SIZE, start != end);
 
@@ -575,6 +575,9 @@ phy_addr_t arch_translate_va_to_pa(struct vspace *vs, unsigned long va)
 int arch_host_map(struct vspace *vs, unsigned long start, unsigned long end,
 		unsigned long physical, unsigned long flags)
 {
+	if (end == start)
+		return -EINVAL;
+
 	ASSERT((start < S1_VIRT_MAX) && (end <= S1_VIRT_MAX));
 	ASSERT(physical < S1_PHYSICAL_MAX);
 	ASSERT(IS_PAGE_ALIGN(start) && IS_PAGE_ALIGN(end) && IS_PAGE_ALIGN(physical));

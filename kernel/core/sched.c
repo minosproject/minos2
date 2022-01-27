@@ -498,7 +498,7 @@ int __wake_up(struct task *task, long ipccode, long pend_state, void *data)
 	if (task->stat != TASK_STAT_WAIT_EVENT) {
 		spin_unlock_irqrestore(&task->s_lock, flags);
 		preempt_enable();
-		return 0;
+		return -EPERM;
 	}
 
 	/*
@@ -549,7 +549,7 @@ int wake_up_process(struct process *proc)
 	if (!proc)
 		return -EINVAL;
 
-	for_all_task_in_process(proc, task) {
+	list_for_each_entry(task, &proc->task_list, proc_list) {
 		if (task->wait_type != TASK_EVENT_STARTUP)
 			continue;
 

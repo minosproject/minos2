@@ -32,11 +32,11 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 		size_t data_size, size_t *actual_data, void __user *extra,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
-	struct kobject *pending = NULL;
 	long ret = 0, status = TASK_STAT_PEND_OK;
-	struct task *writer;
+	struct task *writter = NULL;
 
 	spin_lock(&iqueue->lock);
+
 	for (;;) {
 		/*
 		 * only one task can wait for data on the endpoint, if
@@ -45,63 +45,53 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 		 * need set the recv_task to NULL.
 		 */
 		if ((iqueue->recv_task != NULL) && (iqueue->recv_task != current)) {
-			spin_unlock(&iqueue->lock);
-			return -EBUSY;
-		}
-
-		/*
-		 * clear the recv_task in iqueue, later this value will
-		 * be set again if need sleep.
-		 */
-		iqueue->recv_task = NULL;
-
-		if (!task_stat_pend_ok(status)) {
-			spin_unlock(&iqueue->lock);
-			return -EABORT;
+			ret = -EBUSY;
+			break;
 		}
 
 		if (!is_list_empty(&iqueue->pending_list)) {
-			pending = list_first_entry(&iqueue->pending_list, struct kobject, list);
-			list_del(&pending->list);
-			pending->list.next = KOBJ_IN_PROCESSING;
+			writter = list_first_entry(&iqueue->pending_list, struct task, list);
+			list_del(&writter->list);
+			writter->list.next = KOBJ_IN_PROCESSING;
+			break;
 		} else if (iqueue->writer_stat == IQ_STAT_CLOSED){
-			spin_unlock(&iqueue->lock);
-			return -EOTHERSIDECLOSED;
+			ret = -EOTHERSIDECLOSED;
+			break;
 		} else if (timeout == 0) {
-			spin_unlock(&iqueue->lock);
-			return -EAGAIN;
+			ret = -EAGAIN;
+			break;
 		} else {
 			iqueue->recv_task = current;
+			status = wait_event_locked(iqueue->kobj->type, timeout,
+					&ret, &iqueue->lock);
+			iqueue->recv_task = NULL;
+			if (!task_stat_pend_ok(status) || (ret != 0))
+				break;
 		}
-
-		if (pending != NULL)
-			break;
-		else
-			status = wait_event_locked(iqueue->kobj->type,
-					timeout, &ret, &iqueue->lock);
 	}
+
 	spin_unlock(&iqueue->lock);
+	if (ret)
+		return ret;
 
 	/*
 	 * read the data from this task. if the task's data is wrong
 	 * wake up this write task directly. otherwise mask this task
 	 * as current pending task and waitting for reply.
 	 */
-	writer = (struct task *)pending->data;
-	ret = kobject_copy_ipc_payload(current, writer, actual_data, actual_extra, 1, 0);
+	ret = kobject_copy_ipc_payload(current, writter, actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
-		pending->list.next = NULL;
+		writter->list.next = NULL;
 		smp_wmb();
 
-		wake_up(writer, ret);
-		goto out;
+		wake_up(writter, ret);
+		return -EAGAIN;
 	}
 
 	spin_lock(&iqueue->lock);
-	ASSERT(pending->list.next == KOBJ_IN_PROCESSING);
-	list_add_tail(&iqueue->processing_list, &pending->list);
-	ret = (long)writer->wait_event;
-out:
+	ASSERT(writter->list.next == KOBJ_IN_PROCESSING);
+	list_add_tail(&iqueue->processing_list, &writter->list);
+	ret = (long)writter->wait_event;
 	spin_unlock(&iqueue->lock);
 
 	return ret;
@@ -123,7 +113,7 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 		spin_unlock(&iqueue->lock);
 		return -EOTHERSIDECLOSED;
 	}
-	list_add_tail(&iqueue->pending_list, &current->kobj.list);
+	list_add_tail(&iqueue->pending_list, &current->list);
 	__event_task_wait(new_event_token(), TASK_EVENT_KOBJ_REPLY, timeout);
 	spin_unlock(&iqueue->lock);
 
@@ -151,7 +141,7 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 	/*
 	 * wait read task to finish the processing of this request.
 	 */
-	while (current->kobj.list.next != KOBJ_IN_PROCESSING)
+	while (current->list.next != KOBJ_IN_PROCESSING)
 		cpu_relax();
 
 	/*
@@ -159,9 +149,9 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 	 * this request from the pending list or processing list.
 	 */
 	spin_lock(&iqueue->lock);
-	ASSERT(current->kobj.list.next != KOBJ_IN_PROCESSING);
-	if (current->kobj.list.next != NULL)
-		list_del(&current->kobj.list);
+	ASSERT(current->list.next != KOBJ_IN_PROCESSING);
+	if (current->list.next != NULL)
+		list_del(&current->list);
 	spin_unlock(&iqueue->lock);
 
 	return ret;
@@ -170,48 +160,44 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 int iqueue_reply(struct iqueue *iqueue, right_t right,
 		long token, long errno, handle_t fd, right_t fd_right)
 {
-	struct kobject *wk, *tmp;
-	struct task *task = NULL;
+	struct task *task, *tmp;
 
 	/*
 	 * find the task who are waitting the reply token, and wake
 	 * up it with the error code.
 	 */
 	spin_lock(&iqueue->lock);
-	list_for_each_entry_safe(wk, tmp, &iqueue->processing_list, list) {
-		task = (struct task *)wk->data;
+	list_for_each_entry_safe(task, tmp, &iqueue->processing_list, list) {
 		if (task->wait_event == token) {
-			list_del(&wk->list);
+			list_del(&task->list);
 			break;
 		}
 	}
 	spin_unlock(&iqueue->lock);
 
-	if (task) {
-		if (fd > 0) {
-			errno = send_handle(current_proc, task->proc,
-					fd, fd_right);
-		}
-		wake_up(task, errno);
-	} else {
+	if (!task)
 		return -ENOENT;
-	}
+
+	if (fd > 0)
+		errno = send_handle(current_proc, task->proc, fd, fd_right);
+
+	wake_up(task, errno);
 
 	return 0;
 }
 
 static void wake_all_writer(struct iqueue *iqueue, int errno)
 {
-	struct kobject *kobj, *tmp;
+	struct task *task, *tmp;
 
-	list_for_each_entry_safe(kobj, tmp, &iqueue->pending_list, list) {
-		list_del(&kobj->list);
-		wake_up((struct task *)kobj->data, errno);
+	list_for_each_entry_safe(task, tmp, &iqueue->pending_list, list) {
+		list_del(&task->list);
+		wake_up(task, errno);
 	}
 
-	list_for_each_entry_safe(kobj, tmp, &iqueue->processing_list, list) {
-		list_del(&kobj->list);
-		wake_up((struct task *)kobj->data, errno);
+	list_for_each_entry_safe(task, tmp, &iqueue->processing_list, list) {
+		list_del(&task->list);
+		wake_up(task, errno);
 	}
 }
 

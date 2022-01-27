@@ -30,51 +30,9 @@
 #define PROC_RIGHT	(KOBJ_RIGHT_READ | KOBJ_RIGHT_CTL)
 #define PROC_RIGHT_MASK	(KOBJ_RIGHT_CTL)
 
-static int add_task_to_process(struct process *proc, struct task *task)
-{
-	int ret = 0;
-
-	spin_lock(&proc->lock);
-	if (proc->stopped) {
-		ret = 1;
-		goto out;
-	}
-
-	task->next = proc->head;
-	proc->tail = task;
-	proc->task_cnt++;
-out:
-	spin_unlock(&proc->lock);
-	return ret;
-}
-
-struct task *create_task_for_process(struct process *proc,
-		unsigned long func, void *user_sp, int prio,
-		int aff, unsigned long flags)
-{
-	struct task *task;
-
-	if (proc->stopped)
-		return NULL;
-
-	task = create_task(NULL, (task_func_t)func, user_sp,
-			prio, aff, flags, proc, NULL);
-	if (!task)
-		return NULL;
-
-	task->pid = proc->pid;
-	if (add_task_to_process(proc, task)) {
-		do_release_task(task);
-		return NULL;
-	}
-
-	return task;
-}
-
 struct process *create_process(int pid, task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt)
 {
-	extern struct kobject_ops thread_kobj_ops;
 	struct uproc_info *ui = get_uproc_info(pid);
 	struct process *proc = NULL;
 	struct task *task;
@@ -89,6 +47,7 @@ struct process *create_process(int pid, task_func_t func,
 	 * will be given by root service, when create the process.
 	 */
 	proc->pid = pid;
+	init_list(&proc->task_list);
 	spin_lock_init(&proc->lock);
 
 	ret = vspace_init(proc);
@@ -103,13 +62,10 @@ struct process *create_process(int pid, task_func_t func,
 	if (!task)
 		goto task_create_fail;
 
-	proc->head = task;
-	proc->tail = task;
-
+	proc->root_task = task;
+	list_add_tail(&proc->task_list, &task->proc_list);
 	task->pid = proc->pid;
-	kobject_init(&task->kobj, KOBJ_TYPE_THREAD,
-			KOBJ_RIGHT_CTL, (unsigned long)task);
-	task->kobj.ops = &thread_kobj_ops;
+	proc->task_cnt++;
 
 	ret = init_proc_handles(proc);
 	if (ret)
@@ -146,13 +102,13 @@ static void request_process_stop(struct process *proc, int handle)
 	if (old != 0)
 		return;
 
-	for_all_task_in_process(proc, tmp) {
+	spin_lock(&proc->lock);
+	list_for_each_entry(tmp, &proc->task_list, proc_list) {
 		/*
 		 * other task can not get the instance of this
 		 * task, but the task who already get the instance
 		 * of this task can sending data to it currently.
 		 */
-		clear_task_by_tid(tmp->tid);
 		tmp->request |= TASK_REQ_STOP;
 		if (tmp == current)
 			continue;
@@ -172,6 +128,7 @@ static void request_process_stop(struct process *proc, int handle)
 				(tmp->wait_type == TASK_EVENT_ROOT_SERVICE))
 			wake_up(tmp, -EABORT);
 	}
+	spin_unlock(&proc->lock);
 
 	if (handle == 0) {
 		/*
@@ -214,7 +171,7 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 	long ret;
 
 	spin_lock(&iqueue->lock);
-	list_add_tail(&iqueue->processing_list, &task->kobj.list);
+	list_add_tail(&iqueue->processing_list, &task->list);
 	__event_task_wait(token, TASK_EVENT_ROOT_SERVICE, 0);
 	spin_unlock(&iqueue->lock);
 
@@ -264,15 +221,15 @@ static long do_process_ctl(struct process *proc, int req, unsigned long data)
 	case KOBJ_PROCESS_GET_PID:
 		return proc->pid;
 	case KOBJ_PROCESS_SETUP_SP:
-		arch_set_task_user_stack(proc->head, data);
+		arch_set_task_user_stack(proc->root_task, data);
 		return 0;
 	case KOBJ_PROCESS_WAKEUP:
-		return wake_up(proc->head, 0);
+		return wake_up(proc->root_task, 0);
 	case KOBJ_PROCESS_KILL:
 		kill_process(proc, (int)data);
 		return 0;
 	case KOBJ_PROCESS_SETUP_REG0:
-		arch_set_task_reg0(proc->head, data);
+		arch_set_task_reg0(proc->root_task, data);
 		return 0;
 	case KOBJ_PROCESS_GRANT_RIGHT:
 		data &= PROC_FLAGS_MASK;
@@ -298,19 +255,10 @@ static long process_ctl(struct kobject *kobj, int req, unsigned long data)
 int do_process_release(struct kobject *kobj)
 {
 	struct process *proc = (struct process *)kobj->data;
-	struct task *task = proc->head, *tmp;
 
-	for_all_task_in_process(proc, tmp) {
-		if ((tmp->stat != TASK_STAT_STOPPED) || (tmp->cpu != -1)) {
-			pr_warn("waitting task stop %s\n", tmp->name);
-			return -EBUSY;
-		}
-	}
-
-	while (task) {
-		tmp = task->next;
-		do_release_task(task);
-		task = tmp;
+	if (!is_list_empty(&proc->task_list)) {
+		pr_err("some task still running\n");
+		return -EBUSY;
 	}
 
 	/*
@@ -372,11 +320,35 @@ void clean_process_on_pcpu(struct pcpu *pcpu)
 	}
 }
 
+static long process_send(struct kobject *kobj,
+		void __user *data, size_t data_size,
+		void __user *extra, size_t extra_size,
+		uint32_t timeout)
+{
+	struct process *proc = (struct process *)kobj->data;
+
+	/*
+	 * ROOT service will always poll to the process's
+	 * request.
+	 */
+	ASSERT(!proc_is_root(current_proc));
+
+	return iqueue_send(&proc->iqueue, data,
+			data_size, extra, extra_size, timeout);
+}
+
+static int process_close(struct kobject *kobj, right_t right, struct process *proc)
+{
+	return 0;
+}
+
 static struct kobject_ops proc_kobj_ops = {
 	.recv		= process_recv,
+	.send		= process_send,
 	.reply		= process_reply,
 	.release	= process_release,
 	.ctl		= process_ctl,
+	.close		= process_close,
 };
 
 struct process *create_root_process(task_func_t func, void *usp,

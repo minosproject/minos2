@@ -63,8 +63,8 @@ void __synccall(void (*func)(void *), void *ctx)
 	sem_init(&target_sem, 0, 0);
 	sem_init(&caller_sem, 0, 0);
 
-	if (!libc.threads_minus_1 || __syscall(SYS_gettid) != self->tid)
-		goto single_threaded;
+	// if (!libc.threads_minus_1 || __syscall(SYS_gettid) != self->tid)
+	// 	goto single_threaded;
 
 	callback = func;
 	context = ctx;
@@ -78,7 +78,7 @@ void __synccall(void (*func)(void *), void *ctx)
 
 	for (td=self->next; td!=self; td=td->next) {
 		target_tid = td->tid;
-		while ((r = -__syscall(SYS_tkill, td->tid, SIGSYNCCALL)) == EAGAIN);
+		// while ((r = -__syscall(SYS_tkill, td->tid, SIGSYNCCALL)) == EAGAIN);
 		if (r) {
 			/* If we failed to signal any thread, nop out the
 			 * callback to abort the synccall and just release

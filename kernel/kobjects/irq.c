@@ -65,7 +65,7 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 		goto out;
 	}
 
-	idesc->owner = current_tid;
+	idesc->owner = current;
 	__event_task_wait((unsigned long)idesc, TASK_EVENT_IRQ, timeout);
 	wait = 1;
 out:

@@ -167,7 +167,7 @@ unsigned long translate_va_to_pa(struct vspace *vs, unsigned long va)
 void *uva_to_kva(struct vspace *vs, unsigned long va,
 		size_t size, unsigned long right)
 {
-	return (void *)translate_va_to_pa(vs, va);
+	return (void *)pa2va(translate_va_to_pa(vs, va));
 }
 
 void *io_remap(virt_addr_t vir, size_t size)
@@ -478,7 +478,7 @@ int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 	 * Can not handle this page fualt. Kill this process. TBD
 	 */
 	pr_fatal("page fault fail %s [0x%x@0x%x]\n",
-			proc->head->name, regs->pc, virt);
+			proc->root_task->name, regs->pc, virt);
 	kill_process(proc, ret);
 
 	return -EFAULT;

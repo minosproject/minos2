@@ -11,7 +11,7 @@ int pthread_mutexattr_setrobust(pthread_mutexattr_t *a, int robust)
 		if (r < 0) {
 			void *p;
 			size_t l;
-			r = -__syscall(SYS_get_robust_list, 0, &p, &l);
+//			r = -__syscall(SYS_get_robust_list, 0, &p, &l);
 			a_store(&check_robust_result, r);
 		}
 		if (r) return r;

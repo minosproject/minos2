@@ -54,7 +54,6 @@ void __tl_sync(pthread_t td)
 _Noreturn void __pthread_exit(void *result)
 {
 	pthread_t self = __pthread_self();
-	sigset_t set;
 
 	self->canceldisable = 1;
 	self->cancelasync = 0;
@@ -68,8 +67,6 @@ _Noreturn void __pthread_exit(void *result)
 	}
 
 	__pthread_tsd_run_dtors();
-
-	__block_app_sigs(&set);
 
 	/* This atomic potentially competes with a concurrent pthread_detach
 	 * call; the loser is responsible for freeing thread resources. */
@@ -101,7 +98,6 @@ _Noreturn void __pthread_exit(void *result)
 		__tl_unlock();
 		UNLOCK(self->killlock);
 		self->detach_state = state;
-		__restore_sigs(&set);
 		exit(0);
 	}
 
@@ -140,15 +136,12 @@ _Noreturn void __pthread_exit(void *result)
 	self->prev = self->next = self;
 
 	if (state==DT_DETACHED && self->map_base) {
-		/* Detached threads must block even implementation-internal
-		 * signals, since they will not have a stack in their last
-		 * moments of existence. */
-		__block_all_sigs(&set);
-
 		/* Robust list will no longer be valid, and was already
 		 * processed above, so unregister it with the kernel. */
-		if (self->robust_list.off)
+#if 0
+		 if (self->robust_list.off)
 			__syscall(SYS_set_robust_list, 0, 3*sizeof(long));
+#endif
 
 		/* The following call unmaps the thread's stack mapping
 		 * and then exits without touching the stack. */
@@ -163,9 +156,11 @@ _Noreturn void __pthread_exit(void *result)
 	 * to prevent inadvertent use and inform functions that would use
 	 * it that it's no longer available. */
 	self->tid = 0;
+
+	__tl_unlock();
 	UNLOCK(self->killlock);
 
-	for (;;) __syscall(SYS_exit, 0);
+	__syscall(SYS_exit, 0);
 }
 
 void __do_cleanup_push(struct __ptcb *cb)
@@ -195,11 +190,11 @@ static int start(void *p)
 		if (a_cas(&args->control, 1, 2)==1)
 			__wait(&args->control, 0, 2, 1);
 		if (args->control) {
-			__syscall(SYS_set_tid_address, &args->control);
-			for (;;) __syscall(SYS_exit, 0);
+			// __syscall(SYS_set_tid_address, &args->control);
+			// for (;;) __syscall(SYS_exit, 0);
 		}
 	}
-	__syscall(SYS_rt_sigprocmask, SIG_SETMASK, &args->sig_mask, 0, _NSIG/8);
+	// __syscall(SYS_rt_sigprocmask, SIG_SETMASK, &args->sig_mask, 0, _NSIG/8);
 	__pthread_exit(args->start_func(args->start_arg));
 	return 0;
 }
@@ -236,11 +231,8 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	size_t size, guard;
 	struct pthread *self, *new;
 	unsigned char *map = 0, *stack = 0, *tsd = 0, *stack_limit;
-	unsigned flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND
-		| CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS
-		| CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
+	unsigned flags = 0;
 	pthread_attr_t attr = { 0 };
-	sigset_t set;
 
 	if (!libc.can_do_threads) return ENOSYS;
 	self = __pthread_self();
@@ -251,7 +243,6 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		init_file_lock(__stdin_used);
 		init_file_lock(__stdout_used);
 		init_file_lock(__stderr_used);
-		__syscall(SYS_rt_sigprocmask, SIG_UNBLOCK, SIGPT_SET, 0, _NSIG/8);
 		self->tsd = (void **)__pthread_tsd_main;
 		__membarrier_init();
 		libc.threaded = 1;
@@ -334,18 +325,6 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	args->start_arg = arg;
 	args->control = attr._a_sched ? 1 : 0;
 
-	/* Application signals (but not the synccall signal) must be
-	 * blocked before the thread list lock can be taken, to ensure
-	 * that the lock is AS-safe. */
-	__block_app_sigs(&set);
-
-	/* Ensure SIGCANCEL is unblocked in new thread. This requires
-	 * working with a copy of the set so we can restore the
-	 * original mask in the calling thread. */
-	memcpy(&args->sig_mask, &set, sizeof args->sig_mask);
-	args->sig_mask[(SIGCANCEL-1)/8/sizeof(long)] &=
-		~(1UL<<((SIGCANCEL-1)%(8*sizeof(long))));
-
 	__tl_lock();
 	if (!libc.threads_minus_1++) libc.need_locks = 1;
 	ret = __clone((c11 ? start_c11 : start), stack, flags, args, &new->tid, TP_ADJ(new), &__thread_list_lock);
@@ -356,7 +335,9 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	 * clean up all transient resource usage before returning. */
 	if (ret < 0) {
 		ret = -EAGAIN;
-	} else if (attr._a_sched) {
+	}
+#if 0
+	else if (attr._a_sched) {
 		ret = __syscall(SYS_sched_setscheduler,
 			new->tid, attr._a_policy, &attr._a_prio);
 		if (a_swap(&args->control, ret ? 3 : 0)==2)
@@ -364,6 +345,7 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		if (ret)
 			__wait(&args->control, 0, 3, 0);
 	}
+#endif
 
 	if (ret >= 0) {
 		new->next = self->next;
@@ -374,7 +356,6 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		if (!--libc.threads_minus_1) libc.need_locks = 0;
 	}
 	__tl_unlock();
-	__restore_sigs(&set);
 	__release_ptc();
 
 	if (ret < 0) {

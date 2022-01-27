@@ -107,9 +107,8 @@ out:
 	spin_unlock(&proc->lock);
 }
 
-int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
+int release_process_handle(struct process *proc, handle_t handle, struct kobject **kobj, right_t *right)
 {
-	struct process *proc = current_proc;
 	struct handle_desc *hd;
 	struct handle_table_desc *htd;
 	int ret = -ENOENT;
@@ -137,6 +136,11 @@ out:
 	spin_unlock(&proc->lock);
 
 	return ret;
+}
+
+int release_handle(handle_t handle, struct kobject **kobj, right_t *right)
+{
+	return release_process_handle(current_proc, handle, kobj, right);
 }
 
 static inline int __alloc_handle_internal(struct handle_desc *desc,
@@ -413,8 +417,7 @@ int init_proc_handles(struct process *proc)
 	 * handle [2] is stdin
 	 * handle [3] is stderr
 	 */
-	handle = __alloc_handle(proc, &proc->head->kobj,
-			KOBJ_RIGHT_WRITE | KOBJ_RIGHT_CTL);
+	handle = __alloc_handle(proc, &proc->kobj, KOBJ_RIGHT_WRITE | KOBJ_RIGHT_CTL);
 	ASSERT(handle == 0);
 	handle = __alloc_handle(proc, &stdio_kobj, KOBJ_RIGHT_READ);
 	ASSERT(handle == 1);

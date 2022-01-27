@@ -25,7 +25,7 @@ long __syscall_cp_c(syscall_arg_t nr,
 	pthread_t self;
 	long r;
 	int st;
-
+#if 0
 	if ((st=(self=__pthread_self())->canceldisable)
 	    && (st==PTHREAD_CANCEL_DISABLE || nr==SYS_close))
 		return __syscall(nr, u, v, w, x, y, z);
@@ -34,6 +34,7 @@ long __syscall_cp_c(syscall_arg_t nr,
 	if (r==-EINTR && nr!=SYS_close && self->cancel &&
 	    self->canceldisable != PTHREAD_CANCEL_DISABLE)
 		r = __cancel();
+#endif
 	return r;
 }
 
@@ -45,6 +46,7 @@ static void _sigaddset(sigset_t *set, int sig)
 
 extern hidden const char __cp_begin[1], __cp_end[1], __cp_cancel[1];
 
+#if 0
 static void cancel_handler(int sig, siginfo_t *si, void *ctx)
 {
 	pthread_t self = __pthread_self();
@@ -66,6 +68,7 @@ static void cancel_handler(int sig, siginfo_t *si, void *ctx)
 
 	__syscall(SYS_tkill, self->tid, SIGCANCEL);
 }
+#endif
 
 void __testcancel()
 {
@@ -76,12 +79,7 @@ void __testcancel()
 
 static void init_cancellation()
 {
-	struct sigaction sa = {
-		.sa_flags = SA_SIGINFO | SA_RESTART,
-		.sa_sigaction = cancel_handler
-	};
-	memset(&sa.sa_mask, -1, _NSIG/8);
-	__libc_sigaction(SIGCANCEL, &sa, 0);
+
 }
 
 int pthread_cancel(pthread_t t)

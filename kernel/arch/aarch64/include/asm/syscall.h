@@ -21,8 +21,16 @@
 #define __NR_unmap 14
 #define __NR_trans 15
 
+#define __NR_clock_gettime 16
+#define __NR_clock_nanosleep 17
+
+#define __NR_exit 18
+#define __NR_exitgroup 19
+
+#define __NR_clone 20
+
 #undef __NR_syscalls
-#define __NR_syscalls 16
+#define __NR_syscalls 21
 
 struct syscall_regs {
 	unsigned long regs[8];

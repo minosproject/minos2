@@ -60,6 +60,7 @@ static inline bool pcpu_can_idle(struct pcpu *pcpu)
 
 static void do_pcpu_cleanup_work(struct pcpu *pcpu)
 {
+	extern void release_thread(struct task *task);
 	struct task *task;
 
 	/*
@@ -82,7 +83,10 @@ static void do_pcpu_cleanup_work(struct pcpu *pcpu)
 		if (!task)
 			break;
 
-		release_task(task);
+		if (task->proc)
+			release_thread(task);
+		else
+			do_release_task(task);
 	}
 
 	clean_process_on_pcpu(pcpu);

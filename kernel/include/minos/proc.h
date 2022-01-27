@@ -31,8 +31,8 @@ struct process {
 	 * set the right for related kobject in kobj_table.
 	 */
 	struct handle_desc *handle_desc_table;
-	struct task *head;
-	struct task *tail;
+	struct task *root_task;
+	struct list_head task_list;
 	spinlock_t lock;
 
 	struct kobject kobj;
@@ -55,15 +55,8 @@ static inline int proc_can_hwctl(struct process *proc)
 	return !!(proc->flags & PROC_FLAGS_HWCTL);
 }
 
-#define for_all_task_in_process(proc, task)	\
-	for (task = proc->head; task != NULL; task = task->next)
-
 struct process *create_process(int pid, task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt);
-
-struct task *create_task_for_process(struct process *proc,
-		unsigned long func, void *usp, int prio,
-		int aff, unsigned long flags);
 
 void process_die(void);
 

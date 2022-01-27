@@ -20,7 +20,6 @@ int __init_tp(void *p)
 	if (!r) libc.can_do_threads = 1;
 	td->detach_state = DT_JOINABLE;
 	td->tid = __gettid();
-	td->handle = 0;
 	td->locale = &libc.global_locale;
 	td->robust_list.head = &td->robust_list.head;
 	td->sysinfo = __sysinfo;
@@ -132,16 +131,7 @@ static void static_init_tls(size_t *aux)
 		+ MIN_TLS_ALIGN-1 & -MIN_TLS_ALIGN;
 
 	if (libc.tls_size > sizeof builtin_tls) {
-#ifndef SYS_mmap2
-#define SYS_mmap2 SYS_mmap
-#endif
-		mem = (void *)__syscall(
-			SYS_mmap2,
-			0, libc.tls_size, PROT_READ|PROT_WRITE,
-			MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-		/* -4095...-1 cast to void * will crash on dereference anyway,
-		 * so don't bloat the init code checking for error codes and
-		 * explicitly calling a_crash(). */
+		a_crash();
 	} else {
 		mem = builtin_tls;
 	}

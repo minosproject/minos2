@@ -2,7 +2,8 @@
 #define __LIBMINOS_TIME_H__
 
 struct timespec {
-	unsigned long timeout;
+	long ts_sec;
+	long ts_nsec;
 };
 
 #endif

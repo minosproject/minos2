@@ -17,8 +17,9 @@
 #include <minos/minos.h>
 #include <minos/vspace.h>
 #include <minos/mm.h>
-
-#include <uapi/time.h>
+#include <minos/time.h>
+#include <minos/task.h>
+#include <minos/sched.h>
 
 #define FUTEX_WAIT              0
 #define FUTEX_WAKE              1
@@ -72,14 +73,20 @@ struct futex_queue {
 #define FUTEX_KEY_SIZE	10
 static struct futex_queue ft_queue[FUTEX_KEY_SIZE];
 
+static unsigned long futex_timeout_val(struct timespec *ktime)
+{
+	// TBD overfolw check
+	return (ktime->tv_sec * 1000ULL) + (ktime->tv_nsec / 1000000ULL);
+}
+
 static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 		uint32_t val, struct timespec *ktime,
 		uint32_t *kaddr2, uint32_t val3)
 {
-	unsigned long timeout;
 	long ret = 0;
+	unsigned long timeout;
 
-	timeout = ktime ? ktime->timeout : 0;
+	timeout = ktime ? futex_timeout_val(ktime) : 0;
 	spin_lock(&ft->lock);
 
 	/*
@@ -89,12 +96,20 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 	 */
 	if (*kaddr != val)
 		goto out;
-	event_task_wait(ft, TASK_EVENT_FUTEX, timeout);
 
+	ret = 1;
+	list_add_tail(&ft->wait_list, &current->list);
+	event_task_wait(ft, TASK_EVENT_FUTEX, timeout);
 out:
 	spin_unlock(&ft->lock);
-	if (ret)
+
+	if (ret) {
 		wait_event(&ret);
+		ASSERT(current->list.next != NULL);
+		spin_lock(&ft->lock);
+		list_del(&current->list);
+		spin_unlock(&ft->lock);
+	}
 
 	return ret;
 }
@@ -103,12 +118,43 @@ static long sys_do_futex_wake(struct futex *ft, uint32_t *kaddr,
 		uint32_t val, struct timespec *ktime,
 		uint32_t *kaddr2, uint32_t val3)
 {
-	return 0;
+	int wakecnt = 0;
+	struct task *task, *tmp;
+
+	if ((val != 1) && (val != INT_MAX)) {
+		pr_warn("bad value for futex wake %d\n", val);
+		return -EINVAL;
+	}
+
+	spin_lock(&ft->lock);
+	list_for_each_entry_safe(task, tmp, &ft->wait_list, list) {
+		if (!task_is_suspend(task))
+			continue;
+
+		wake_up(task, 0);
+		wakecnt++;
+
+		if (wakecnt == val)
+			break;
+	}
+	spin_unlock(&ft->lock);
+
+	return wakecnt;
 }
 
-static int inline futex_key(unsigned long phy)
+static inline int futex_key(unsigned long phy)
 {
-	return phy % 10;
+	return (phy >> PAGE_SHIFT) % 10;
+}
+
+static inline int is_wait_cmd(int cmd)
+{
+	if (cmd == FUTEX_WAIT || cmd == FUTEX_LOCK_PI ||
+                      cmd == FUTEX_WAIT_BITSET ||
+                      cmd == FUTEX_WAIT_REQUEUE_PI)
+		return 1;
+	else
+		return 0;
 }
 
 long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
@@ -122,18 +168,21 @@ long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 	uint32_t *kaddr, *kaddr2 = NULL;
 	unsigned long paddr;
 	unsigned int key;
+	int cmd = op & FUTEX_CMD_MASK;
 
 	kaddr = uva_to_kva(vs, ULONG(uaddr), sizeof(uint32_t), VM_RW);
 	if (kaddr == NULL)
 		return -EFAULT;
-	
-	if (!utime) {
+
+	if (utime && (cmd == FUTEX_WAIT || cmd == FUTEX_LOCK_PI ||
+                      cmd == FUTEX_WAIT_BITSET ||
+                      cmd == FUTEX_WAIT_REQUEUE_PI)) {
 		ktime = uva_to_kva(vs, ULONG(utime), sizeof(struct timespec), VM_RW);
 		if (ktime == NULL)
 			return -EFAULT;
 	}
 
-	if (!uaddr2) {
+	if (uaddr2) {
 		kaddr2 = uva_to_kva(vs, ULONG(uaddr2), sizeof(uint32_t), VM_RW);
 		if (kaddr2 == NULL)
 			return -EFAULT;
@@ -152,6 +201,11 @@ long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 		}
 	}
 
+	if (!ft && !is_wait_cmd(cmd)) {
+		spin_unlock(&ftq->lock);
+		return -ENOENT;
+	}
+
 	if (!ft) {
 		ft = zalloc(sizeof(struct futex));
 		if (!ft) {
@@ -167,7 +221,7 @@ long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 	}
 	spin_unlock(&ftq->lock);
 
-	switch (op) {
+	switch (cmd) {
 	case FUTEX_WAIT:
 		return sys_do_futex_wait(ft, kaddr, val, ktime, kaddr2, val3);
 	case FUTEX_WAKE:

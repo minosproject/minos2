@@ -6,6 +6,5 @@
 
 _Noreturn void _Exit(int ec)
 {
-	while (1)
-		kobject_close(self_handle());
+	for (;;) syscall(SYS_exitgroup, ec);
 }

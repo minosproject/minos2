@@ -392,7 +392,7 @@ static long pma_write(struct kobject *kobj, void __user *data, size_t data_size,
 	struct pma *p = (struct pma *)kobj->data;
 
 	if (p->type != PMA_TYPE_KCACHE)
-		return -EPROTO;
+		return -EPERM;
 
 	if (data_size > p->psize)
 		return -EINVAL;
@@ -407,7 +407,7 @@ static long pma_read(struct kobject *kobj, void __user *data, size_t data_size,
 	struct pma *p = (struct pma *)kobj->data;
 
 	if (p->type != PMA_TYPE_KCACHE)
-		return -EPROTO;
+		return -EPERM;
 
 	if (data_size > p->psize)
 		return -EINVAL;
@@ -427,19 +427,16 @@ static struct kobject_ops pma_ops = {
 
 static inline unsigned long pma_flags(int type, right_t right)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 
-	switch (right & KOBJ_RIGHT_RWX) {
-	case KOBJ_RIGHT_RW:
-		flags = VM_RW;
-		break;
-	case KOBJ_RIGHT_RWX:
-		flags = VM_RWX;
-		break;
-	default:
-		flags = VM_RO;
-		break;
-	}
+	if (right & KOBJ_RIGHT_READ)
+		flags |= __VM_READ;
+	if (right & KOBJ_RIGHT_WRITE)
+		flags |= __VM_WRITE;
+	if (right & KOBJ_RIGHT_EXEC)
+		flags |= __VM_EXEC;
+
+	WARN_ON(flags == 0, "request pma with no access right\n");
 
 	if (type == PMA_TYPE_DMA)
 		flags |= __VM_IO;
@@ -496,8 +493,11 @@ static int __create_new_pma(struct kobject **kobj,
 	struct pma *p;
 	int ret;
 
-	if ((args->type == PMA_TYPE_MMIO) || (args->type == PMA_TYPE_PMEM))
+	if ((args->type == PMA_TYPE_MMIO) || (args->type == PMA_TYPE_PMEM)) {
+		if (args->size == 0)
+			return -EINVAL;
 		fixup_pmem = 1;
+	}
 
 	/*
 	 * data will be the page count of the request memory size
@@ -508,17 +508,16 @@ static int __create_new_pma(struct kobject **kobj,
 
 	p->vmflags = pma_flags(args->type, args->right);
 	if (fixup_pmem) {
-		if (args->size == 0)
-			return -EINVAL;
-
 		p->pstart = args->start;
 		p->pend = args->start + args->size;
 		p->psize = args->size;
 		p->consequent = 1;
 	} else if (args->type == PMA_TYPE_KCACHE) {
 		p->pstart = (unsigned long)get_free_page(GFP_KERNEL);
-		if (p->pstart == 0)
+		if (p->pstart == 0) {
+			free(p);
 			return -ENOMEM;
+		}
 		p->pend = p->pstart + PAGE_SIZE;
 		p->psize = PAGE_SIZE;
 		right_mask &= ~KOBJ_RIGHT_MMAP;
@@ -575,9 +574,6 @@ static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 
 	switch (args.type) {
 	case PMA_TYPE_DMA:
-		if (!proc_can_vmctl(current_proc))
-			return -EPERM;
-		break;
 	case PMA_TYPE_MMIO:
 	case PMA_TYPE_PMEM:
 		if (!proc_can_vmctl(current_proc))
@@ -588,8 +584,7 @@ static int pma_create(struct kobject **kobj, right_t *right, unsigned long data)
 			return -E2BIG;
 		break;
 	case PMA_TYPE_NORMAL:
-		if (!proc_is_root(current_proc) &&
-				(args.size > HUGE_PAGE_SIZE))
+		if (!proc_is_root(current_proc) && (args.size > HUGE_PAGE_SIZE))
 			return -E2BIG;
 		break;
 	default:

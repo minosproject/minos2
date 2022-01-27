@@ -25,8 +25,6 @@ static DEFINE_SPIN_LOCK(tid_lock);
 static DECLARE_BITMAP(tid_map, OS_NR_TASKS);
 struct task *os_task_table[OS_NR_TASKS];
 
-static atomic_t os_task_nr;
-
 /* idle task needed be static defined */
 struct task idle_tasks[NR_CPUS];
 static DEFINE_PER_CPU(struct task *, idle_task);
@@ -65,21 +63,7 @@ static void release_tid(int tid)
 {
 	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
 	release_ktask_stat(tid);
-	os_task_table[tid] = NULL;
 	clear_bit(tid, tid_map);
-}
-
-struct task *get_task_by_tid(tid_t tid)
-{
-	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
-	return  os_task_table[tid];
-}
-
-void clear_task_by_tid(tid_t tid)
-{
-	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
-	os_task_table[tid] = NULL;
-	wmb();
 }
 
 static int tid_early_init(void)
@@ -192,10 +176,6 @@ static struct task *do_create_task(char *name,
 		return NULL;
 	}
 
-	/* store this task to the task table */
-	os_task_table[tid] = task;
-	atomic_inc(&os_task_nr);
-
 	task_init(task, name, stack, stk_size, prio,
 			tid, aff, opt, proc, arg);
 
@@ -249,21 +229,6 @@ void do_release_task(struct task *task)
 	 * context, use release_task is more safe
 	 */
 	release_tid(task->tid);
-	atomic_dec(&os_task_nr);
-}
-
-void release_task(struct task *task)
-{
-	pr_debug("release task tid: %d name: %s\n",
-			task->tid, task->name);
-
-	/*
-	 * if this task is belong to a process, just do
-	 * nothing, otherwise it means this task is kernel
-	 * task, release the task directly.
-	 */
-	if (!task->proc)
-		do_release_task(task);
 }
 
 struct task *__create_task(char *name,
@@ -362,8 +327,6 @@ int create_idle_task(void)
 	task = get_cpu_var(idle_task);
 	BUG_ON(!request_tid(tid), "tid is wrong for idle task cpu%d\n", tid);
 
-	os_task_table[tid] = task;
-	atomic_inc(&os_task_nr);
 	sprintf(task_name, "idle@%d", aff);
 
 	task_init(task, task_name, NULL, 0, OS_PRIO_IDLE, tid, aff,
@@ -388,23 +351,6 @@ int create_idle_task(void)
 	pcpu->idle_task = task;
 
 	return 0;
-}
-
-void os_for_all_task(void (*hdl)(struct task *task))
-{
-	int i;
-	struct task *task;
-
-	if (hdl == NULL)
-		return;
-
-	for (i = 0; i < OS_NR_TASKS; i++) {
-		task = os_task_table[i];
-		if (!task)
-			continue;
-
-		hdl(task);
-	}
 }
 
 /*

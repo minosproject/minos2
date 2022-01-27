@@ -89,8 +89,8 @@ static int do_handle_userspace_irq(uint32_t irq, void *data)
 
 	raw_spin_lock(&idesc->lock);
 	if (idesc->owner != 0) {
-		task = get_task_by_tid(idesc->owner);
-		idesc->owner = 0;
+		task = idesc->owner;
+		idesc->owner = NULL;
 	}
 	raw_spin_unlock(&idesc->lock);
 

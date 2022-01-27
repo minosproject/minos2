@@ -10,6 +10,7 @@ extern char **__environ;
 
 FILE *popen(const char *cmd, const char *mode)
 {
+#if 0
 	int p[2], op, e;
 	pid_t pid;
 	FILE *f;
@@ -69,5 +70,6 @@ fail:
 	__syscall(SYS_close, p[1-op]);
 
 	errno = e;
-	return 0;
+#endif
+	return NULL;
 }

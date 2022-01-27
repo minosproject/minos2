@@ -333,13 +333,10 @@ static int setup_root_service_env(struct process *proc)
 	 * root service.
 	 */
 	env->max_proc = OS_NR_TASKS;
-	env->proc_handle= __alloc_handle(proc, &proc->kobj,
-			KOBJ_RIGHT_WRITE | KOBJ_RIGHT_CTL);
 	env->uproc_info_handle = __alloc_handle(proc, uproc_info_pma,
 			KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP);
 	env->ktask_stat_handle = __alloc_handle(proc, ktask_stat_pma,
 			KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP);
-	ASSERT(env->proc_handle > 0);
 	ASSERT(env->uproc_info_handle > 0);
 	ASSERT(env->ktask_stat_handle > 0);
 
@@ -471,7 +468,7 @@ static int setup_root_service_ustack(struct process *proc)
 	ustack = setup_auxv(ustack);
 	ustack = setup_envp(ustack);
 	ustack = setup_argv(ustack, 2, argv);
-	arch_set_task_user_stack(proc->head, ROOTSRV_USTACK_TOP - (origin - ustack));
+	arch_set_task_user_stack(proc->root_task, ROOTSRV_USTACK_TOP - (origin - ustack));
 
 	return 0;
 }
@@ -503,7 +500,7 @@ int load_root_service(void)
 		pr_err("load root service elf failed\n");
 		goto out;
 	}
-	arch_set_task_entry_point(proc->head, entry);
+	arch_set_task_entry_point(proc->root_task, entry);
 
 	if (setup_root_service_env(proc)) {
 		pr_err("setup root service env failed\n");

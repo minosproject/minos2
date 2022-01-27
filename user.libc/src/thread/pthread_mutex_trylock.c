@@ -27,7 +27,7 @@ int __pthread_mutex_trylock_owner(pthread_mutex_t *m)
 	if (type & 128) {
 		if (!self->robust_list.off) {
 			self->robust_list.off = (char*)&m->_m_lock-(char *)&m->_m_next;
-			__syscall(SYS_set_robust_list, &self->robust_list, 3*sizeof(long));
+//			__syscall(SYS_set_robust_list, &self->robust_list, 3*sizeof(long));
 		}
 		if (m->_m_waiters) tid |= 0x80000000;
 		self->robust_list.pending = &m->_m_next;

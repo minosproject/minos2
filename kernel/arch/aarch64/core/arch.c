@@ -287,6 +287,13 @@ void arch_set_task_reg0(struct task *task, unsigned long data)
 	regs->x0 = data;
 }
 
+void arch_set_tls(struct task *task, unsigned long tls)
+{
+	struct cpu_context *ctx = &task->cpu_context;
+
+	ctx->tpidr_el0 = tls;
+}
+
 void arch_set_task_entry_point(struct task *task, long entry)
 {
 	gp_regs *regs = stack_to_gp_regs(task->stack_top);

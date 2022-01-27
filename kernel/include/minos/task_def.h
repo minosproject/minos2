@@ -115,18 +115,19 @@ struct task {
 	void *stack_top;
 	void *stack_bottom;
 
+	/*
+	 * pid - process id
+	 * tid - task id
+	 * hid - handle id
+	 */
 	int pid;
 	int tid;
 
 	unsigned long flags;
 
-	/*
-	 * link to the global task list or the
-	 * cpu task list, and stat list used for
-	 * pcpu task to link to the state list.
-	 */
-	struct list_head list;
-	struct list_head stat_list;
+	struct list_head list;		// link to the event list which event wait.
+	struct list_head proc_list;	// link to the process list, if is a thread.
+	struct list_head stat_list;	// link to the sched list used for sched.
 
 	uint32_t delay;
 	struct timer_list delay_timer;
@@ -181,8 +182,6 @@ struct task {
 	void (*sched_in)(struct task *task);
 	void (*return_to_user)(struct task *task);
 	void (*exit_from_user)(struct task *task);
-
-	struct kobject kobj;		// task kobject.
 
 	union {
 		void *pdata;			// the private data of this task, such as vcpu.

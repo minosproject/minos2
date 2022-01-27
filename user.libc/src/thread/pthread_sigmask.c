@@ -4,6 +4,7 @@
 
 int pthread_sigmask(int how, const sigset_t *restrict set, sigset_t *restrict old)
 {
+#if 0
 	int ret;
 	if (set && (unsigned)how - SIG_BLOCK > 2U) return EINVAL;
 	ret = -__syscall(SYS_rt_sigprocmask, how, set, old, _NSIG/8);
@@ -16,4 +17,6 @@ int pthread_sigmask(int how, const sigset_t *restrict set, sigset_t *restrict ol
 		}
 	}
 	return ret;
+#endif
+	return 0;
 }

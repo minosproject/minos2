@@ -47,6 +47,8 @@ void arch_set_task_user_stack(struct task *task, unsigned long stack);
 
 void arch_set_task_reg0(struct task *task, unsigned long data);
 
+void arch_set_tls(struct task *task, unsigned long tls);
+
 void arch_set_task_entry_point(struct task *task, long entry);
 
 int arch_get_asid_size(void);

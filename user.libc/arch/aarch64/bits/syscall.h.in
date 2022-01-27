@@ -14,31 +14,8 @@
 #define __NR_map 13
 #define __NR_unmap 14
 #define __NR_mtrans 15
-
-/*
- * the below syscall will be delete later
- * currently without them, the compile will fail
- */
-#define __NR_mmap 37
-#define __NR_close 40
-#define __NR_exit 38
-#define __NR_exit_group 39
-#define __NR_fcntl 40
-#define __NR_ioctl 21
-#define __NR_openat 22
-
-#define __NR_sched_setparam 23
-#define __NR_set_robust_list 24
-#define __NR_sched_setscheduler 25
-#define __NR_sched_yield 26
-#define __NR_tkill 27
-#define __NR_futex_time64 28
-#define __NR_rt_sigprocmask 29
-#define __NR_clone 30
-#define __NR_munmap 31
-#define __NR_gettid 32
-
-#define __NR_sched_getparam 33
-#define __NR_get_robust_list 34
-#define __NR_set_tid_address 35
-#define __NR_sched_getscheduler 36
+#define __NR_clock_gettime 16
+#define __NR_clock_nanosleep 17
+#define __NR_exit 18
+#define __NR_exitgroup 19
+#define __NR_clone 20

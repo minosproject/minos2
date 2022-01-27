@@ -8,23 +8,23 @@
 .hidden __clone
 .type   __clone,%function
 __clone:
-	// align stack and save func,arg
-	and x1,x1,#-16
-	stp x0,x3,[x1,#-16]!
+        // align stack and save func,arg
+        and x1,x1,#-16
+        stp x0,x3,[x1,#-16]!
 
-	// syscall
-	uxtw x0,w2
-	mov x2,x4
-	mov x3,x5
-	mov x4,x6
-	mov x8,#220 // SYS_clone
-	svc #0
+        // syscall
+        uxtw x0,w2
+        mov x2,x4
+        mov x3,x5
+        mov x4,x6
+        mov x8,#20 // SYS_clone
+        svc #0
 
-	cbz x0,1f
-	// parent
-	ret
-	// child
-1:	ldp x1,x0,[sp],#16
-	blr x1
-	mov x8,#93 // SYS_exit
-	svc #0
+        cbz x0,1f
+        // parent
+        ret
+        // child
+1:      ldp x1,x0,[sp],#16
+        blr x1
+        mov x8,#18 // SYS_exit
+        svc #0

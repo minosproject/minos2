@@ -43,4 +43,15 @@ extern int sys_kobject_mmap(handle_t handle, void **addr, unsigned long *msize);
 
 extern long sys_kobject_ctl(handle_t handle, int req, unsigned long data);
 
+extern int sys_clock_gettime(int id, struct timespec __user *ts);
+
+extern int sys_clock_nanosleep(int id, int flags, long time, long ns,
+               struct timespec __user *rem);
+
+extern int sys_exit(int errno);
+
+extern int sys_exitgroup(int errno);
+
+extern int sys_clone(int flags, void *stack, int *ptid, void *tls, int *ctid);
+
 #endif

@@ -4,5 +4,8 @@
 
 int tcdrain(int fd)
 {
+#if 0
 	return syscall_cp(SYS_ioctl, fd, TCSBRK, 1);
+#endif
+	return 0;
 }

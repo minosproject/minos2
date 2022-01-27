@@ -72,14 +72,9 @@ static inline int task_need_resched(struct task *task)
 #define task_to_proc(task) (task)->proc
 
 void task_stop(void);
-void release_task(struct task *task);
 void do_release_task(struct task *task);
-struct task *pid_to_task(int pid);
-void os_for_all_task(void (*hdl)(struct task *task));
+void release_thread(struct task *task);
 int kill(struct task *task, int signal);
-
-struct task *get_task_by_tid(tid_t tid);
-void clear_task_by_tid(tid_t tid);
 
 struct task *create_task(char *name, task_func_t func, void *user_sp,
 		int prio, int aff, unsigned long opt,

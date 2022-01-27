@@ -154,6 +154,38 @@ static void __sys_mtrans(gp_regs *regs)
 	regs->x0 = sys_mtrans((unsigned long)regs->x0);
 }
 
+static void __sys_clock_gettime(gp_regs *regs)
+{
+	regs->x0 = sys_clock_gettime((int)regs->x0,
+			(struct timespec __user *)regs->x1);
+}
+
+static void __sys_clock_nanosleep(gp_regs *regs)
+{
+	regs->x0 = sys_clock_nanosleep((int)regs->x0, (int)regs->x1,
+			(int64_t)regs->x2, (long)regs->x3,
+			(struct timespec __user *)regs->x4);
+}
+
+static void __sys_exit(gp_regs *regs)
+{
+	sys_exit((int)regs->x0);
+}
+
+static void __sys_exitgroup(gp_regs *regs)
+{
+	sys_exitgroup((int)regs->x0);
+}
+
+static void __sys_clone(gp_regs *regs)
+{
+	regs->x0 = sys_clone((int)regs->x0,
+			(void __user *)regs->x1,
+			(int __user *)regs->x2,
+			(void __user *)regs->x3,
+			(int __user *)regs->x4);
+}
+
 static syscall_handler_t __syscall_table[] = {
 	[0 ... __NR_syscalls] 		= aarch64_syscall_unsupport,
 
@@ -175,6 +207,14 @@ static syscall_handler_t __syscall_table[] = {
 	[__NR_map]			= __sys_map,
 	[__NR_unmap]			= __sys_unmap,
 	[__NR_trans]			= __sys_mtrans,
+
+	[__NR_clock_gettime]		= __sys_clock_gettime,
+	[__NR_clock_nanosleep]		= __sys_clock_nanosleep,
+
+	[__NR_exit]			= __sys_exit,
+	[__NR_exitgroup]		= __sys_exitgroup,
+
+	[__NR_clone]			= __sys_clone,
 };
 
 void aarch64_do_syscall(gp_regs *regs)

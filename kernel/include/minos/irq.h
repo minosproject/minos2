@@ -84,11 +84,11 @@ struct irq_desc {
 	irq_handle_t handler;
 	uint16_t hno;
 	uint16_t affinity;
-	tid_t owner;
 	unsigned long flags;
 	spinlock_t lock;
 	unsigned long irq_count;
 	void *pdata;
+	void *owner;
 	struct kobject *kobj;
 	struct poll_event_kernel *poll_event;
 };

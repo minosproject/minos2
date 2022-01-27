@@ -224,8 +224,8 @@ static void handle_sync_exception(gp_regs *regs)
 	 * be adjust
 	 */
 	ec = process_sync_descs[ec_type];
-	ec->handler(regs, ec_type, esr_value);
 	regs->pc += ec->ret_addr_adjust;
+	ec->handler(regs, ec_type, esr_value);
 }
 
 void sync_exception_from_current_el(gp_regs *regs)

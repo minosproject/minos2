@@ -309,7 +309,7 @@ int main(int argc, char **argv)
 	of_init(bootdata->dtb_start, bootdata->dtb_end);
 	procinfo_init(bootdata->max_proc, bootdata->uproc_info_handle,
 			bootdata->ktask_stat_handle);
-	self_init(bootdata->proc_handle, bootdata->vmap_start, bootdata->vmap_end);
+	self_init(0, bootdata->vmap_start, bootdata->vmap_end);
 
 	/*
 	 * create the epoll fd for pangu, pangu will use this handle

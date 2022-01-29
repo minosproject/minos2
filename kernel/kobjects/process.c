@@ -156,7 +156,9 @@ void process_die(void)
 }
 
 /*
- * killed by root service.
+ * killed by root service. handle is the process kobject
+ * in root service's handle table. this used to indicate
+ * wether need to send evnet to root service.
  */
 void kill_process(struct process *proc, int handle)
 {

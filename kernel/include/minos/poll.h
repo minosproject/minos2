@@ -45,7 +45,7 @@ struct poll_hub {
 	struct list_head event_list;
 	spinlock_t lock;
 	struct kobject kobj;
-	struct task *task;
+	struct event event;
 };
 
 struct pevent_item {

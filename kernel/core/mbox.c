@@ -40,7 +40,6 @@ int mbox_is_pending(mbox_t *m)
 void *mbox_pend(mbox_t *m, uint32_t timeout)
 {
 	void *pmsg;
-	struct task *task;
 	unsigned long flags;
 
 	might_sleep();
@@ -55,34 +54,10 @@ void *mbox_pend(mbox_t *m, uint32_t timeout)
 	}
 
 	/* no mbox message need to suspend the task */
-	task = get_current_task();
 	__wait_event(TO_EVENT(m), OS_EVENT_TYPE_MBOX, timeout);
 	spin_unlock_irqrestore(&m->lock, flags);
 
-	sched();
-
-	switch (task->pend_state) {
-	case TASK_STATE_PEND_OK:
-		pmsg = task->msg;
-		break;
-
-	case TASK_STATE_PEND_ABORT:
-		pmsg = NULL;
-		break;
-	
-	case TASK_STATE_PEND_TO:
-	default:
-		pmsg = NULL;
-		spin_lock_irqsave(&m->lock, flags);
-		remove_event_waiter(TO_EVENT(m), task);
-		spin_unlock_irqrestore(&m->lock, flags);
-		break;
-	}
-
-	task->msg = NULL;
-	event_pend_down();
-
-	return pmsg;	
+	return (void *)do_wait_event(TO_EVENT(m));
 }
 
 static int __mbox_post_opt(mbox_t *m, void *pmsg, int pend_state, int opt)
@@ -98,7 +73,7 @@ static int __mbox_post_opt(mbox_t *m, void *pmsg, int pend_state, int opt)
 	 * all the waitting task
 	 */
 	spin_lock_irqsave(&m->lock, flags);
-	ret = wake_up_event_waiter(TO_EVENT(m), pmsg, pend_state, opt);
+	ret = wake_up_event_waiter(TO_EVENT(m), (long)pmsg, pend_state, opt);
 	if (!ret) {
 		if (m->data != NULL)
 			ret = -ENOSPC;

@@ -59,9 +59,8 @@
 struct futex {
 	pid_t owner;
 	unsigned long paddr;
-	spinlock_t lock;
-	struct list_head wait_list;
 	struct list_head list;
+	struct event event;
 };
 
 struct futex_queue {
@@ -83,7 +82,6 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 		uint32_t val, struct timespec *ktime,
 		uint32_t *kaddr2, uint32_t val3)
 {
-	long ret = 0;
 	unsigned long timeout;
 
 	timeout = ktime ? futex_timeout_val(ktime) : 0;
@@ -93,23 +91,15 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 	 * again to require the lock at userspace. else wait on
 	 * this futex's wiat list.
 	 */
-	spin_lock(&ft->lock);
+	spin_lock(&ft->event.lock);
 	if (*kaddr != val) {
-		spin_unlock(&ft->lock);
+		spin_unlock(&ft->event.lock);
 		return 0;
 	}
-	list_add_tail(&ft->wait_list, &current->list);
 	__wait_event(ft, OS_EVENT_TYPE_FUTEX, timeout);
-	spin_unlock(&ft->lock);
+	spin_unlock(&ft->event.lock);
 
-	ret = do_wait();
-
-	ASSERT(current->list.next != NULL);
-	spin_lock(&ft->lock);
-	list_del(&current->list);
-	spin_unlock(&ft->lock);
-
-	return ret;
+	return do_wait_event(&ft->event);
 }
 
 static long sys_do_futex_wake(struct futex *ft, uint32_t *kaddr,
@@ -117,21 +107,15 @@ static long sys_do_futex_wake(struct futex *ft, uint32_t *kaddr,
 		uint32_t *kaddr2, uint32_t val3)
 {
 	int wakecnt = 0;
-	struct task *task, *tmp;
 
 	if ((val != 1) && (val != INT_MAX)) {
 		pr_warn("bad value for futex wake %d\n", val);
 		return -EINVAL;
 	}
 
-	spin_lock(&ft->lock);
-	list_for_each_entry_safe(task, tmp, &ft->wait_list, list) {
-		wake_up(task, 0);
-		wakecnt++;
-		if (wakecnt == val)
-			break;
-	}
-	spin_unlock(&ft->lock);
+	spin_lock(&ft->event.lock);
+	wakecnt = __wake_up_event_waiter(&ft->event, 0, TASK_STATE_PEND_OK, val);
+	spin_unlock(&ft->event.lock);
 
 	return wakecnt;
 }
@@ -207,10 +191,10 @@ long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 			return -ENOMEM;
 		}
 
+		event_init(&ft->event, OS_EVENT_TYPE_FUTEX, ft);
 		ft->owner = current_pid;
 		ft->paddr = paddr;
-		spin_lock_init(&ft->lock);
-		init_list(&ft->wait_list);
+
 		list_add(&ftq->head, &ft->list);
 	}
 	spin_unlock(&ftq->lock);

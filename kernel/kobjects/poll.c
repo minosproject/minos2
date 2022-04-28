@@ -47,22 +47,13 @@ struct poll_event *alloc_poll_event(void)
 int poll_event_send_static(struct pevent_item *pi, struct poll_event_kernel *evk)
 {
 	struct poll_hub *peh = pi->poller;
-	struct task *task;
 	unsigned long flags;
 
 	spin_lock_irqsave(&peh->lock, flags);
 	list_add_tail(&peh->event_list, &evk->list);
-
-	/*
-	 * wake up the waitter, if has.
-	 */
-	task = peh->task;
-	if (task)
-		wake_up(task, 0);
-
 	spin_unlock_irqrestore(&peh->lock, flags);
 
-	return 0;
+	return wake(&peh->event, 0);
 }
 
 int poll_event_send_with_data(struct poll_struct *ps, int ev, int type,
@@ -130,70 +121,43 @@ static int __poll_hub_read(struct poll_hub *peh,
 		struct poll_event __user *events,
 		int max_event, uint32_t timeout)
 {
-	long ret = 0, status = TASK_STATE_PEND_OK;
 	struct poll_event_kernel *pevent, *tmp;
 	unsigned long flags;
 	LIST_HEAD(event_list);
 	int cnt = 0;
+	long ret = 0;
 
-	if (max_event <= 0)
-		return -EINVAL;
+	if (max_event >= 32)
+		return -E2BIG;
 
 	if (!user_ranges_ok((void *)events, max_event * sizeof(struct poll_event)))
 		return -EFAULT;
 
-	while (ret == 0) {
-		spin_lock_irqsave(&peh->lock, flags);
+	ret = wait_event(&peh->event, !is_list_empty(&peh->event_list), -1);
+	if (ret)
+		return ret;
 
-		/*
-		 * some task in this process is aready waitting data on
-		 * this poll_hub, return -EAGAIN.
-		 */
-		if ((peh->task != NULL) && (peh->task != current))
-			goto out;
-
-		peh->task = NULL;
-
-		if (is_list_empty(&peh->event_list)) {
-			if (timeout == 0)
-				goto out;
-			peh->task = current;
-			__wait_event(peh, OS_EVENT_TYPE_POLL, timeout);
-			spin_unlock_irqrestore(&peh->lock, flags);
-
-			/*
-			 * the poll_hub kobject is only read/write by itself
-			 * other process will not see it, so do not need to
-			 * consider the case of EABORT
-			 */
-			status = do_wait();
-			if (status != 0) {
-				peh->task = NULL;
-				return ret;
-			}
-
-			continue;
-		}
-
-		list_for_each_entry_safe(pevent, tmp, &peh->event_list, list) {
-			list_del(&pevent->list);
-			list_add_tail(&event_list, &pevent->list);
-
-			cnt++;
-			if (cnt == max_event)
-				break;
-		}
-		spin_unlock_irqrestore(&peh->lock, flags);
-
-		if (!is_list_empty(&event_list)) {
-			ret = copy_poll_event_to_user(events, &event_list, cnt);
-			return ret;
-		}
+	spin_lock_irqsave(&peh->lock, flags);
+	if (is_list_empty(&peh->event_list)) {
+		ret = -EAGAIN;
+		goto out;
 	}
 
+	list_for_each_entry_safe(pevent, tmp, &peh->event_list, list) {
+		list_del(&pevent->list);
+		list_add_tail(&event_list, &pevent->list);
+		if (++cnt == max_event)
+			break;
+	}
 out:
 	spin_unlock_irqrestore(&peh->lock, flags);
-	return -EAGAIN;
+	if (ret)
+		return ret;
+
+	if (!is_list_empty(&event_list))
+		ret = copy_poll_event_to_user(events, &event_list, cnt);
+
+	return ret;
 }
 
 static long poll_hub_read(struct kobject *kobj, void __user *data, size_t data_size,
@@ -445,6 +409,7 @@ static int poll_hub_create(struct kobject **kobj, right_t *right, unsigned long 
 
 	init_list(&peh->event_list);
 	spin_lock_init(&peh->lock);
+	event_init(&peh->event, OS_EVENT_TYPE_POLL, NULL);
 	kobject_init(&peh->kobj, KOBJ_TYPE_POLLHUB,
 			POLLHUB_RIGHT_MASK, (unsigned long)peh);
 	peh->kobj.flags |= KOBJ_FLAGS_NON_SHARED;

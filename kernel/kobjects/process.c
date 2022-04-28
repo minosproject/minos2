@@ -123,8 +123,6 @@ static void request_process_stop(struct process *proc, int handle)
 		 */
 		if (tmp->ti.flags & __TIF_IN_USER)
 			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
-		else if (tmp->wait_type == OS_EVENT_TYPE_ROOT_SERVICE)
-			wake_up_abort(tmp);
 	}
 	spin_unlock(&proc->lock);
 
@@ -187,12 +185,10 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 	 * of this process in root service.
 	 */
 	ret = wait_event(&imsg.ievent, imsg.token == 0, -1);
-	if (task_state_pend_abort(ret)) {
-		pr_err("process_page_fault fail\n");
-		return ret;
-	}
+	if (ret == 0)
+		return imsg.retcode;
 
-	return imsg.retcode;
+	return ret;
 }
 
 static long process_recv(struct kobject *kobj, void __user *data,

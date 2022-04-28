@@ -98,12 +98,12 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 	 * setup the information which the task need waitting for
 	 * for. If the kobject has been closed, return directly.
 	 */
-	imsg_init(&imsg, current);
 	spin_lock(&iqueue->lock);
 	if (iqueue->rstate == IQ_STAT_CLOSED) {
 		spin_unlock(&iqueue->lock);
 		return -EOTHERSIDECLOSED;
 	}
+	imsg_init(&imsg, current);
 	list_add_tail(&iqueue->pending_list, &imsg.list);
 	spin_unlock(&iqueue->lock);
 
@@ -116,7 +116,7 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 		sem_post(&iqueue->isem);
 
 	ret = wait_event(&imsg.ievent, imsg.token == 0, timeout);
-	if (task_state_pend_ok(ret))
+	if (ret == 0)
 		return imsg.retcode;
 
 	status = cmpxchg(&imsg.state, IMSG_STATE_INIT, IMSG_STATE_ERROR);
@@ -146,7 +146,7 @@ out:
 	 * rewait if the msg can be handled.
 	 */
 	if (ret)
-		wait_event(&imsg.ievent, imsg.token == 0, timeout);
+		ret = wait_event(&imsg.ievent, imsg.token == 0, timeout);
 
 	return imsg.retcode;
 }
@@ -178,9 +178,10 @@ int iqueue_reply(struct iqueue *iqueue, right_t right,
 		errno = send_handle(current_proc, task->proc, fd, fd_right);
 	}
 
+	imsg->retcode = errno;
 	smp_wmb();
 	imsg->token = 0;
-	imsg->retcode = errno;
+
 	wake(&imsg->ievent, 0);
 
 	return 0;

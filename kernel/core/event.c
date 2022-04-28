@@ -45,13 +45,7 @@ void event_init(struct event *event, int type, void *pdata)
 	spin_lock_init(&event->lock);
 	init_list(&event->wait_list);
 	event->data = pdata;
-
-	if (event->type == OS_EVENT_TYPE_NORMAL) {
-		if (pdata == NULL)
-			event->data = (void *)current;
-		event->owner = current->tid;
-		event->cnt = 0;
-	}
+	event->owner = 0;
 }
 
 void __wait_event(void *ev, int mode, uint32_t to)
@@ -59,13 +53,15 @@ void __wait_event(void *ev, int mode, uint32_t to)
 	struct task *task = current;
 	struct event *event;
 
+	do_not_preempt();
+
 	/*
 	 * the process of flag is different with other IPC
 	 * method
 	 */
 	if (mode == OS_EVENT_TYPE_FLAG) {
 		task->flag_node = ev;
-	} else if (mode <= OS_EVENT_TYPE_NORMAL) {
+	} else {
 		event = (struct event *)ev;
 		list_add_tail(&event->wait_list, &task->event_list);
 	}
@@ -77,23 +73,23 @@ void __wait_event(void *ev, int mode, uint32_t to)
 	 * may wake up this process, which may case dead lock
 	 * with current design.
 	 */
-	do_not_preempt();
 	task->state = TASK_STATE_WAIT_EVENT;
 	task->pend_state = TASK_STATE_PEND_OK;
 	task->wait_type = mode;
 	task->delay = (to == -1 ? 0 : to);
 }
 
-int remove_event_waiter(struct event *ev, struct task *task)
+static inline void remove_event_waiter(struct event *ev, struct task *task)
 {
-	if (task->event_list.next == NULL) {
-		return -ENOENT;
-	} else {
+	unsigned long flags;
+
+	spin_lock_irqsave(&ev->lock, flags);
+	if (task->event_list.next != NULL) {
+		ASSERT(task->wait_event = (void *)ev);
 		list_del(&task->event_list);
 		task->event_list.next = NULL;
-
-		return 0;
 	}
+	spin_unlock_irqrestore(&ev->lock, flags);
 }
 
 static inline struct task *get_event_waiter(struct event *ev)
@@ -113,13 +109,12 @@ static inline struct task *get_event_waiter(struct event *ev)
  * num - the number need to wake ? <= 0 means, wakeup all.
  * will return the number of task which have been wake.
  */
-int __wake_up_event_waiter(struct event *ev, void *msg,
-		int pend_state, int opt)
+int __wake_up_event_waiter(struct event *ev, long msg, int pend_state, int num)
 {
 	struct task *task;
-	int ret, cnt = 0, num;
+	int ret, cnt = 0;
 
-	num = opt & OS_EVENT_OPT_BROADCAST ? 0 : 1;
+	num = (num == 0) ? 1 : num;
 
 	do {
 		task = get_event_waiter(ev);
@@ -137,37 +132,43 @@ int __wake_up_event_waiter(struct event *ev, void *msg,
 	return cnt;
 }
 
+struct task *wake_up_one_event_waiter(struct event *ev,
+		long msg, int pend_state)
+{
+	struct task *task;
+
+	do {
+		task = get_event_waiter(ev);
+		if (!task)
+			break;
+	} while (__wake_up(task, pend_state, (unsigned long)msg));
+
+	return task;
+}
+
 void event_pend_down(void)
 {
 	struct task *task = current;
 
 	task->pend_state = TASK_STATE_PEND_OK;
-	task->wait_event = (unsigned long)NULL;
+	task->wait_event = NULL;
 	task->wait_type = 0;
 	task->ipcdata = 0;
 }
 
 long __wake(struct event *ev, int pend_state, long retcode)
 {
-	struct task *task = (struct task *)ev->data;
 	unsigned long flags;
-	long __ret;
+	struct task *task;
 
-	if (ev->type != OS_EVENT_TYPE_NORMAL || !task)
-		return -EPERM;
-			
-	if (task == current) {
-		__ret = __wake_up(task, TASK_STATE_PEND_OK, retcode);
-	} else {
-		spin_lock_irqsave(&ev->lock, flags);
-		__ret = __wake_up(task, TASK_STATE_PEND_OK, retcode);
-		spin_unlock_irqrestore(&ev->lock, flags);
-	}
+	spin_lock_irqsave(&ev->lock, flags);
+	task = wake_up_one_event_waiter(ev, retcode, pend_state);
+	spin_unlock_irqrestore(&ev->lock, flags);
 
-	return __ret;
+	return task ? 0 : -ENOENT;
 }
 
-long do_wait(void)
+long do_wait_event(struct event *ev)
 {
 	long ret = 0;
 
@@ -175,17 +176,15 @@ long do_wait(void)
 
 	switch (current->pend_state) {
 	case TASK_STATE_PEND_OK:
-		ret = current->retcode;
 		break;
 	case TASK_STATE_PEND_TO:
-		ret = -ETIMEDOUT;
-		break;
 	case TASK_STATE_PEND_ABORT:
 	default:
-		ret = -EABORT;
+		remove_event_waiter(ev, current);
 		break;
 	}
 
+	ret = current->retcode;
 	event_pend_down();
 
 	return ret;

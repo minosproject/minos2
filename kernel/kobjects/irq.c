@@ -22,61 +22,73 @@
 #include <minos/irq.h>
 #include <minos/poll.h>
 
-#define kobj_to_irqdesc(kobj) (struct irq_desc *)kobj->data
+struct irq_event {
+	struct kobject kobj;
+	struct irq_desc *idesc;
+	struct event event;
+	struct poll_event_kernel poll_event;
+};
+
+#define kobj_to_irq_event(kobj) (struct irq_event *)kobj->data
 
 #define IRQ_RIGHT	KOBJ_RIGHT_RW
 #define IRQ_RIGHT_MASK	(0)
 
+static int do_handle_userspace_irq(uint32_t irq, void *data)
+{
+	struct irq_event *ievent = (struct irq_event *)data;
+	struct kobject *kobj = &ievent->kobj;
+	struct irq_desc *idesc = ievent->idesc;
+	struct poll_struct *ps = kobj->poll_struct;
+
+	ASSERT(idesc != NULL);
+	irq_mask(irq);
+
+	/*
+	 * Whether this irq has been listened. If this irq is polled
+	 * by one process, just send an event to the task.
+	 */
+	if (event_is_polled(ps, EV_IN)) {
+		poll_event_send_static(ps->pevents[EV_IN], &ievent->poll_event);
+		return 0;
+	} else {
+		set_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
+		smp_wmb();
+
+		return wake(&ievent->event, 0);
+	}
+}
+
+static inline int request_user_irq(uint32_t irq, unsigned long flags, void *pdata)
+{
+	return request_irq(irq, do_handle_userspace_irq, flags | IRQ_FLAGS_USER,
+			current->name, pdata);
+}
+
 static int irq_kobj_open(struct kobject *kobj, handle_t handle, right_t rigt)
 {
-	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
+	struct irq_event *ievent = kobj_to_irq_event(kobj);
+	struct irq_desc *idesc = ievent->idesc;
 
-	return request_user_irq(idesc->hno, idesc->flags, kobj);
+	return request_user_irq(idesc->hno, idesc->flags, ievent);
 }
 
 static long irq_kobj_read(struct kobject *kobj, void __user *data,
 		size_t data_size, size_t *actual_data, void __user *extra,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
-	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
-	unsigned long flags;
+	struct irq_event *ievent = kobj_to_irq_event(kobj);
+	struct irq_desc *idesc = ievent->idesc;
 	long ret = 0;
 
 	if (event_is_polled(kobj->poll_struct, EV_IN))
 		return -EPERM;
 
-	/*
-	 * return as soon as fast if the irq is already pending.
-	 */
-	if (test_and_clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags))
-		return 0;
-
-	spin_lock_irqsave(&idesc->lock, flags);
-
-	if (test_and_clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags))
-		goto out;
-
-	/*
-	 * somebody already poll on this irq ?
-	 */
-	if (idesc->owner || timeout == 0) {
-		spin_unlock_irqrestore(&idesc->lock, flags);
-		return -EAGAIN;
-	}
-
-	idesc->owner = current;
-	__wait_event(idesc, OS_EVENT_TYPE_IRQ, timeout);
-out:
-	spin_unlock_irqrestore(&idesc->lock, flags);
-
-	ret = do_wait();
-	if (ret != 0) {
-		spin_lock_irqsave(&idesc->lock, flags);
-		idesc->owner = 0;
-		spin_unlock_irqrestore(&idesc->lock, flags);
-	} else {
+	ret = wait_event(&ievent->event,
+			test_and_clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags),
+			timeout);
+	if (ret == 0)
 		clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
-	}
 
 	return ret;
 }
@@ -85,8 +97,10 @@ static long irq_kobj_write(struct kobject *kobj, void __user *data,
 		size_t data_size, void __user *extra,
 		size_t extra_size, uint32_t timeout)
 {
-	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
-	irq_unmask(idesc->hno);
+	struct irq_event *ievent = kobj_to_irq_event(kobj);
+
+	irq_unmask(ievent->idesc->hno);
+
 	return 0;
 }
 
@@ -110,8 +124,8 @@ int irq_kobject_create(struct kobject **rkobj, right_t *right, unsigned long dat
 	 */
 	uint32_t irqnum = data & 0xffff;
 	unsigned long flags = (data >> 16) & 0xffff;
+	struct irq_event *ievent;
 	struct irq_desc *idesc;
-	struct kobject *kobj;
 
 	/*
 	 * only root service can create an irq kobject.
@@ -126,28 +140,22 @@ int irq_kobject_create(struct kobject **rkobj, right_t *right, unsigned long dat
 	if (!idesc)
 		return -ENOENT;
 
-	if (idesc->kobj)
-		return -EBUSY;
-
-	kobj = zalloc(sizeof(struct kobject));
-	if (!kobj)
+	ievent = zalloc(sizeof(struct irq_event));
+	if (!ievent)
 		return -ENOMEM;
 
-	idesc->poll_event = (struct poll_event_kernel *)alloc_poll_event();
-	if (!idesc->poll_event) {
-		free(kobj);
-		return -ENOMEM;
-	}
+	event_init(&ievent->event, OS_EVENT_TYPE_IRQ, ievent);
+	ievent->poll_event.event.events = POLLIN;
+	ievent->poll_event.event.data.type = 0;
 
-	idesc->kobj = kobj;
-	idesc->poll_event->release = 0;
-	idesc->poll_event->event.events = POLLIN;
-	idesc->poll_event->event.data.type = 0;
+	ievent->idesc = idesc;
 	idesc->flags = flags;
 	idesc->hno = irqnum;
-	kobject_init(kobj, KOBJ_TYPE_IRQ, IRQ_RIGHT_MASK, (unsigned long)idesc);
-	kobj->ops = &irq_kobj_ops;
-	*rkobj = kobj;
+
+	kobject_init(&ievent->kobj, KOBJ_TYPE_IRQ,
+			IRQ_RIGHT_MASK, (unsigned long)ievent);
+	ievent->kobj.ops = &irq_kobj_ops;
+	*rkobj = &ievent->kobj;
 	*right = IRQ_RIGHT;
 
 	return 0;

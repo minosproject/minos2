@@ -36,9 +36,7 @@ uint32_t sem_accept(sem_t *sem)
 
 int sem_pend(sem_t *sem, uint32_t timeout)
 {
-	struct task *task = current;
 	unsigned long flags;
-	int ret;
 
 	might_sleep();
 
@@ -51,27 +49,7 @@ int sem_pend(sem_t *sem, uint32_t timeout)
 	__wait_event(TO_EVENT(sem), OS_EVENT_TYPE_SEM, timeout);
 	spin_unlock_irqrestore(&sem->lock, flags);
 
-	sched();
-
-	switch (task->pend_state) {
-	case TASK_STATE_PEND_OK:
-		ret = 0;
-		break;
-	case TASK_STATE_PEND_ABORT:
-		ret = -EABORT;
-		break;
-	case TASK_STATE_PEND_TO:
-		ret = -ETIMEDOUT;
-	default:
-		spin_lock_irqsave(&sem->lock, flags);
-		remove_event_waiter(TO_EVENT(sem), task);
-		spin_unlock_irqrestore(&sem->lock, flags);
-		break;
-	}
-
-	event_pend_down();
-
-	return ret;
+	return do_wait_event(TO_EVENT(sem));
 }
 
 static int sem_post_opt(sem_t *sem, int pend_state, int opt)
@@ -80,7 +58,8 @@ static int sem_post_opt(sem_t *sem, int pend_state, int opt)
 	int ret;
 
 	spin_lock_irqsave(&sem->lock, flags);
-	ret = wake_up_event_waiter(TO_EVENT(sem), NULL, pend_state, opt);
+	ret = wake_up_event_waiter(TO_EVENT(sem), 0, pend_state,
+			opt == OS_EVENT_OPT_BROADCAST ? WAKEUP_ALL : 1);
 	if (pend_state != TASK_STATE_PEND_ABORT) {
 		if (!ret && (sem->cnt < INT_MAX))
 			sem->cnt++;

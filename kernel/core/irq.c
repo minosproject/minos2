@@ -64,42 +64,6 @@ static int default_irq_handler(uint32_t irq, void *data)
 	return 0;
 }
 
-static int do_handle_userspace_irq(uint32_t irq, void *data)
-{
-	struct kobject *kobj = (struct kobject *)data;
-	struct irq_desc *idesc = (struct irq_desc *)kobj->data;
-	struct poll_struct *ps = kobj->poll_struct;
-	struct task *task = NULL;
-
-	ASSERT(idesc != NULL);
-
-	irq_mask(irq);
-
-	/*
-	 * Whether this irq has been listened. If this irq is polled
-	 * by one process, just send an event to the task.
-	 */
-	if (event_is_polled(ps, EV_IN)) {
-		ASSERT(idesc->poll_event != NULL);
-		poll_event_send_static(ps->pevents[EV_IN], idesc->poll_event);
-		return 0;
-	}
-
-	set_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
-
-	raw_spin_lock(&idesc->lock);
-	if (idesc->owner != 0) {
-		task = idesc->owner;
-		idesc->owner = NULL;
-	}
-	raw_spin_unlock(&idesc->lock);
-
-	if (task)
-		wake_up(task, 0);
-
-	return 0;
-}
-
 static int do_handle_host_irq(int cpuid, struct irq_desc *irq_desc)
 {
 	int ret;
@@ -122,12 +86,6 @@ out:
 		irq_chip->irq_dir(irq_desc->hno);
 
 	return ret;
-}
-
-int request_user_irq(uint32_t irq, unsigned long flags, void *pdata)
-{
-	return request_irq(irq, do_handle_userspace_irq, flags | IRQ_FLAGS_USER,
-			current->name, pdata);
 }
 
 static inline struct irq_desc *get_irq_desc_cpu(int cpuid, uint32_t irq)

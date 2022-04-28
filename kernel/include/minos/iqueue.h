@@ -38,7 +38,7 @@ struct iqueue {
 static void inline imsg_init(struct imsg *imsg, struct task *task)
 {
 	imsg->data = task;
-	imsg->retcode = 0x0;
+	imsg->retcode = 0;
 	imsg->token = new_event_token();
 	imsg->state = IMSG_STATE_INIT;
 	imsg->submit = 0;

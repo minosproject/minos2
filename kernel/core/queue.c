@@ -122,7 +122,6 @@ void *queue_pend(queue_t *qt, uint32_t timeout)
 	void *pmsg;
 	struct queue *q;
 	unsigned long flags;
-	struct task *task = current;
 
 	might_sleep();
 
@@ -137,26 +136,7 @@ void *queue_pend(queue_t *qt, uint32_t timeout)
 	__wait_event(TO_EVENT(qt), OS_EVENT_TYPE_QUEUE, timeout);
 	spin_unlock_irqrestore(&qt->lock, flags);
 
-	sched();
-	
-	switch (task->pend_state) {
-	case TASK_STATE_PEND_OK:
-		pmsg = task->msg;
-		break;
-
-	case TASK_STATE_PEND_ABORT:
-	case TASK_STATE_PEND_TO:
-	default:
-		pmsg = NULL;
-		spin_lock_irqsave(&qt->lock, flags);
-		remove_event_waiter(TO_EVENT(qt), task);
-		spin_unlock_irqrestore(&qt->lock, flags);
-		break;
-	}
-
-	event_pend_down();
-
-	return pmsg;
+	return (void *)do_wait_event(TO_EVENT(qt));
 }
 
 static int __queue_post(queue_t *qt, void *pmsg, int front)
@@ -166,7 +146,7 @@ static int __queue_post(queue_t *qt, void *pmsg, int front)
 	int ret;
 
 	spin_lock_irqsave(&qt->lock, flags);
-	ret = wake_up_event_waiter(TO_EVENT(qt), pmsg, TASK_STATE_PEND_OK, 0);
+	ret = wake_up_event_waiter(TO_EVENT(qt), (long)pmsg, TASK_STATE_PEND_OK, 1);
 	if (ret) {
 		spin_unlock_irqrestore(&qt->lock, flags);
 		return 0;

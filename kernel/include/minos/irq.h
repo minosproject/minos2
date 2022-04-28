@@ -88,9 +88,6 @@ struct irq_desc {
 	spinlock_t lock;
 	unsigned long irq_count;
 	void *pdata;
-	void *owner;
-	struct kobject *kobj;
-	struct poll_event_kernel *poll_event;
 };
 
 #define local_irq_enable() arch_enable_local_irq()
@@ -106,8 +103,6 @@ int request_irq(uint32_t irq, irq_handle_t handler,
 		unsigned long flags, char *name, void *data);
 int request_irq_percpu(uint32_t irq, irq_handle_t handler,
 		unsigned long flags, char *name, void *data);
-
-int request_user_irq(uint32_t irq, unsigned long flags, void *pdata);
 
 void send_sgi(uint32_t sgi, int cpu);
 

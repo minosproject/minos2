@@ -40,7 +40,6 @@ int mutex_accept(mutex_t *mutex)
 int mutex_pend(mutex_t *m, uint32_t timeout)
 {
 	struct task *task = current;
-	int ret;
 
 	might_sleep();
 
@@ -56,42 +55,17 @@ int mutex_pend(mutex_t *m, uint32_t timeout)
 		spin_unlock(&m->lock);
 		return 0;
 	}
-
 	__wait_event(TO_EVENT(m), OS_EVENT_TYPE_MUTEX, timeout);
 	spin_unlock(&m->lock);
 	
-	sched();
-
-	switch (task->pend_state) {
-	case TASK_STATE_PEND_OK:
-		m->owner = task->tid;
-		m->data = (void *)task;
-		m->cnt = task->tid;
-		ret = 0;
-		break;
-
-	case TASK_STATE_PEND_ABORT:
-		ret = -EABORT;
-	case TASK_STATE_PEND_TO:
-		ret = -ETIMEDOUT;
-	default:
-		spin_lock(&m->lock);
-		remove_event_waiter(TO_EVENT(m), task);
-		spin_unlock(&m->lock);
-		break;
-	}
-
-	event_pend_down();
-	
-	return ret;
+	return do_wait_event(TO_EVENT(m));
 }
 
 int mutex_post(mutex_t *m)
 {
-	struct task *task = current;
-	int ret;
+	struct task *task;
 
-	ASSERT(m->owner == task->tid);
+	ASSERT(m->owner == current->tid);
 
 	/* 
 	 * find the highest prio task to run, if there is
@@ -99,13 +73,17 @@ int mutex_post(mutex_t *m)
 	 * resched
 	 */
 	spin_lock(&m->lock);
-	ret = wake_up_event_waiter(m, NULL, TASK_STATE_PEND_OK, 0);
-	if (ret == 0) {
+	task = wake_up_one_event_waiter(TO_EVENT(m), 0, TASK_STATE_PEND_OK);
+	if (task == NULL) {
 		m->cnt = OS_MUTEX_AVAILABLE;
 		m->data = NULL;
 		m->owner = 0;
+	} else {
+		m->owner = task->tid;
+		m->data = (void *)task;
+		m->cnt = task->tid;
 	}
 	spin_unlock(&m->lock);
 
-	return ret;
+	return 0;
 }

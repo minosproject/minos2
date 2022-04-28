@@ -126,7 +126,7 @@ struct task {
 	long pend_state;
 
 	int wait_type;			// which event is task waitting for.
-	unsigned long wait_event;	// the event instance which the task is waitting.
+	void *wait_event;		// the event instance which the task is waitting.
 	struct list_head event_list;
 	struct flag_node *flag_node;	// used for the flag event.
 	union {

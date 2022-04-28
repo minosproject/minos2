@@ -69,7 +69,7 @@ static long stdio_recv(struct kobject *kobj, void __user *data,
 	/*
 	 * currently only support one process, the shell. TBD
 	 */
-	size = console_gets(buf, 32);
+	size = console_gets(buf, 32, -1);
 	if (size != 0)
 		copy_to_user(data, buf, size);
 	*actual_data = size;

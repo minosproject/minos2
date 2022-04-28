@@ -28,7 +28,7 @@ void sys_exit(int errno)
 	if (current->flags & TASK_FLAGS_ROOT)
 		process_die();
 	else
-		task_stop();
+		task_die();
 }
 
 void sys_exitgroup(int errno)
@@ -78,15 +78,16 @@ out:
 int sys_clone(int flags, void *stack, int *ptid, void *tls, int *ctid)
 {
 	struct process *proc = current_proc;
-	gp_regs *regs = current_regs;
+	gp_regs *regs = current_user_regs;
 	struct task *task;
 	int ret;
 
 	if (proc->stopped)
 		return -EPERM;
 
-	task = create_task(NULL, (task_func_t)regs->pc, stack, -1, -1,
-			flags | TASK_FLAGS_NO_AUTO_START, proc, NULL);
+	task = create_task(NULL, (task_func_t)regs->pc,
+			TASK_STACK_SIZE, stack, -1, -1,
+			flags | TASK_FLAGS_NO_AUTO_START, proc);
 	if (!task)
 		return -ENOSPC;
 
@@ -104,7 +105,7 @@ int sys_clone(int flags, void *stack, int *ptid, void *tls, int *ctid)
 
 	task->pid = proc->pid;
 	arch_set_tls(task, (unsigned long)tls);
-	wake_up(task, 0);
+	task_ready(task, 0);
 
 	return task->tid;
 }

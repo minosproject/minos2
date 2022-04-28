@@ -151,6 +151,14 @@ SECTIONS
 
 	. = ALIGN(8);
 
+	__iommu_ops_start = .;
+	.__iommu_ops : {
+		*(.__iommu_ops)
+	}
+	__iommu_ops_end = .;
+
+	. = ALIGN(8);
+
 	__virqchip_start = .;
 	.__virqchip : {
 		*(.__virqchip)
@@ -195,17 +203,9 @@ SECTIONS
 	}
 	__shell_command_end = .;
 
-	. = ALIGN(8);
-
-	__task_desc_start = .;
-	.__task_desc : {
-		*(.__task_desc)
-	}
-	__task_desc_end = .;
-
 	__kobject_desc_start = .;
 	.__kobject_desc : {
-		*(.__kobject_desc)
+               *(.__kobject_desc)
 	}
 	__kobject_desc_end = .;
 

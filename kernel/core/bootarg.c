@@ -16,8 +16,7 @@
 
 #include <minos/minos.h>
 #include <minos/bootarg.h>
-#include <minos/kmem.h>
-#include <uapi/bootdata.h>
+#include <minos/mm.h>
 
 struct boot_option {
 	char *name;
@@ -25,6 +24,9 @@ struct boot_option {
 	char *sub_args;
 	struct boot_option *next;
 };
+
+#define CMDLINE_SIZE 511
+static char cmdline[CMDLINE_SIZE + 1];
 
 static struct boot_option *boot_options;
 
@@ -116,15 +118,10 @@ static void bootarg_init_one(char *str)
 {
 	struct boot_option *bo;
 
-	/*
-	 * this function will called before mm_init so
-	 * call alloc_kmem, the bootarg format is like
-	 * xxx=xxx xxx=xxx xxx=xxx
-	 */
 	if ((*str == 0) || (*str == ' '))
 		return;
 
-	bo = alloc_kmem(sizeof(struct boot_option));
+	bo = malloc(sizeof(struct boot_option));
 	if (!bo)
 		panic("no more boot memory for boot argument\n");
 
@@ -138,12 +135,11 @@ static void bootarg_init_one(char *str)
 
 int __init_text bootargs_init(const char *str, int len)
 {
-	char cmdline[CMDLINE_SIZE + 1];
 	char *bootarg;
-	char *tmp = cmdline;
+	char *tmp = &cmdline[0];
 
 	pr_notice("bootargs: %s\n", str);
-	if (len > CMDLINE_SIZE)
+	if (len > (CMDLINE_SIZE))
 		pr_warn("cmdline size too long information may lost\n");
 
 	len = len > CMDLINE_SIZE ? CMDLINE_SIZE : len;

@@ -23,6 +23,7 @@
 #include <virt/virtio.h>
 #include <virt/vmcs.h>
 #include <virt/os.h>
+#include <virt/vm_pm.h>
 
 static int vm_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)
 {
@@ -31,7 +32,7 @@ static int vm_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)
 	unsigned long hbase = 0;
 	struct vm *vm = get_vm_by_id((uint32_t)args[0]);
 
-	if (!vm_is_hvm(get_current_vm()))
+	if (!vm_is_host_vm(get_current_vm()))
 		panic("only vm0 can call vm related hypercall\n");
 
 	switch (id) {
@@ -41,22 +42,22 @@ static int vm_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)
 		break;
 
 	case HVC_VM_DESTORY:
-		destroy_vm(vm);
+		destroy_guest_vm(vm);
 		HVC_RET1(c, 0);
 		break;
 
 	case HVC_VM_RESTART:
-		vmid = vm_reset((int)args[0], NULL, 0);
+		vmid = vm_reset((int)args[0], NULL, VM_PM_ACTION_BY_MVM);
 		HVC_RET1(c, vmid);
 		break;
 
 	case HVC_VM_POWER_UP:
-		vmid = vm_power_up((int)args[0]);
+		vmid = power_up_guest_vm((int)args[0]);
 		HVC_RET1(c, vmid);
 		break;
 
 	case HVC_VM_POWER_DOWN:
-		vmid = vm_power_off((int)args[0], NULL, 0);
+		vmid = vm_power_off((int)args[0], NULL, VM_PM_ACTION_BY_MVM);
 		HVC_RET1(c, vmid);
 		break;
 
@@ -105,6 +106,19 @@ static int vm_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)
 	HVC_RET1(c, -EINVAL);
 }
 
+#define CHECK_VM_CAP(vm, cap, flg, value) \
+	(value) |= (flg) & VM_FLAGS_HOST ? (cap) : 0;
+
+static unsigned long get_vm_capability(struct vm *vm)
+{
+	unsigned long ret = 0;
+
+	CHECK_VM_CAP(vm, VM_CAP_HOST, VM_FLAGS_HOST, ret);
+	CHECK_VM_CAP(vm, VM_CAP_NATIVE, VM_FLAGS_NATIVE, ret);
+
+	return ret;
+}
+
 static int misc_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)
 {
 	struct vm *vm = get_current_vm();
@@ -114,8 +128,11 @@ static int misc_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)
 		HVC_RET1(c, vm->vmid);
 		break;
 	case HVC_SCHED_OUT:
-		sched_yield();
+		sched();
 		HVC_RET1(c, 0);
+		break;
+	case HVC_GET_VM_CAP:
+		HVC_RET1(c, get_vm_capability(vm));
 		break;
 	default:
 		break;

@@ -28,7 +28,7 @@
 #include <minos/cpumask.h>
 #include <minos/irq.h>
 #include <minos/of.h>
-#include <minos/vspace.h>
+#include <minos/mm.h>
 
 /*
  * LR register definitions are GIC v2 specific.

@@ -223,7 +223,6 @@ void aarch64_do_syscall(gp_regs *regs)
 
 	arch_enable_local_irq();
 
-	current->user_gp_regs = regs;
 	if (nr >= __NR_syscalls) {
 		regs->x0 = -EINVAL;
 		return;

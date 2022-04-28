@@ -55,7 +55,6 @@ struct vgicv3_dev {
 	struct vdev vdev;
 	struct vgic_gicd gicd;
 	struct vgic_gicr *gicr[NR_CPUS];
-	int nr_lrs;
 };
 
 #define GIC_TYPE_GICD		(0x0)
@@ -79,6 +78,12 @@ struct vgicv3_info {
 	unsigned long gicv_base;
 	unsigned long gicv_size;
 };
+
+#define VGICV3_IDX_GICD 0x0
+#define VGICV3_IDX_GICR 0x1
+#define VGICV3_IDX_GICC 0x2
+#define VGICV3_IDX_GICH 0x3
+#define VGICV3_IDX_GICV 0x4
 
 static int gicv3_nr_lr = 0;
 static int gicv3_nr_pr = 0;
@@ -138,30 +143,29 @@ static int vgicv3_send_sgi(struct vcpu *vcpu, unsigned long sgi_value)
 	return 0;
 }
 
-static int address_to_gicr(struct vgic_gicr *gicr,
-		unsigned long address, unsigned long *offset)
+static int offset_to_gicr_type(struct vgic_gicr *gicr, unsigned long *poffset)
 {
-	if ((address >= gicr->rd_base) &&
-		(address < (gicr->rd_base + SIZE_64K))) {
+	unsigned long offset = *poffset;
 
-		*offset = address - gicr->rd_base;
+	if ((offset >= gicr->rd_base) &&
+		(offset < (gicr->rd_base + SIZE_64K))) {
+		*poffset = offset - gicr->rd_base;
 		return GIC_TYPE_GICR_RD;
 	}
 
-	if ((address >= gicr->sgi_base) &&
-		(address < (gicr->sgi_base + SIZE_64K))) {
-
-		*offset = address - gicr->sgi_base;
+	if ((offset >= gicr->sgi_base) &&
+		(offset < (gicr->sgi_base + SIZE_64K))) {
+		*poffset = offset - gicr->sgi_base;
 		return GIC_TYPE_GICR_SGI;
 	}
-
+#if 0
 	if ((address >= gicr->vlpi_base) &&
 		(address < (gicr->vlpi_base + SIZE_64K))) {
 
 		*offset = address - gicr->vlpi_base;
 		return GIC_TYPE_GICR_VLPI;
 	}
-
+#endif
 	return GIC_TYPE_INVAILD;
 }
 
@@ -263,7 +267,6 @@ static int vgic_gicd_mmio_write(struct vcpu *vcpu,
 		for_each_set_bit(bit, value, 32)
 			virq_disable(vcpu, y + bit);
 		break;
-
 	case GICD_IPRIORITYR...GICD_IPRIORITYR_END:
 		t = *value;
 		x = (offset - GICD_IPRIORITYR) / 4;
@@ -402,10 +405,6 @@ static int vgic_check_gicr_access(struct vcpu *vcpu, struct vgic_gicr *gicr,
 			default:
 				return 0;
 			}
-		} else if (type == GIC_TYPE_GICR_SGI) {
-			return 0;
-		} else if (type == GIC_TYPE_GICR_VLPI) {
-			return 0;
 		} else {
 			return 0;
 		}
@@ -414,37 +413,38 @@ static int vgic_check_gicr_access(struct vcpu *vcpu, struct vgic_gicr *gicr,
 	return 1;
 }
 
-static int vgic_mmio_handler(struct vdev *vdev, gp_regs *regs, int read,
-		unsigned long address, unsigned long *value)
+static int vgic_mmio_handler(struct vdev *vdev, gp_regs *regs,
+		int read, int idx, unsigned long offset,
+		unsigned long *value)
 {
-	int i;
 	int type = GIC_TYPE_INVAILD;
-	unsigned long offset;
 	struct vgic_gicd *gicd = NULL;
 	struct vgic_gicr *gicr = NULL;
 	struct vcpu *vcpu = get_current_vcpu();
 	struct vgicv3_dev *gic = vdev_to_vgic(vdev);
+	int i;
 
 	gicr = gic->gicr[get_vcpu_id(vcpu)];
 	gicd = &gic->gicd;
 
-	if ((address >= gicd->base) && (address < gicd->end)) {
+	if (idx == VGICV3_IDX_GICD) {
 		type = GIC_TYPE_GICD;
-		offset = address - gicd->base;
-	} else {
-		type = address_to_gicr(gicr, address, &offset);
+	} else if (idx == VGICV3_IDX_GICR) {
+		type = offset_to_gicr_type(gicr, &offset);
 		if (type != GIC_TYPE_INVAILD)
 			goto out;
 
 		/* master vcpu may access other vcpu's gicr */
 		for (i = 0; i < vcpu->vm->vcpu_nr; i++) {
 			gicr = gic->gicr[i];
-			type = address_to_gicr(gicr, address, &offset);
+			type = offset_to_gicr_type(gicr, &offset);
 			if (type != GIC_TYPE_INVAILD)
 				goto out;
 		}
+	} else {
+		pr_err("only support GICD and GICR emulation\n");
+		return -EINVAL;
 	}
-
 out:
 	if (type == GIC_TYPE_INVAILD) {
 		pr_err("invaild gicr type and address\n");
@@ -473,16 +473,16 @@ out:
 	return 0;
 }
 
-static int vgic_mmio_read(struct vdev *vdev, gp_regs *regs,
+static int vgic_mmio_read(struct vdev *vdev, gp_regs *regs, int idx,
 		unsigned long address, unsigned long *read_value)
 {
-	return vgic_mmio_handler(vdev, regs, 1, address, read_value);
+	return vgic_mmio_handler(vdev, regs, 1, idx, address, read_value);
 }
 
-static int vgic_mmio_write(struct vdev *vdev, gp_regs *regs,
+static int vgic_mmio_write(struct vdev *vdev, gp_regs *regs, int idx,
 		unsigned long address, unsigned long *write_value)
 {
-	return vgic_mmio_handler(vdev, regs, 0, address, write_value);
+	return vgic_mmio_handler(vdev, regs, 0, idx, address, write_value);
 }
 
 static void vgic_gicd_init(struct vm *vm, struct vgic_gicd *gicd,
@@ -520,10 +520,11 @@ static void vgic_gicr_init(struct vcpu *vcpu,
 		struct vgic_gicr *gicr, unsigned long base)
 {
 	gicr->vcpu_id = get_vcpu_id(vcpu);
+
 	/*
-	 * now for gicv3 TBD
+	 * now for gicv3 TBD, do not support vlpi.
 	 */
-	base = base + (128 * 1024) * vcpu->vcpu_id;
+	base = (128 * 1024) * vcpu->vcpu_id;
 	gicr->rd_base = base;
 	gicr->sgi_base = base + (64 * 1024);
 	gicr->vlpi_base = 0;
@@ -533,8 +534,15 @@ static void vgic_gicr_init(struct vcpu *vcpu,
 	spin_lock_init(&gicr->gicr_lock);
 
 	/* TBD */
-	gicr->gicr_typer = 0 | ((unsigned long)vcpu->vcpu_id << 32);
 	gicr->gicr_pidr2 = 0x3 << 4;
+
+	/*
+	 * Linux will use the Last bit (bit 4) to detect whether
+	 * this gicr is the last GICR.
+	 */
+	gicr->gicr_typer = 0 | ((unsigned long)vcpu->vcpu_id << 32);
+	if (vcpu->vcpu_id == (vcpu->vm->vcpu_nr - 1))
+		gicr->gicr_typer |= (1 << 4);
 }
 
 static void vm_release_gic(struct vgicv3_dev *gic)
@@ -648,8 +656,6 @@ static void gicv3_write_lr(int lr, uint64_t val)
 	default:
 		return;
 	}
-
-	isb();
 }
 
 static int gicv3_send_virq(struct vcpu *vcpu, struct virq_desc *virq)
@@ -713,7 +719,7 @@ static int gicv3_get_virq_state(struct vcpu *vcpu, struct virq_desc *virq)
 		return 0;
 
 	value = gicv3_read_lr(virq->id);
-	isb();
+	rmb();
 	value = (value >> 62) & 0x03;
 
 	return ((int)value);
@@ -726,16 +732,10 @@ static int gicv3_generate_virq(uint32_t *array, int virq)
 
 static int vgicv3_vcpu_init(struct vcpu *vcpu, void *d, unsigned long flags)
 {
-	struct vgicv3_dev *dev = (struct vgicv3_dev *)d;
-
 	if (!(flags & VIRQCHIP_F_HW_VIRT))
 		return 0;
 
-	if (dev->nr_lrs > FFS_TABLE_NR_BITS)
-		panic("BUG : Minos virq chiq only support max %d lrs\n",
-				FFS_TABLE_NR_BITS);
-
-	ffs_table_init_and_unmask(&vcpu->virq_struct->lrs_table, dev->nr_lrs);
+	vcpu->virq_struct->nr_lrs = gicv3_nr_lr;
 
 	return 0;
 }
@@ -744,7 +744,6 @@ static void vgicv3_init_virqchip(struct virq_chip *vc,
 		struct vgicv3_dev *dev, unsigned long flags)
 {
 	if (flags & VIRQCHIP_F_HW_VIRT) {
-		dev->nr_lrs = gicv3_nr_lr;
 		vc->exit_from_guest = vgic_irq_exit_from_guest;
 		vc->enter_to_guest = vgic_irq_enter_to_guest;
 		vc->xlate = gic_xlate_irq;
@@ -762,6 +761,44 @@ static void vgicv3_init_virqchip(struct virq_chip *vc,
 	vc->inc_pdata = dev;
 }
 
+static int get_vgicv3_info(struct device_node *node, struct vgicv3_info *vinfo)
+{
+	int ret;
+
+	memset(vinfo, 0, sizeof(struct vgicv3_info));
+	ret = translate_device_address_index(node, &vinfo->gicd_base,
+			&vinfo->gicd_size, 0);
+	if (ret) {
+		pr_err("no gicv3 address info found\n");
+		return -ENOENT;
+	}
+
+	ret = translate_device_address_index(node, &vinfo->gicr_base,
+			&vinfo->gicr_size, 1);
+	if (ret) {
+		pr_err("no gicr address info found\n");
+		return -ENOENT;
+	}
+
+	if (vinfo->gicd_base == 0 || vinfo->gicd_size == 0 ||
+			vinfo->gicr_base == 0 || vinfo->gicr_size == 0) {
+		pr_err("gicd or gicr address info not correct\n");
+		return -EINVAL;
+	}
+
+	translate_device_address_index(node, &vinfo->gicc_base,
+			&vinfo->gicc_size, 2);
+	translate_device_address_index(node, &vinfo->gich_base,
+			&vinfo->gich_size, 3);
+	translate_device_address_index(node, &vinfo->gicv_base,
+			&vinfo->gicv_size, 4);
+	pr_notice("vgicv3: address 0x%x 0x%x 0x%x 0x%x\n",
+			vinfo->gicd_base, vinfo->gicd_size,
+			vinfo->gicr_base, vinfo->gicr_size);
+
+	return 0;
+}
+
 struct virq_chip *vgicv3_virqchip_init(struct vm *vm,
 		struct device_node *node)
 {
@@ -769,52 +806,62 @@ struct virq_chip *vgicv3_virqchip_init(struct vm *vm,
 	struct vgic_gicr *gicr;
 	struct vgicv3_dev *vgicv3_dev;
 	struct vcpu *vcpu;
-	uint64_t gicd_base, gicd_size, gicr_base, gicr_size;
-	unsigned long size, flags = 0;
+	struct vgicv3_info vinfo;
+	unsigned long flags = 0;
 	struct virq_chip *vc;
 	struct arm_virt_data *arm_data = vm->arch_data;
+	struct vdev *vdev;
 
-	pr_notice("create vgicv3 for vm-%d\n", vm->vmid);
+	pr_notice("vgicv3: create vdev for vm-%d\n", vm->vmid);
 
-	ret = translate_device_address_index(node, &gicd_base,
-			&gicd_size, 0);
-	ret += translate_device_address_index(node, &gicr_base,
-			&gicr_size, 1);
-	if (ret || (gicd_size == 0) || (gicr_size == 0))
+	ret = get_vgicv3_info(node, &vinfo);
+	if (ret)
 		return NULL;
-
-	pr_notice("vgicv3 address 0x%x 0x%x 0x%x 0x%x\n",
-				gicd_base, gicd_size,
-				gicr_base, gicr_size);
 
 	vgicv3_dev = zalloc(sizeof(struct vgicv3_dev));
 	if (!vgicv3_dev)
 		return NULL;
 
-	size = gicr_base + gicr_size - gicd_base;
-	host_vdev_init(vm, &vgicv3_dev->vdev, gicd_base, size);
-	vdev_set_name(&vgicv3_dev->vdev, "vgic");
+	/*
+	 * need create or init the vdev before add memory region
+	 * to it.
+	 */
+	vdev = &vgicv3_dev->vdev;
+	host_vdev_init(vm, vdev, "vgicv3");
 
-	vgic_gicd_init(vm, &vgicv3_dev->gicd, gicd_base, gicd_size);
+	ret = vdev_add_iomem_range(vdev, vinfo.gicd_base, vinfo.gicd_size);
+	ret += vdev_add_iomem_range(vdev, vinfo.gicr_base, vinfo.gicr_size);
+	ret += vdev_add_iomem_range(vdev, vinfo.gicc_base, vinfo.gicc_size);
+	ret += vdev_add_iomem_range(vdev, vinfo.gich_base, vinfo.gich_size);
+	ret += vdev_add_iomem_range(vdev, vinfo.gicv_base, vinfo.gicv_size);
+	if (ret) {
+		pr_err("request vmm area for gicv3 failed\n");
+		goto release_gic;
+	}
 
+	/*
+	 * Init the vgic3_gicd and vgicv3_gicr.
+	 */
+	vgic_gicd_init(vm, &vgicv3_dev->gicd, vinfo.gicd_base, vinfo.gicd_size);
 	for (i = 0; i < vm->vcpu_nr; i++) {
 		vcpu = vm->vcpus[i];
 		gicr = malloc(sizeof(struct vgic_gicr));
 		if (!gicr)
 			goto release_gic;
 
-		vgic_gicr_init(vcpu, gicr, gicr_base);
+		vgic_gicr_init(vcpu, gicr, vinfo.gicr_base);
 		vgicv3_dev->gicr[i] = gicr;
 	}
 
-	vgicv3_dev->vdev.read = vgic_mmio_read;
-	vgicv3_dev->vdev.write = vgic_mmio_write;
-	vgicv3_dev->vdev.deinit = vgic_deinit;
-	vgicv3_dev->vdev.reset = vgic_reset;
+	vdev->read = vgic_mmio_read;
+	vdev->write = vgic_mmio_write;
+	vdev->deinit = vgic_deinit;
+	vdev->reset = vgic_reset;
+	vdev_add(vdev);
 
 	vc = alloc_virq_chip();
 	if (!vc)
-		return NULL;
+		goto release_gic;
 
 	if (vgicv3_info.gicd_base != 0)
 		flags |= VIRQCHIP_F_HW_VIRT;
@@ -1020,6 +1067,7 @@ int vgicv3_init(uint64_t *data, int len)
 	val = read_sysreg32(ICH_VTR_EL2);
 	gicv3_nr_lr = (val & 0x3f) + 1;
 	gicv3_nr_pr = ((val >> 29) & 0x7) + 1;
+	pr_notice("vgicv3: nr_lrs %d nr_prs %d\n", gicv3_nr_lr, gicv3_nr_pr);
 
 	register_vcpu_vmodule("gicv3-vmodule", gicv3_vmodule_init);
 

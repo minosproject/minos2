@@ -32,66 +32,56 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 		size_t data_size, size_t *actual_data, void __user *extra,
 		size_t extra_size, size_t *actual_extra, uint32_t timeout)
 {
-	long ret = 0, status = TASK_STAT_PEND_OK;
-	struct task *writter = NULL;
+	struct imsg *imsg = NULL;
+	long ret = 0;
 
-	spin_lock(&iqueue->lock);
+	if (iqueue->wstate == IQ_STAT_CLOSED)
+		return -EIO;
 
-	for (;;) {
-		/*
-		 * only one task can wait for data on the endpoint, if
-		 * there is already reading task, return -EBUSY.
-		 * if wait_event fail, then return error, before return
-		 * need set the recv_task to NULL.
-		 */
-		if ((iqueue->recv_task != NULL) && (iqueue->recv_task != current)) {
-			ret = -EBUSY;
-			break;
-		}
-
-		if (!is_list_empty(&iqueue->pending_list)) {
-			writter = list_first_entry(&iqueue->pending_list, struct task, list);
-			list_del(&writter->list);
-			writter->list.next = KOBJ_IN_PROCESSING;
-			break;
-		} else if (iqueue->writer_stat == IQ_STAT_CLOSED){
-			ret = -EOTHERSIDECLOSED;
-			break;
-		} else if (timeout == 0) {
-			ret = -EAGAIN;
-			break;
-		} else {
-			iqueue->recv_task = current;
-			status = wait_event_locked(iqueue->kobj->type, timeout,
-					&ret, &iqueue->lock);
-			iqueue->recv_task = NULL;
-			if (!task_stat_pend_ok(status) || (ret != 0))
-				break;
-		}
+	if (timeout != 0) {
+		ret = sem_pend(&iqueue->isem, timeout);
+		if (ret < 0)
+			return ret;
 	}
 
+	spin_lock(&iqueue->lock);
+	if (!is_list_empty(&iqueue->pending_list)) {
+		imsg = list_first_entry(&iqueue->pending_list, struct imsg, list);
+		list_del(&imsg->list);
+	} else {
+		ret = -EAGAIN;
+	}
 	spin_unlock(&iqueue->lock);
 	if (ret)
 		return ret;
+
+	/*
+	 * change the imsg's state then also check whether it
+	 * meets error.
+	 */
+	ret = cmpxchg(&imsg->state, IMSG_STATE_INIT, IMSG_STATE_IN_PROCESS);
+	if (ret != IMSG_STATE_INIT)
+		return -EIO;
 
 	/*
 	 * read the data from this task. if the task's data is wrong
 	 * wake up this write task directly. otherwise mask this task
 	 * as current pending task and waitting for reply.
 	 */
-	ret = kobject_copy_ipc_payload(current, writter, actual_data, actual_extra, 1, 0);
+	ret = kobject_copy_ipc_payload(current, imsg->data,
+			actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
-		writter->list.next = NULL;
+		imsg->submit = 1;
 		smp_wmb();
 
-		wake_up(writter, ret);
+		wake(&imsg->ievent, ret);
 		return -EAGAIN;
 	}
 
 	spin_lock(&iqueue->lock);
-	ASSERT(writter->list.next == KOBJ_IN_PROCESSING);
-	list_add_tail(&iqueue->processing_list, &writter->list);
-	ret = (long)writter->wait_event;
+	list_add_tail(&iqueue->processing_list, &imsg->list);
+	ret = imsg->token;
+	imsg->submit = 1;
 	spin_unlock(&iqueue->lock);
 
 	return ret;
@@ -101,117 +91,134 @@ long iqueue_send(struct iqueue *iqueue, void __user *data, size_t data_size,
 		void __user *extra, size_t extra_size, uint32_t timeout)
 {
 	struct poll_struct *ps = iqueue->kobj->poll_struct;
-	struct task *task;
+	struct imsg imsg;
 	long ret, status;
 
 	/*
 	 * setup the information which the task need waitting for
 	 * for. If the kobject has been closed, return directly.
 	 */
+	imsg_init(&imsg, current);
 	spin_lock(&iqueue->lock);
-	if (iqueue->reader_stat == IQ_STAT_CLOSED) {
+	if (iqueue->rstate == IQ_STAT_CLOSED) {
 		spin_unlock(&iqueue->lock);
 		return -EOTHERSIDECLOSED;
 	}
-	list_add_tail(&iqueue->pending_list, &current->list);
-	__event_task_wait(new_event_token(), TASK_EVENT_KOBJ_REPLY, timeout);
+	list_add_tail(&iqueue->pending_list, &imsg.list);
 	spin_unlock(&iqueue->lock);
 
 	/*
 	 * if the releated kobject event is not polled, try
 	 * to wake up the reading task.
-	 *
-	 * the case of wake up here is:
-	 * 1 - reader got the lock first, the recv_task will set
-	 * 2 - writer got the lock first, the reader can see the
-	 *     data which reader add.
-	 * so here do not need require the spinlock.
 	 */
 	ret = poll_event_send(ps, EV_IN);
-	if (ret == -EAGAIN) {
-		task = iqueue->recv_task;
-		if (task)
-			wake_up(task, 0);
-	}
+	if (ret == -EAGAIN)
+		sem_post(&iqueue->isem);
 
-	status = wait_event(&ret);
-	if (task_stat_pend_ok(status))
-		return ret;
+	ret = wait_event(&imsg.ievent, imsg.token == 0, timeout);
+	if (task_state_pend_ok(ret))
+		return imsg.retcode;
+
+	status = cmpxchg(&imsg.state, IMSG_STATE_INIT, IMSG_STATE_ERROR);
+	if (status == IMSG_STATE_INIT)
+		goto out;
 
 	/*
 	 * wait read task to finish the processing of this request.
 	 */
-	while (current->list.next != KOBJ_IN_PROCESSING)
-		cpu_relax();
-
+	while (imsg.submit == 0)
+		sched();
+out:
 	/*
 	 * the writer has been teminated or timedout, need delete
 	 * this request from the pending list or processing list.
 	 */
 	spin_lock(&iqueue->lock);
-	ASSERT(current->list.next != KOBJ_IN_PROCESSING);
-	if (current->list.next != NULL)
-		list_del(&current->list);
+	if (current->list.next != NULL) {
+		list_del(&imsg.list);
+		ret = 0;
+	} else {
+		ret = -EAGAIN;
+	}
 	spin_unlock(&iqueue->lock);
 
-	return ret;
+	/*
+	 * rewait if the msg can be handled.
+	 */
+	if (ret)
+		wait_event(&imsg.ievent, imsg.token == 0, timeout);
+
+	return imsg.retcode;
 }
 
 int iqueue_reply(struct iqueue *iqueue, right_t right,
 		long token, long errno, handle_t fd, right_t fd_right)
 {
-	struct task *task, *tmp;
+	struct imsg *imsg, *tmp;
+	struct task *task;
 
 	/*
 	 * find the task who are waitting the reply token, and wake
 	 * up it with the error code.
 	 */
 	spin_lock(&iqueue->lock);
-	list_for_each_entry_safe(task, tmp, &iqueue->processing_list, list) {
-		if (task->wait_event == token) {
-			list_del(&task->list);
+	list_for_each_entry_safe(imsg, tmp, &iqueue->processing_list, list) {
+		if (imsg->token == token) {
+			list_del(&imsg->list);
 			break;
 		}
 	}
 	spin_unlock(&iqueue->lock);
 
-	if (!task)
+	if (!imsg)
 		return -ENOENT;
 
-	if (fd > 0)
+	if (fd > 0) {
+		task = (struct task *)imsg->data;
 		errno = send_handle(current_proc, task->proc, fd, fd_right);
+	}
 
-	wake_up(task, errno);
+	smp_wmb();
+	imsg->token = 0;
+	imsg->retcode = errno;
+	wake(&imsg->ievent, 0);
 
 	return 0;
 }
 
 static void wake_all_writer(struct iqueue *iqueue, int errno)
 {
-	struct task *task, *tmp;
+	struct imsg *imsg, *tmp;
 
-	list_for_each_entry_safe(task, tmp, &iqueue->pending_list, list) {
-		list_del(&task->list);
-		wake_up(task, errno);
+	spin_lock(&iqueue->lock);
+	list_for_each_entry_safe(imsg, tmp, &iqueue->pending_list, list) {
+		list_del(&imsg->list);
+		imsg->token = 0;
+		wake_abort(&imsg->ievent);
 	}
 
-	list_for_each_entry_safe(task, tmp, &iqueue->processing_list, list) {
-		list_del(&task->list);
-		wake_up(task, errno);
+	list_for_each_entry_safe(imsg, tmp, &iqueue->processing_list, list) {
+		list_del(&imsg->list);
+		imsg->token = 0;
+		wake_abort(&imsg->ievent);
 	}
+	spin_unlock(&iqueue->lock);
 }
 
 int iqueue_close(struct iqueue *iqueue, right_t right, struct process *proc)
 {
 	if (right & KOBJ_RIGHT_READ) {
-		spin_lock(&iqueue->lock);
-		iqueue->reader_stat = IQ_STAT_CLOSED;
+		iqueue->rstate = IQ_STAT_CLOSED;
+		smp_wmb();
 		wake_all_writer(iqueue, -EIO);
-		spin_unlock(&iqueue->lock);
 	} else if (right & KOBJ_RIGHT_WRITE){
 		if (!iqueue->mutil_writer) {
-			iqueue->writer_stat = IQ_STAT_CLOSED;
+			iqueue->wstate = IQ_STAT_CLOSED;
 			smp_wmb();
+			/*
+			 * Fix me, need to fix race condition.
+			 */
+			sem_pend_abort(&iqueue->isem, OS_EVENT_OPT_BROADCAST);
 		}
 	}
 
@@ -226,4 +233,5 @@ void iqueue_init(struct iqueue *iq, int mutil_writer, struct kobject *kobj)
 	spin_lock_init(&iq->lock);
 	init_list(&iq->pending_list);
 	init_list(&iq->processing_list);
+	sem_init(&iq->isem, 0);
 }

@@ -19,6 +19,55 @@
 #include <asm/io.h>
 #include <minos/platform.h>
 #include <libfdt/libfdt.h>
+#ifdef CONFIG_VIRT
+#include <virt/vm.h>
+#include <virt/vmm.h>
+#endif
+
+#ifdef CONFIG_VIRT
+static int qemu_setup_hvm(void *item, void *data)
+{
+	struct vm *vm = (struct vm *)item;
+	int ret;
+
+	if (!vm_is_host_vm(vm))
+		return 0;
+
+	/*
+	 * workaroud, create the PCIE memory region for VM
+	 * since currently minos do not support parsing the
+	 * PCI range, TBD.
+	 * pci_bus 0000:00: root bus resource [bus 00-ff]
+	 * pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+	 * pci_bus 0000:00: root bus resource [mem 0x10000000-0x3efeffff]
+	 * pci_bus 0000:00: root bus resource [mem 0x8000000000-0xffffffffff]
+	 */
+	split_vmm_area(&vm->mm, 0x0, 0x10000, VM_GUEST_IO | VM_RW);
+	split_vmm_area(&vm->mm, 0x10000000, 0x2EFF0000,
+			VM_GUEST_IO | VM_RW | VM_HUGE);
+	split_vmm_area(&vm->mm, 0x8000000000, 0x8000000000,
+			VM_GUEST_IO | VM_RW | __VM_HUGE_1G);
+
+	ret = create_guest_mapping(&vm->mm, 0x0, 0x0, 0x10000, VM_GUEST_IO | VM_RW);
+	ret += create_guest_mapping(&vm->mm, 0x10000000, 0x10000000, 0x2EFF0000,
+			VM_GUEST_IO | VM_RW | VM_HUGE);
+	ret += create_guest_mapping(&vm->mm, 0x8000000000, 0x8000000000,
+			0x8000000000, VM_GUEST_IO | VM_RW | __VM_HUGE_1G);
+	if (ret)
+		pr_err("map PCIE memory region for guest failed\n");
+
+	return ret;
+}
+
+static int qemu_platform_init(void)
+{
+	register_hook(qemu_setup_hvm, OS_HOOK_CREATE_VM);
+
+	return 0;
+}
+device_initcall(qemu_platform_init);
+
+#endif
 
 static struct platform platform_qemu = {
 	.name 		 = "linux,qemu-arm64",

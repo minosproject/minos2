@@ -24,6 +24,10 @@
 #include <minos/page.h>
 #include <minos/slab.h>
 
+extern void *alloc_kmem(size_t size);
+extern void *zalloc_kmem(size_t size);
+extern void *alloc_kpages(int pages);
+
 #define __PAGE_F_KERNL		__GFP_KERNEL
 #define __PAGE_F_USER		__GFP_USER
 #define __PAGE_F_GUEST		__GFP_GUEST
@@ -45,8 +49,10 @@
 #define PAGE_F_HEAD		0x00000100
 #define PAGE_F_MASK		0x00000fff
 
+#define MAX_MEM_SECTIONS 32
+
 struct mem_section {
-	int type;
+	int block_section;
 
 	unsigned long vir_base;
 	unsigned long vir_end;
@@ -70,49 +76,63 @@ struct mem_section {
 
 #define PAGE_ADDR(base, bit)	((unsigned long)base + ((unsigned long)bit << PAGE_SHIFT))
 
-static int nr_sections;
+/*
+ * ID 0 will reserver for kernel memory section.
+ */
 static struct mem_section mem_sections[MAX_MEM_SECTIONS];
+static int nr_sections = 1;
 
-static int adjust_mem_region(phy_addr_t *base, size_t *size)
+void add_kernel_page_section(phy_addr_t base, size_t size, int type)
 {
-	phy_addr_t new_base = *base;
-	size_t new_size = *size;
-	unsigned long start, end;
+	unsigned long end, new_size;
+	size_t page_cnt;
+	struct mem_section *ms = &mem_sections[0];
 
-	start = BALIGN(new_base, BLOCK_SIZE);
-	end = ALIGN(new_base + new_size, BLOCK_SIZE);
+	memset(ms, 0, sizeof(struct mem_section));
+	end = base + size;
+	page_cnt = size >> PAGE_SHIFT;
 
-	if (end <= start)
-		return -EINVAL;
+	ms->bitmap = (unsigned long *)ptov(base);
+	base += BITMAP_SIZE(page_cnt);
+	memset(ms->bitmap, 0, BITMAP_SIZE(page_cnt));
 
-	*base = start;
-	*size = end - start;
+	ms->pages = (struct page *)ptov(base);
+	base += page_cnt * sizeof(struct page);
+	memset(ms->pages, 0, page_cnt * sizeof(struct page));
 
-	add_slab_mem(new_base, start - new_base);
-	add_slab_mem(end, (size_t)(new_base + size - end));
+	base = PAGE_BALIGN(base);
+	new_size = end - base;
 
-	return 0;
+	spin_lock_init(&ms->lock);
+	ms->vir_base = ptov(base);
+	ms->size = new_size;
+	ms->vir_end = ms->vir_base + ms->size;
+	ms->total_cnt = new_size >> PAGE_SHIFT;
+	ms->free_cnt = ms->total_cnt;
+	ms->bm_current = 0;
+	ms->bm_end = ms->total_cnt;
+
+	pr_notice("boot memory section [0x%lx +0x%lx]\n", base, new_size);
 }
 
-static int add_mem_section(phy_addr_t base, size_t size, int type)
+int add_page_section(phy_addr_t base, size_t size, int type)
 {
 	struct mem_section *ms;
+	int block_align = 1;
 
 	if ((size == 0) || (nr_sections >= MAX_MEM_SECTIONS)) {
 		pr_err("no enough memory section for page section\n");
 		return -EINVAL;
 	}
 
-	if (!IS_BLOCK_ALIGN(base) || !IS_BLOCK_ALIGN(size)) {
-		pr_warn("memory section is not block align 0x%x 0x%x\n", base, size);
-		if (adjust_mem_region(&base, &size))
-			return -EINVAL;
-	}
+	if (!IS_BLOCK_ALIGN(base) || !IS_BLOCK_ALIGN(size))
+		block_align = 0;
 
-	pr_notice("umem [0x%x 0x%x]\n", base, base + size);
+	pr_notice("umem [0x%x 0x%x] [%s] section\n", base, base + size,
+			block_align ? "Block" : "Page");
 
 	ms = &mem_sections[nr_sections];
-	ms->type = type;
+	memset(ms, 0, sizeof(struct mem_section));
 	spin_lock_init(&ms->lock);
 
 	ms->vir_base = ptov(base);
@@ -144,11 +164,14 @@ static int add_mem_section(phy_addr_t base, size_t size, int type)
 	 * init the block information for this section, so
 	 * can get 2M blocks from this section if needed.
 	 */
-	ms->total_block = ms->size >> BLOCK_SHIFT;
-	ms->free_block = ms->total_block;
-	ms->block_bitmap = alloc_kmem(BITMAP_SIZE(ms->total_block));
-	ASSERT(ms->block_bitmap != NULL);
-	memset(ms->block_bitmap, 0, BITMAP_SIZE(ms->total_block));
+	if (block_align) {
+		ms->block_section = 1;
+		ms->total_block = ms->size >> BLOCK_SHIFT;
+		ms->free_block = ms->total_block;
+		ms->block_bitmap = alloc_kmem(BITMAP_SIZE(ms->total_block));
+		ASSERT(ms->block_bitmap != NULL);
+		memset(ms->block_bitmap, 0, BITMAP_SIZE(ms->total_block));
+	}
 
 	nr_sections++;
 
@@ -228,7 +251,7 @@ static struct page *__alloc_pages_from_section(struct mem_section *section,
 	void *addr;
 
 	if (count == 1)
-		bit = find_next_zero_bit(section->bitmap, section->total_cnt,
+		bit = find_next_zero_bit_loop(section->bitmap, section->total_cnt,
 				section->bm_current);
 	else
 		bit = bitmap_find_next_zero_area_align(section->bitmap,
@@ -254,7 +277,8 @@ static struct page *__alloc_pages_from_section(struct mem_section *section,
 	/*
 	 * update the block bitmap information.
 	 */
-	alloc_pages_in_block(page, section);
+	if (section->block_section)
+		alloc_pages_in_block(page, section);
 
 	return page;
 }
@@ -263,19 +287,14 @@ static struct page *alloc_pages_from_section(int pages, int align, int flags)
 {
 	struct page *page = NULL;
 	struct mem_section *section;
-	int i, type;
+	int i;
 
 	flags &= PAGE_F_MASK;
-	type = flags & __PAGE_F_DMA ? MEMORY_REGION_TYPE_DMA :
-		MEMORY_REGION_TYPE_NORMAL;
 
 	for (i = 0; i < nr_sections; i++) {
 		section = &mem_sections[i];
-		if (section->type != type)
-			continue;
 
 		spin_lock(&section->lock);
-
 		if (section->free_cnt < pages) {
 			spin_unlock(&section->lock);
 			continue;
@@ -375,7 +394,8 @@ static int free_pages_in_section(struct page *page, struct mem_section *ms)
 	 * update the block information in this section if
 	 * needed.
 	 */
-	free_pages_in_block(page, ms);
+	if (ms->block_section)
+		free_pages_in_block(page, ms);
 
 	/*
 	 * clear the page information last.
@@ -488,16 +508,14 @@ void *get_free_block(unsigned long flags)
 {
 	struct mem_section *ms;
 	void *base = 0;
-	int i, type;
+	int i;
 
 	flags &= PAGE_F_MASK; 
 	flags |= PAGE_F_HUGE;
-	type = flags & __PAGE_F_DMA ? MEMORY_REGION_TYPE_DMA :
-			MEMORY_REGION_TYPE_NORMAL;
 
 	for (i = 0; i < nr_sections; i++) {
 		ms = &mem_sections[i];
-		if (ms->type != type)
+		if (!ms->block_section)
 			continue;
 
 		spin_lock(&ms->lock);
@@ -514,42 +532,4 @@ void *get_free_block(unsigned long flags)
 void free_block(void *addr)
 {
 	free_pages(addr);
-}
-
-void page_init(void)
-{
-	struct memory_region *region;
-	unsigned long flags;
-	int type;
-	int ret;
-
-	list_for_each_entry(region, &mem_list, list) {
-		type = memory_region_type(region);
-		if ((type != MEMORY_REGION_TYPE_NORMAL) && (type != MEMORY_REGION_TYPE_DMA))
-			continue;
-
-		if (!PAGE_ALIGN(region->phy_base) || !PAGE_ALIGN(region->size)) {
-			pr_err("memory section is not page align 0x%x 0x%x\n",
-					region->phy_base, region->size);
-			continue;
-		}
-
-		if (type == MEMORY_REGION_TYPE_NORMAL)
-			flags = VM_NORMAL;
-		else
-			flags = VM_NORMAL_NC;
-
-		/*
-		 * only add the normal memory for user, other memory will used as
-		 * other purpose. kernel memeory will use alloc_kernel_mem(), once
-		 * the kernel memory is allocated, it will never freed.
-		 */
-		ret = add_mem_section(region->phy_base, region->size, type);
-		if (!ret) {
-			ret = create_host_mapping(region->phy_base,
-					region->phy_base, region->size,
-					VM_HOST | VM_RW| flags);
-			ASSERT(ret == 0);
-		}
-	}
 }

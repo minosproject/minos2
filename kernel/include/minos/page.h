@@ -4,7 +4,6 @@
 #include <minos/list.h>
 #include <minos/memattr.h>
 #include <minos/memory.h>
-#include <minos/kmem.h>
 
 #define __GFP_KERNEL		0x00000001
 #define __GFP_USER		0x00000002

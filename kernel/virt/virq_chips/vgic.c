@@ -41,76 +41,89 @@
  */
 int vgic_irq_enter_to_guest(struct vcpu *vcpu, void *data)
 {
-	/*
-	 * here we send the real virq to the vcpu
-	 * before it enter to guest
-	 */
-	int id = 0;
-	struct virq_desc *virq, *n;
-	struct virq_struct *virq_struct = vcpu->virq_struct;
+	struct virq_struct *vs = vcpu->virq_struct;
+	struct vm *vm = vcpu->vm;
+	struct virq_desc *virq;
+	int id = 0, bit, flags = 0, size, old;
 
-	list_for_each_entry_safe(virq, n, &virq_struct->pending_list, list) {
-		if (!virq_is_pending(virq)) {
-			pr_err("virq is not request %d %d\n", virq->vno, virq->id);
-			virq->state = 0;
-			if (virq->id != VIRQ_INVALID_ID) {
-				virqchip_update_virq(vcpu, virq, VIRQ_ACTION_CLEAR);
-				ffs_table_unmask_bit(&virq_struct->lrs_table, virq->id);
-				virq->id = VIRQ_INVALID_ID;
-			}
-			list_del(&virq->list);
-			virq->list.next = NULL;
+	bit = vs->last_fail_virq;
+	size = vm_irq_count(vm) - bit;
+	old = vs->last_fail_virq;
+	vs->last_fail_virq = 0;
+
+repeat:
+	for_each_set_bit_from(bit, vs->pending_bitmap, size) {
+		virq = get_virq_desc(vcpu, bit);
+		if (virq == NULL) {
+			pr_err("bad virq %d for vm %s\n", bit, vm->name);
+			clear_bit(bit, vs->pending_bitmap);
 			continue;
 		}
 
-#if 0
 		/*
-		 * virq is not enabled this time, need to
-		 * send it later, but this will infence the idle
-		 * condition jugement TBD
+		 * do not send this virq if there is same virq in
+		 * active state, need wait the previous virq done.
 		 */
-		if (!virq_is_enabled(virq))
+		if (test_bit(bit, vs->active_bitmap))
 			continue;
-#endif
-
-		if (virq->id != VIRQ_INVALID_ID)
-			goto __do_send_virq;
 
 		/* allocate a id for the virq */
-		id = ffs_table_get_and_mask_one_bit(&virq_struct->lrs_table);
-		if (id < 0) {
-			pr_debug("virq id is full can not send %d\n", virq->vno);
+		id = find_first_zero_bit(vs->lrs_bitmap, vs->nr_lrs);
+		if (id >= vs->nr_lrs) {
+			pr_err("VM%d no space to send new irq %d\n",
+					vm->vmid, virq->vno);
+			vs->last_fail_virq = bit;
 			break;
 		}
 
+		/*
+		 * indicate that FIQ has been inject.
+		 */
+		if (virq->flags & VIRQS_FIQ)
+			flags |= FIQ_HAS_INJECT;
+		flags++;
 		virq->id = id;
-__do_send_virq:
+		set_bit(id, vs->lrs_bitmap);
 		virqchip_send_virq(vcpu, virq);
 		virq->state = VIRQ_STATE_PENDING;
-		virq_clear_pending(virq);
-		dsb();
-		list_del(&virq->list);
-		list_add_tail(&virq_struct->active_list, &virq->list);
+
+		/*
+		 * mark this virq as pending state and add it
+		 * to the active bitmap.
+		 */
+		set_bit(bit, vs->active_bitmap);
+		vs->active_virq++;
+
+		/*
+		 * remove this virq from pending bitmap.
+		 */
+		atomic_dec(&vs->pending_virq);
+		clear_bit(bit, vs->pending_bitmap);
 	}
 
-	return 0;
+	if ((old != 0) && (vs->last_fail_virq == 0)) {
+		bit = 0;
+		size = old;
+		old = 0;
+		goto repeat;
+	}
+
+	return flags;
 }
 
 int vgic_irq_exit_from_guest(struct vcpu *vcpu, void *data)
 {
-	/*
-	 * here we update the states of the irq state
-	 * which the vcpu is handles, since this is running
-	 * on percpu and hanlde per_vcpu's data so do not
-	 * need spinlock
-	 */
-	int status;
-	struct virq_desc *virq, *n;
-	struct virq_struct *virq_struct = vcpu->virq_struct;
+	struct virq_struct *vs = vcpu->virq_struct;
+	struct virq_desc *virq;
+	int bit;
 
-	list_for_each_entry_safe(virq, n, &virq_struct->active_list, list) {
-
-		status = virqchip_get_virq_state(vcpu, virq);
+	for_each_set_bit(bit, vs->active_bitmap, vm_irq_count(vcpu->vm)) {
+		virq = get_virq_desc(vcpu, bit);
+		if (virq == NULL) {
+			pr_err("bad active virq %d\n", virq);
+			clear_bit(bit, vs->active_bitmap);
+			continue;
+		}
 
 		/*
 		 * the virq has been handled by the VCPU, if
@@ -118,22 +131,14 @@ int vgic_irq_exit_from_guest(struct vcpu *vcpu, void *data)
 		 * otherwise add the virq to the pending list
 		 * again
 		 */
-		if (status == VIRQ_STATE_INACTIVE) {
-			if (!virq_is_pending(virq)) {
-				virqchip_update_virq(vcpu, virq, VIRQ_ACTION_CLEAR);
-				ffs_table_unmask_bit(&virq_struct->lrs_table, virq->id);
-				virq->state = VIRQ_STATE_INACTIVE;
-				list_del(&virq->list);
-				virq->id = VIRQ_INVALID_ID;
-				virq->list.next = NULL;
-				virq_struct->active_count--;
-			} else {
-				virqchip_update_virq(vcpu, virq, VIRQ_ACTION_CLEAR);
-				list_del(&virq->list);
-				list_add_tail(&virq_struct->pending_list, &virq->list);
-			}
-		} else
-			virq->state = status;
+		virq->state = virqchip_get_virq_state(vcpu, virq);
+		if (virq->state == VIRQ_STATE_INACTIVE) {
+			virqchip_update_virq(vcpu, virq, VIRQ_ACTION_CLEAR);
+			clear_bit(virq->id, vs->lrs_bitmap);
+			virq->id = VIRQ_INVALID_ID;
+			vs->active_virq--;
+			clear_bit(bit, vs->active_bitmap);
+		}
 	}
 
 	return 0;

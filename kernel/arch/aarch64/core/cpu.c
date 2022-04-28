@@ -21,7 +21,7 @@
 #include <asm/psci.h>
 #include <asm/svccc.h>
 #include <asm/cache.h>
-#include <minos/vspace.h>
+#include <minos/mm.h>
 
 extern unsigned char __smp_affinity_id;
 extern phy_addr_t smp_holding_address[CONFIG_NR_CPUS];

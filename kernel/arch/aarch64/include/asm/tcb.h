@@ -58,25 +58,7 @@ struct cpu_context {
 	uint64_t tpidr_el0;
 	uint64_t tpidrro_el0;
 	uint64_t ttbr_el0;
-
 	struct fpsimd_context fpsimd_state;
-
-	/*
-	 * for cpu which has no VHE, the user task will run
-	 * in EL0 and the kernel will run in EL2, use VMID to
-	 * isolate the task
-	 */
-#if defined(CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
-	uint64_t hcr_el2;
-	uint64_t sctlr_el1;
-	uint64_t cpacr_el1;
-	uint64_t mdscr_el1;
-	uint64_t cntvoff_el2;
-	uint64_t cntkctl_el1;
-	uint64_t cntv_ctl_el0;
-	uint64_t vmpidr_el2;
-	uint64_t vpidr_el2;
-#endif
 };
 
 #endif

@@ -19,25 +19,25 @@
 #include <minos/mm.h>
 #include <minos/memory.h>
 
-#define MAX_MEMORY_REGION	32
+#define MAX_MEMORY_REGION 16
 
-LIST_HEAD(mem_list);
 static struct memory_region memory_regions[MAX_MEMORY_REGION];
 static int current_region_id;
+LIST_HEAD(mem_list);
 
-static struct memory_region *alloc_memory_region(void)
+struct memory_region *alloc_memory_region(void)
 {
 	ASSERT(current_region_id < MAX_MEMORY_REGION);
 	return &memory_regions[current_region_id++];
 }
 
-int add_memory_region(uint64_t base, uint64_t size, uint32_t flags)
+int add_memory_region(uint64_t base, uint64_t size, int type, int vmid)
 {
+	phy_addr_t end = base + size - 1;
 	phy_addr_t r_base, r_end;
-	size_t r_size;
 	struct memory_region *region;
 
-	if (size == 0)
+	if ((size == 0) || (type >= MEMORY_REGION_TYPE_MAX))
 		return -EINVAL;
 
 	/*
@@ -45,13 +45,11 @@ int add_memory_region(uint64_t base, uint64_t size, uint32_t flags)
 	 * other region
 	 */
 	list_for_each_entry(region, &mem_list, list) {
-		r_size = region->size;
 		r_base = region->phy_base;
-		r_end = r_base + r_size - 1;
+		r_end = r_base + region->size - 1;
 
-		if (!((base > r_end) || ((base + size) < r_base))) {
-			pr_err("memory region invalid 0x%p ---> [0x%p]\n",
-					r_base, r_end, r_size);
+		if (!((base > r_end) || (end < r_base))) {
+			pr_err("memory region invalid [0x%lx 0x%lx]\n", base, end);
 			return -EINVAL;
 		}
 	}
@@ -59,27 +57,26 @@ int add_memory_region(uint64_t base, uint64_t size, uint32_t flags)
 	region = alloc_memory_region();
 	region->phy_base = base;
 	region->size = size;
-	region->flags = flags;
+	region->type = type;
+	region->vmid = vmid;
 
-	pr_info("ADD   MEM: 0x%p [0x%p] 0x%x\n", region->phy_base,
-			region->size, region->flags);
-
-	init_list(&region->list);
 	list_add_tail(&mem_list, &region->list);
+	pr_info("ADD   MEM: 0x%p [0x%p] 0x%x\n", region->phy_base,
+			region->size, region->type);
 
 	return 0;
 }
 
-int split_memory_region(phy_addr_t base, size_t size, uint32_t flags)
+int split_memory_region(uint64_t base, size_t size, int type, int vmid)
 {
 	phy_addr_t start, end;
 	phy_addr_t new_end = base + size;
 	struct memory_region *region, *n, *tmp;
 
-	pr_info("SPLIT MEM: 0x%p [0x%p] 0x%x\n", base, size, flags);
-
-	if ((size == 0))
+	if ((size == 0) || (type >= MEMORY_REGION_TYPE_MAX))
 		return -EINVAL;
+
+	pr_info("SPLIT MEM: 0x%p [0x%p] 0x%x\n", base, size, type);
 
 	/*
 	 * delete the memory for host, these region
@@ -94,7 +91,7 @@ int split_memory_region(phy_addr_t base, size_t size, uint32_t flags)
 
 		/* just delete this region from the list */
 		if ((base == start) && (new_end == end)) {
-			region->flags = flags;
+			region->type = type;
 			return 0;
 		} else if ((base == start) && (new_end < end)) {
 			region->phy_base = new_end;
@@ -104,8 +101,10 @@ int split_memory_region(phy_addr_t base, size_t size, uint32_t flags)
 			n = alloc_memory_region();
 			n->phy_base = new_end;
 			n->size = end - new_end;
-			n->flags = region->flags;
+			n->type = region->type;
+			n->vmid = region->vmid;
 			list_add_tail(&mem_list, &n->list);
+
 			region->size = base - start;
 		} else if ((base > start) && (end == new_end)) {
 			region->size = region->size - size;
@@ -119,7 +118,8 @@ int split_memory_region(phy_addr_t base, size_t size, uint32_t flags)
 		tmp = alloc_memory_region();
 		tmp->phy_base = base;
 		tmp->size = size;
-		tmp->flags = flags;
+		tmp->type = type;
+		tmp->vmid = vmid;
 		list_add_tail(&mem_list, &tmp->list);
 
 		return 0;
@@ -130,42 +130,110 @@ int split_memory_region(phy_addr_t base, size_t size, uint32_t flags)
 	return 0;
 }
 
-int memory_region_type(struct memory_region *region)
-{
-	return ffs_one_table[region->flags & 0xff];
-}
-
 void dump_memory_info(void)
 {
-	int type;
-	char *name;
 	struct memory_region *region;
-	char *mem_attr[MEMORY_REGION_TYPE_MAX + 1] = {
+	char vm[8];
+
+	char *mem_attr[MEMORY_REGION_TYPE_MAX] = {
 		"Normal",
-		"DMA",
 		"RSV",
 		"VM",
 		"DTB",
 		"Kernel",
 		"RamDisk",
-		"Unknown"
 	};
 
 	list_for_each_entry(region, &mem_list, list) {
-		type = memory_region_type(region);
-		if (type >= MEMORY_REGION_TYPE_MAX)
-			name = mem_attr[MEMORY_REGION_TYPE_MAX];
-		else
-			name = mem_attr[type];
-
-		pr_notice("MEM: 0x%p ---> 0x%p [0x%p] %s\n", region->phy_base,
+		sprintf(vm, "VM%d", region->vmid);
+		pr_notice("MEM: 0x%p -> 0x%p [0x%p] %s/%s\n", region->phy_base,
 				region->phy_base + region->size,
-				region->size, name);
+				region->size, mem_attr[region->type],
+				region->vmid == 0 ? "Host" : vm);
 	}
+}
+
+static void handle_normal_memory_region(struct memory_region *region)
+{
+	int ret;
+
+	/*
+	 * only add the normal memory for user, other memory will used as
+	 * other purpose. kernel memeory will use alloc_kernel_mem(), once
+	 * the kernel memory is allocated, it will never freed.
+	 */
+	ret = add_page_section(region->phy_base, region->size, region->type);
+	ASSERT(ret == 0)
+}
+
+static void map_all_memory(void)
+{
+	struct memory_region *re;
+	int ret;
+
+	pr_notice("map all memory to host space\n");
+
+	for_each_memory_region(re) {
+		if (re->type != MEMORY_REGION_TYPE_NORMAL)
+			continue;
+	
+		ret = create_host_mapping(ptov(re->phy_base),
+				re->phy_base, re->size,
+				VM_RW | VM_NORMAL | VM_HUGE);
+		if (ret)
+			pr_err("map memory region [0x%lx +0x%lx] failed\n",
+					re->phy_base, re->size);
+	}
+}
+
+static void prepare_memory_region(struct memory_region *re)
+{
+	size_t left_size, right_size;
+	unsigned long start, end, tmp;
+
+	tmp = PAGE_ALIGN(re->phy_base + re->size);
+	re->phy_base = PAGE_BALIGN(re->phy_base);
+	re->size = tmp - re->phy_base;
+	if (re->size == 0)
+		return;
+
+	if (IS_BLOCK_ALIGN(re->phy_base) && IS_BLOCK_ALIGN(re->size))
+		return;
+
+	start = re->phy_base;
+	end = re->phy_base + re->size;
+
+	tmp = BLOCK_ALIGN(end);
+	re->phy_base = BLOCK_BALIGN(re->phy_base);
+	re->size = tmp - re->phy_base;
+
+	left_size = re->phy_base - start;
+	right_size = end - (re->phy_base + re->size);
+
+	/*
+	 * add these memory to the kernel.
+	 */
+	if (left_size)
+		add_memory_region(start, left_size, MEMORY_REGION_TYPE_NORMAL, 0);
+	if (right_size)
+		add_memory_region(re->phy_base + re->size,
+				right_size, MEMORY_REGION_TYPE_NORMAL, 0);
+}
+
+static inline int in_os_memory_range(unsigned long addr, size_t size)
+{
+	return IN_RANGE_UNSIGNED(addr, size, minos_start, CONFIG_MINOS_RAM_SIZE);
 }
 
 void mem_init(void)
 {
+	extern void set_ramdisk_address(void *start, void *end);
+	extern void slab_init(void);
+	extern void kmem_init(void);
+	struct memory_region *re, *tmp;
+	struct memory_region *kre = NULL;
+	size_t kmem_size;
+
 #ifdef CONFIG_DEVICE_TREE
 	of_parse_memory_info();
 #endif
@@ -176,5 +244,62 @@ void mem_init(void)
 	 */
 	BUG_ON(is_list_empty(&mem_list), "no memory information found\n");
 
+	minos_end = PAGE_BALIGN(minos_end);
+	kmem_size = CONFIG_MINOS_RAM_SIZE - (minos_end - minos_start);
+	if (kmem_size <= 0)
+		panic("kmem: memory layout is wrong after boot\n");
+
+	/*
+	 * first handle the kernel memory region, so later, the mapping
+	 * function can be used.
+	 */
+	for_each_memory_region(re) {
+		if (re->type != MEMORY_REGION_TYPE_KERNEL)
+			continue;
+
+		kre = re;
+		if (in_os_memory_range(re->phy_base, re->size))
+			add_kmem_section(re);
+		else
+			panic("Wrong kernel memory section [0x%x 0x%x]\n",
+					re->phy_base, re->phy_base + re->size);
+		break;
+	}
+	BUG_ON(kre == NULL, "Wrong memory configuration\n")
+
+	/*
+	 * for the normal and dma memory, need to make sure it is BLOCK align
+	 * since the page allocater will based BLOCK memory.
+	 */
+	list_for_each_entry_safe(re, tmp, &mem_list, list) {
+		if (re->type == MEMORY_REGION_TYPE_NORMAL)
+			prepare_memory_region(re);
+	}
+
+	/*
+	 * delete the memory region which the size is 0.
+	 */
+	list_for_each_entry_safe(re, tmp, &mem_list, list) {
+		if (re->size == 0)
+			list_del(&re->list);
+	}
+
+	for_each_memory_region(re) {
+		if (re->type == MEMORY_REGION_TYPE_RAMDISK) {
+			pr_notice("set ramdisk address 0x%lx 0x%lx\n",
+					re->phy_base, re->size);
+			set_ramdisk_address((void *)re->phy_base,
+					(void *)(re->phy_base + re->size));
+		} else if (re->type == MEMORY_REGION_TYPE_NORMAL) {
+			handle_normal_memory_region(re);
+		}
+	}
+
+	slab_init();
+
+	kmem_init();
+
 	dump_memory_info();
+
+	map_all_memory();
 }

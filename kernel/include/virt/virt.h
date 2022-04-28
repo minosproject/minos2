@@ -1,14 +1,13 @@
 #ifndef __MINOS_VIRT_H__
 #define __MINOS_VIRT_H__
 
-struct task;
+#include <asm/virt.h>
 
-void save_vcpu_context(struct task *task);
-void restore_vcpu_context(struct task *task);
+struct mm_struct;
 
 int virt_init(void);
-
-void start_vm(int vmid);
 void start_all_vm(void);
+
+void flush_all_tlb_mm(struct mm_struct *mm);
 
 #endif

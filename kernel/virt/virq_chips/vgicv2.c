@@ -28,6 +28,11 @@
 #include <virt/vmodule.h>
 #include <minos/of.h>
 
+#define VGICV2_MODE_HWA 0x0 // hardware accelerate mode
+#define VGICV2_MODE_SWE 0x1 // software emulate mode
+
+static int vgicv2_mode;
+
 struct vgicv2_dev {
 	struct vdev vdev;
 	uint32_t gicd_ctlr;
@@ -37,7 +42,6 @@ struct vgicv2_dev {
 	unsigned long gicc_base;
 	unsigned long gicc_size;
 	uint8_t gic_cpu_id[8];
-	int nr_lrs;
 };
 
 struct vgicv2_info {
@@ -333,13 +337,11 @@ static int vgicv2_write(struct vcpu *vcpu, struct vgicv2_dev *gic,
 }
 
 static int vgicv2_mmio_handler(struct vdev *vdev, gp_regs *regs,
-		int read, unsigned long address, unsigned long *value)
+		int read, unsigned long offset, unsigned long *value)
 {
-	unsigned long offset;
 	struct vcpu *vcpu = get_current_vcpu();
 	struct vgicv2_dev *gic = vdev_to_vgicv2(vdev);
 
-	offset = address - gic->gicd_base;
 	if (read)
 		return vgicv2_read(vcpu, gic, offset, value);
 	else
@@ -347,15 +349,15 @@ static int vgicv2_mmio_handler(struct vdev *vdev, gp_regs *regs,
 }
 
 static int vgicv2_mmio_read(struct vdev *vdev, gp_regs *regs,
-		unsigned long address, unsigned long *read_value)
+		int idx, unsigned long offset, unsigned long *read_value)
 {
-	return vgicv2_mmio_handler(vdev, regs, 1, address, read_value);
+	return vgicv2_mmio_handler(vdev, regs, 1, offset, read_value);
 }
 
 static int vgicv2_mmio_write(struct vdev *vdev, gp_regs *regs,
-		unsigned long address, unsigned long *write_value)
+		int idx, unsigned long offset, unsigned long *write_value)
 {
-	return vgicv2_mmio_handler(vdev, regs, 0, address, write_value);
+	return vgicv2_mmio_handler(vdev, regs, 0, offset, write_value);
 }
 
 static void vgicv2_reset(struct vdev *vdev)
@@ -375,10 +377,9 @@ static void vgicv2_deinit(struct vdev *vdev)
 }
 
 static int vgicc_read(struct vdev *vdev, gp_regs *reg,
-		unsigned long address, unsigned long *value)
+		int idx, unsigned long offset, unsigned long *value)
 {
 	struct vgicc *vgicc = vdev_to_vgicc(vdev);
-	unsigned long offset = address - vgicc->gicc_base;
 
 	switch (offset) {
 	case GICC_CTLR:
@@ -411,10 +412,9 @@ static int vgicc_read(struct vdev *vdev, gp_regs *reg,
 }
 
 static int vgicc_write(struct vdev *vdev, gp_regs *reg,
-		unsigned long address, unsigned long *value)
+		int idx, unsigned long offset, unsigned long *value)
 {
 	struct vgicc *vgicc = vdev_to_vgicc(vdev);
-	unsigned long offset = address - vgicc->gicc_base;
 
 	switch (offset) {
 	case GICC_CTLR:
@@ -447,8 +447,7 @@ static void vgicc_deinit(struct vdev *vdev)
 	free(vdev);
 }
 
-static int vgicv2_create_vgicc(struct vm *vm,
-		unsigned long base, size_t size)
+static int vgicv2_create_vgicc(struct vm *vm, unsigned long base, size_t size)
 {
 	struct vgicc *vgicc;
 
@@ -458,13 +457,19 @@ static int vgicv2_create_vgicc(struct vm *vm,
 		return -ENOMEM;
 	}
 
-	host_vdev_init(vm, &vgicc->vdev, base, size);
-	vdev_set_name(&vgicc->vdev, "vgicv2_vgicc");
+	host_vdev_init(vm, &vgicc->vdev, "vgicv2_vgicc");
+	if (vdev_add_iomem_range(&vgicc->vdev, base, size)) {
+		pr_err("vgicv2: add gicc iomem failed\n");
+		free(vgicc);
+		return -ENOMEM;
+	}
+
 	vgicc->gicc_base = base;
 	vgicc->vdev.read = vgicc_read;
 	vgicc->vdev.write = vgicc_write;
 	vgicc->vdev.reset = vgicc_reset;
 	vgicc->vdev.deinit = vgicc_deinit;
+	vdev_add(&vgicc->vdev);
 
 	return 0;
 }
@@ -487,7 +492,7 @@ int gicv2_get_virq_state(struct vcpu *vcpu, struct virq_desc *virq)
 		return 0;
 
 	value = readl_gich(GICH_LR + virq->id * 4);
-	isb();
+	rmb();
 	value = (value >> 28) & 0x3;
 
 	return value;
@@ -520,7 +525,6 @@ static int gicv2_send_virq(struct vcpu *vcpu, struct virq_desc *virq)
 	gich_lr->hw = !!virq_is_hw(virq);
 
 	writel_gich(val, GICH_LR + virq->id * 4);
-	isb();
 
 	return 0;
 }
@@ -538,7 +542,6 @@ static int gicv2_update_virq(struct vcpu *vcpu,
 
 	case VIRQ_ACTION_CLEAR:
 		writel_gich(0, GICH_LR + desc->id * 4);
-		isb();
 		break;
 	}
 
@@ -547,16 +550,10 @@ static int gicv2_update_virq(struct vcpu *vcpu,
 
 static int vgicv2_vcpu_init(struct vcpu *vcpu, void *d, unsigned long flags)
 {
-	struct vgicv2_dev *dev = (struct vgicv2_dev *)d;
-
 	if (!(flags & VIRQCHIP_F_HW_VIRT))
 		return 0;
 
-	if (dev->nr_lrs > FFS_TABLE_NR_BITS)
-		panic("BUG : Minos virq chiq only support max %d lrs\n",
-				FFS_TABLE_NR_BITS);
-
-	ffs_table_init_and_unmask(&vcpu->virq_struct->lrs_table, dev->nr_lrs);
+	vcpu->virq_struct->nr_lrs = gicv2_nr_lrs;
 
 	return 0;
 }
@@ -570,7 +567,6 @@ static int vgicv2_init_virqchip(struct virq_chip *vc,
 		vc->send_virq = gicv2_send_virq;
 		vc->update_virq = gicv2_update_virq;
 		vc->get_virq_state = gicv2_get_virq_state;
-		dev->nr_lrs = gicv2_nr_lrs;
 	}
 
 	vc->xlate = gic_xlate_irq;
@@ -581,35 +577,69 @@ static int vgicv2_init_virqchip(struct virq_chip *vc,
 	return 0;
 }
 
+static int get_vgicv2_info(struct device_node *node, struct vgicv2_info *vinfo)
+{
+	int ret;
+
+	memset(vinfo, 0, sizeof(struct vgicv2_info));
+	ret = translate_device_address_index(node, &vinfo->gicd_base,
+			&vinfo->gicd_size, 0);
+	if (ret) {
+		pr_err("no gicv3 address info found\n");
+		return -ENOENT;
+	}
+
+	ret = translate_device_address_index(node, &vinfo->gicc_base,
+			&vinfo->gicc_size, 1);
+	if (ret) {
+		pr_err("no gicc address info found\n");
+		return -ENOENT;
+	}
+
+	if (vinfo->gicd_base == 0 || vinfo->gicd_size == 0 ||
+			vinfo->gicc_base == 0 || vinfo->gicc_size == 0) {
+		pr_err("gicd or gicc address info not correct\n");
+		return -EINVAL;
+	}
+
+	translate_device_address_index(node, &vinfo->gich_base,
+			&vinfo->gich_size, 2);
+	translate_device_address_index(node, &vinfo->gicv_base,
+			&vinfo->gicv_size, 3);
+
+	pr_notice("vgicv2: address 0x%x 0x%x 0x%x 0x%x\n",
+			vinfo->gicd_base, vinfo->gicd_size,
+			vinfo->gicc_base, vinfo->gicc_size);
+
+	return 0;
+
+}
+
 static struct virq_chip *vgicv2_virqchip_init(struct vm *vm,
 		struct device_node *node)
 {
 	int ret, flags = 0;
 	struct vgicv2_dev *dev;
 	struct virq_chip *vc;
-	uint64_t gicd_base, gicd_size;
-	uint64_t gicc_base, gicc_size;
+	struct vgicv2_info vinfo;
 
 	pr_notice("create vgicv2 for vm-%d\n", vm->vmid);
 
-	ret = translate_device_address_index(node, &gicd_base,
-			&gicd_size, 0);
-	ret += translate_device_address_index(node, &gicc_base,
-			&gicc_size, 1);
-	if (ret || (gicd_size == 0) || (gicc_size == 0))
+	ret = get_vgicv2_info(node, &vinfo);
+	if (ret) {
+		pr_err("no gicv2 address info found\n");
 		return NULL;
-
-	pr_notice("vgicv2 address 0x%x 0x%x 0x%x 0x%x\n",
-				gicd_base, gicd_size,
-				gicc_base, gicc_size);
+	}
 
 	dev = zalloc(sizeof(struct vgicv2_dev));
 	if (!dev)
 		return NULL;
 
-	dev->gicd_base = gicd_base;
-	host_vdev_init(vm, &dev->vdev, gicd_base, gicd_size);
-	vdev_set_name(&dev->vdev, "vgicv2");
+	dev->gicd_base = vinfo.gicd_base;
+	host_vdev_init(vm, &dev->vdev, "vgicv2");
+	ret = vdev_add_iomem_range(&dev->vdev, vinfo.gicd_base, vinfo.gicd_size);
+	if (ret)
+		goto release_vdev;
 
 	dev->gicd_typer = vm->vcpu_nr << 5;
 	dev->gicd_typer |= (vm->vspi_nr >> 5) - 1;
@@ -620,32 +650,43 @@ static struct virq_chip *vgicv2_virqchip_init(struct vm *vm,
 	dev->vdev.write = vgicv2_mmio_write;
 	dev->vdev.deinit = vgicv2_deinit;
 	dev->vdev.reset = vgicv2_reset;
+	vdev_add(&dev->vdev);
+
+	vc = alloc_virq_chip();
+	if (!vc)
+		goto release_vdev;
 
 	/*
 	 * if the gicv base is set indicate that
 	 * platform has a hardware gicv2, otherwise
 	 * we need to emulated the trap.
 	 */
-	if (vgicv2_info.gicv_base != 0) {
+	if (vgicv2_mode != VGICV2_MODE_SWE) {
 		flags |= VIRQCHIP_F_HW_VIRT;
 		pr_notice("map gicc 0x%x to gicv 0x%x size 0x%x\n",
-				gicc_base, vgicv2_info.gicv_base, gicc_size);
-
-		create_guest_mapping(&vm->vs, gicc_base,
-				vgicv2_info.gicv_base, gicc_size, VM_IO);
+				vinfo.gicc_base, vgicv2_info.gicv_base,
+				vinfo.gicc_size);
+		create_guest_mapping(&vm->mm, vinfo.gicc_base,
+				vgicv2_info.gicv_base, vinfo.gicc_size,
+				VM_GUEST_IO | VM_RW);
 	} else {
-		vgicv2_create_vgicc(vm, gicc_base, gicc_size);
+		ret = vgicv2_create_vgicc(vm, vinfo.gicc_base, vinfo.gicc_size);
+		if (ret)
+			goto release_vgic;
 	}
-
-	/* create the virqchip and init it */
-	vc = alloc_virq_chip();
-	if (!vc)
-		return NULL;
 
 	vc->inc_pdata = dev;
 	vgicv2_init_virqchip(vc, dev, flags);
 
 	return vc;
+
+release_vgic:
+	free(vc);
+release_vdev:
+	vdev_release(&dev->vdev);
+	free(dev);
+
+	return NULL;
 }
 VIRQCHIP_DECLARE(gic400_virqchip, gicv2_match_table,
 		vgicv2_virqchip_init);
@@ -661,7 +702,6 @@ static void gicv2_state_restore(struct vcpu *vcpu, void *context)
 	writel_gich(c->apr, GICH_APR);
 	writel_gich(c->vmcr, GICH_VMCR);
 	writel_gich(c->hcr, GICH_HCR);
-	isb();
 }
 
 static void gicv2_state_init(struct vcpu *vcpu, void *context)
@@ -686,7 +726,6 @@ static void gicv2_state_save(struct vcpu *vcpu, void *context)
 	c->apr = readl_gich(GICH_APR);
 	c->hcr = readl_gich(GICH_HCR);
 	writel_gich(0, GICH_HCR);
-	isb();
 }
 
 static void gicv2_state_resume(struct vcpu *vcpu, void *context)
@@ -707,23 +746,36 @@ static int gicv2_vmodule_init(struct vmodule *vmodule)
 
 int vgicv2_init(uint64_t *data, int len)
 {
-	int i;
-	uint32_t vtr;
 	unsigned long *value = (unsigned long *)&vgicv2_info;
+	uint32_t vtr;
+	int i;
 
-	for (i = 0; i < len; i++)
-		value[i] = (unsigned long)data[i];
+	if ((data == NULL) || (len == 0)) {
+		pr_notice("vgicv2 using software emulation mode\n");
+		vgicv2_mode = VGICV2_MODE_SWE;
+		return 0;
+	}
 
 	for (i = 0; i < len; i++) {
-		if (value[i] == 0)
-			panic("invalid address of gicv2\n");
+		value[i] = data[i];
+		if (value[i] == 0) {
+			pr_err("invalid vgicv2 address, fallback to SWE mode\n");
+			vgicv2_mode = VGICV2_MODE_SWE;
+			return 0;
+		}
+	}
+
+	if (vgicv2_info.gicv_base == 0) {
+		pr_warn("no gicv base address, fall back to SWE mode\n");
+		vgicv2_mode = VGICV2_MODE_SWE;
+		return 0;
 	}
 
 	vtr = readl_relaxed((void *)vgicv2_info.gich_base + GICH_VTR);
 	gicv2_nr_lrs = (vtr & 0x3f) + 1;
-	pr_notice("vgicv2 vtr 0x%x nr_lrs : 0x%d\n", vtr, gicv2_nr_lrs);
+	pr_notice("vgicv2: nr_lrs %d\n", gicv2_nr_lrs);
 
-	register_vcpu_vmodule("gicv2", gicv2_vmodule_init);
+	register_vcpu_vmodule("vgicv2", gicv2_vmodule_init);
 
 	return 0;
 }

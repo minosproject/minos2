@@ -19,11 +19,12 @@
 #include <minos/mm.h>
 #include <minos/atomic.h>
 #include <minos/task.h>
-#include <minos/proc.h>
+#include <minos/procinfo.h>
 
 static DEFINE_SPIN_LOCK(tid_lock);
 static DECLARE_BITMAP(tid_map, OS_NR_TASKS);
 struct task *os_task_table[OS_NR_TASKS];
+static LIST_HEAD(task_list);
 
 /* idle task needed be static defined */
 struct task idle_tasks[NR_CPUS];
@@ -31,7 +32,6 @@ static DEFINE_PER_CPU(struct task *, idle_task);
 
 #define TASK_INFO_INIT(__ti, task) 		\
 	do {					\
-		(__ti)->task = task;		\
 		(__ti)->preempt_count = 0; 	\
 		(__ti)->flags = 0;		\
 	} while (0)
@@ -63,6 +63,8 @@ static void release_tid(int tid)
 {
 	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
 	release_ktask_stat(tid);
+	os_task_table[tid] = NULL;
+	smp_wmb();
 	clear_bit(tid, tid_map);
 }
 
@@ -72,6 +74,7 @@ static int tid_early_init(void)
 	 * tid is reserved for system use.
 	 */
 	set_bit(0, tid_map);
+
 	return 0;
 }
 early_initcall(tid_early_init);
@@ -86,11 +89,8 @@ static void task_timeout_handler(unsigned long data)
 
 static void task_init(struct task *task, char *name,
 		void *stack, uint32_t stk_size, int prio,
-		int tid, int aff, unsigned long opt,
-		struct process *proc, void *arg)
+		int tid, int aff, unsigned long opt, void *arg)
 {
-	int cpu;
-
 	/*
 	 * idle task is setup by create_idle task, skip
 	 * to setup the stack information of idle task, by
@@ -104,46 +104,25 @@ static void task_init(struct task *task, char *name,
 		TASK_INFO_INIT(&task->ti, task);
 	}
 
-	cpu = (aff == TASK_AFF_ANY) ? 0 : aff;
-
-	task->cpu = -1;
 	task->tid = tid;
 	task->prio = prio;
-	task->proc = proc;
-	task->pend_stat = 0;
+	task->pend_state = 0;
 	task->flags = opt;
 	task->pdata = arg;
 	task->affinity = aff;
 	task->run_time = TASK_RUN_TIME;
 	spin_lock_init(&task->s_lock);
+	task->state = TASK_STATE_SUSPEND;
+	task->cpu = -1;
 
-	if ((task->flags & TASK_FLAGS_VCPU) ||
-			(task->flags & TASK_FLAGS_NO_AUTO_START)) {
-		task->stat = TASK_STAT_WAIT_EVENT;
-		task->wait_type = TASK_EVENT_STARTUP;
-		task->cpu = -1;
-	} else {
-		task->stat = TASK_STAT_RUNNING;
-		task->cpu = cpu;
-	}
-
-	/*
-	 * driver task can not be preempt once it ran
-	 * util it drop the cpu by itself.
-	 */
-	if (task->flags & TASK_FLAGS_DRV)
-		task->ti.flags |= __TIF_DONOT_PREEMPT;
-
-	init_timer_on_cpu(&task->delay_timer, cpu);
-	task->delay_timer.function = task_timeout_handler;
-	task->delay_timer.data = (unsigned long)task;
+	init_timer(&task->delay_timer, task_timeout_handler,
+			(unsigned long)task);
+	os_task_table[tid] =  task;
 
 	if (name)
 		strncpy(task->name, name, MIN(strlen(name), TASK_NAME_SIZE));
 	else
-		task->name[0] = '\0';
-
-	get_and_init_ktask_stat(task);
+		sprintf(task->name, "task%d", tid);
 }
 
 static struct task *do_create_task(char *name,
@@ -153,7 +132,6 @@ static struct task *do_create_task(char *name,
 				  int tid,
 				  int aff,
 				  unsigned long opt,
-				  struct process *proc,
 				  void *arg)
 {
 	size_t stk_size = PAGE_BALIGN(ssize);
@@ -176,52 +154,52 @@ static struct task *do_create_task(char *name,
 		return NULL;
 	}
 
-	task_init(task, name, stack, stk_size, prio,
-			tid, aff, opt, proc, arg);
+	task_init(task, name, stack, stk_size, prio, tid, aff, opt, arg);
 
 	return task;
 }
 
-static void task_create_hook(struct task *task)
+static void task_create_hook(struct task *task, void *pdata)
 {
-	do_hooks((void *)task, NULL, OS_HOOK_CREATE_TASK);
+	do_hooks((void *)task, pdata, OS_HOOK_CREATE_TASK);
 }
 
-void task_exit_from_user(void)
+void task_exit_from_user(gp_regs *regs)
 {
        struct task *task = current;
 
+       ASSERT(!(task->flags & TASK_FLAGS_KERNEL));
        if (task->exit_from_user)
-               task->exit_from_user(task);
+               task->exit_from_user(task, regs);
 }
 
-void task_stop(void)
-{
-	do_not_preempt();
-	current->stat = TASK_STAT_STOPPED;
-	sched();
-	ASSERT(0);
-}
-
-void task_return_to_user(void)
+void task_return_to_user(gp_regs *regs)
 {
 	struct task *task = current;
+	unsigned long flags = task->ti.flags;
 
-	/*
-	 * force generate after the task return to user
-	 * if there is stop request pending.
-	 */
-	if (task->request & TASK_REQ_STOP)
-		task->user_gp_regs->pc = 0x0;
+	ASSERT(!(current->flags & TASK_FLAGS_KERNEL));
+	task->ti.flags &= ~(flags | (__TIF_NEED_STOP | __TIF_NEED_FREEZE));
+	smp_wmb();
+
+	if (flags & __TIF_NEED_STOP)
+		task->state = TASK_STATE_STOP;
+	else if (flags & __TIF_NEED_FREEZE)
+		task->state = TASK_STATE_SUSPEND;
+
+	if (task->state != TASK_STATE_RUNNING) {
+		sched();
+		panic("%s %d: should not be here\n", __func__, __LINE__);
+	}
 
 	if (task->return_to_user)
-		task->return_to_user(task);
+		task->return_to_user(task, regs);
 }
 
 void do_release_task(struct task *task)
 {
 	arch_release_task(task);
-	free(task->stack_bottom);
+	free_pages(task->stack_bottom);
 	free(task);
 
 	/*
@@ -233,12 +211,11 @@ void do_release_task(struct task *task)
 
 struct task *__create_task(char *name,
 			task_func_t func,
-			void *user_sp,
 			uint32_t stk_size,
+			void *usp,
 			int prio,
 			int aff,
 			unsigned long opt,
-			struct process *proc,
 			void *arg)
 {
 	struct task *task;
@@ -263,23 +240,26 @@ struct task *__create_task(char *name,
 	preempt_disable();
 
 	task = do_create_task(name, func, stk_size, prio,
-			tid, aff, opt, proc, arg);
+			tid, aff, opt, arg);
 	if (!task) {
 		release_tid(tid);
 		preempt_enable();
 		return NULL;
 	}
 
-	task_create_hook(task);
+	task_create_hook(task, arg);
 
 	/*
 	 * vcpu task will have it own arch_init_task function which
 	 * is called arch_init_vcpu()
 	 */
 	if (!(task->flags & TASK_FLAGS_VCPU))
-		arch_init_task(task, (void *)func, user_sp, task->pdata);
+		arch_init_task(task, (void *)func, usp, task->pdata);
 
-	if (task->stat == TASK_STAT_RUNNING)
+	/*
+	 * start the task if need auto started.
+	 */
+	if (!(task->flags & TASK_FLAGS_NO_AUTO_START))
 		task_ready(task, 0);
 
 	preempt_enable();
@@ -292,32 +272,28 @@ struct task *__create_task(char *name,
 
 struct task *create_task(char *name,
 		task_func_t func,
-		void *user_sp,
+		size_t stk_size,
+		void *usp,
 		int prio,
 		int aff,
 		unsigned long opt,
-		struct process *proc,
 		void *arg)
 {
 	if (prio < 0) {
-		if (opt & TASK_FLAGS_DRV)
-			prio = OS_PRIO_DRIVER;
-		else if (opt & OS_PRIO_SYSTEM)
-			prio = OS_PRIO_SYSTEM;
-		else if (opt & OS_PRIO_VCPU)
+		if (opt & OS_PRIO_VCPU)
 			prio = OS_PRIO_VCPU;
+		else if (opt & (TASK_FLAGS_SRV | TASK_FLAGS_DRV))
+			prio = OS_PRIO_SRV;
 		else
 			prio = OS_PRIO_DEFAULT;
 	}
 
-	return __create_task(name, func, user_sp, TASK_STACK_SIZE,
-			prio, aff, opt, proc, arg);
+	return __create_task(name, func, stk_size, usp,
+			prio, aff, opt, arg);
 }
 
 int create_idle_task(void)
 {
-	extern void kernel_task_sched_out(struct task *task);
-	extern void kernel_task_sched_in(struct task *task);
 	struct task *task;
 	char task_name[32];
 	int aff = smp_processor_id();
@@ -327,30 +303,43 @@ int create_idle_task(void)
 	task = get_cpu_var(idle_task);
 	BUG_ON(!request_tid(tid), "tid is wrong for idle task cpu%d\n", tid);
 
-	sprintf(task_name, "idle@%d", aff);
+	sprintf(task_name, "idle/%d", aff);
 
 	task_init(task, task_name, NULL, 0, OS_PRIO_IDLE, tid, aff,
-			TASK_FLAGS_IDLE | TASK_FLAGS_KERNEL, NULL, NULL);
+			TASK_FLAGS_IDLE | TASK_FLAGS_KERNEL, NULL);
 
-	task->stack_top = (void *)ptov(minos_stack_top) - (aff << CONFIG_TASK_STACK_SHIFT);
-	task->stack_bottom = task->stack_top - CONFIG_TASK_STACK_SIZE;
-	task->sched_out = kernel_task_sched_out;
-	task->sched_in = kernel_task_sched_in;
-
-	task->stat = TASK_STAT_RUNNING;
+	task->stack_top = (void *)ptov(minos_stack_top) -
+		(aff << CONFIG_TASK_STACK_SHIFT);
+	task->stack_bottom = task->stack_top - TASK_STACK_SIZE;
+	task->state = TASK_STATE_RUNNING;
+	task->cpu = aff;
 	task->run_time = 0;
 
 	pcpu->running_task = task;
 	set_current_task(task);
 
 	/* call the hooks for the idle task */
-	task_create_hook(task);
+	task_create_hook(task, NULL);
 
-	list_add_tail(&pcpu->ready_list[task->prio], &task->stat_list);
+	list_add_tail(&pcpu->ready_list[task->prio], &task->state_list);
 	pcpu->local_rdy_grp |= BIT(task->prio);
 	pcpu->idle_task = task;
 
 	return 0;
+}
+
+void os_for_all_task(void (*hdl)(struct task *task))
+{
+        struct task *task;
+	int idx;
+
+	// get the tid_lock ?
+	for_each_set_bit(idx, tid_map, OS_NR_TASKS) {
+		task = os_task_table[idx];
+		if (!task)
+			continue;
+		hdl(task);
+	}
 }
 
 /*
@@ -376,17 +365,31 @@ early_initcall_percpu(task_early_init);
 int create_percpu_tasks(char *name, task_func_t func, 
 		int prio, unsigned long flags, void *pdata)
 {
-	int cpu;
 	struct task *ret;
-
-	if (prio <= OS_PRIO_LOWEST)
-		return -EINVAL;
+	int cpu;
 
 	for_each_online_cpu(cpu) {
-		ret = create_task(name, func, NULL, prio, cpu, flags, NULL, pdata);
+		ret = create_task(name, func, TASK_STACK_SIZE, NULL,
+				prio, cpu, flags | TASK_FLAGS_PERCPU, pdata);
 		if (ret == NULL)
 			pr_err("create [%s] fail on cpu%d\n", name, cpu);
 	}
 
 	return 0;
+}
+
+struct task *create_vcpu_task(char *name, task_func_t func, int aff,
+		unsigned long flags, void *vcpu)
+{
+#define VCPU_TASK_FLAG (TASK_FLAGS_VCPU | TASK_FLAGS_NO_AUTO_START)
+        return create_task(name, func, TASK_STACK_SIZE,
+			NULL, OS_PRIO_VCPU, aff,
+			flags | VCPU_TASK_FLAG, vcpu);
+}
+
+struct task *create_kthread(char *name, task_func_t func, int prio,
+		int aff, unsigned long opt, void *arg)
+{
+	return create_task(name, func, TASK_STACK_SIZE,
+			NULL, prio, aff, opt | TASK_FLAGS_KERNEL, arg);
 }

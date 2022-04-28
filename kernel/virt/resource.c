@@ -25,7 +25,7 @@
 #include <minos/irq.h>
 #include <virt/vmbox.h>
 #include <minos/platform.h>
-#include <minos/vspace.h>
+#include <virt/iommu.h>
 
 static void *virqchip_start;
 static void *virqchip_end;
@@ -36,7 +36,7 @@ static int create_vm_vdev_of(struct vm *vm, struct device_node *node)
 {
 	vdev_init_t func;
 
-	pr_info("%s name\n", __func__, node->name);
+	pr_info("%s %s\n", __func__, node->name);
 
 	if (!node->compatible)
 		return -EINVAL;
@@ -86,32 +86,37 @@ static void *create_vm_irqchip_of(struct device_node *node, void *arg)
 
 int parse_vm_info_of(struct device_node *node, struct vmtag *vmtag)
 {
-	/* 64bit virtual machine default */
-	memset(vmtag, 0, sizeof(*vmtag));
-	vmtag->flags |= VM_FLAGS_64BIT;
-
-	of_get_u32_array(node, "vmid", &vmtag->vmid, 1);
-	of_get_string(node, "vm_name", vmtag->name, 32);
-
 	/*
-	 * check whether this vm is disabled by dts, if this
-	 * vm is disabled, the VM will not created
+	 * The setup data address need 2M align, since the memory will
+	 * mapped into hypervisor, and hypervisor may modify it. Currently
+	 * ususally the device tree, and the size can not beyond 2M.
+	 *
+	 * VMID can not be 0.
 	 */
-	if (of_get_bool(node, "disabled")) {
-		pr_notice("vm%d [%s] is disabled in dts",
-				vmtag->vmid, vmtag->name);
-		return -ENOENT;
+	memset(vmtag, 0, sizeof(*vmtag));
+	of_get_u32_array(node, "vmid", &vmtag->vmid, 1);
+	of_get_u64_array(node, "setup_data", (uint64_t *)&vmtag->setup_data, 1);
+	if (!IS_BLOCK_ALIGN(vmtag->setup_data)) {
+		pr_err("setup data address not correct %d 0x%x\n",
+				vmtag->vmid, vmtag->setup_data);
+		return -EINVAL;
 	}
 
+	of_get_string(node, "vm_name", vmtag->name, 32);
 	of_get_string(node, "type", vmtag->os_type, 16);
 	of_get_u32_array(node, "vcpus", (uint32_t *)&vmtag->nr_vcpu, 1);
 	of_get_u64_array(node, "entry", (uint64_t *)&vmtag->entry, 1);
 	of_get_u32_array(node, "vcpu_affinity",
 			vmtag->vcpu_affinity, vmtag->nr_vcpu);
-	of_get_u64_array(node, "setup_data", (uint64_t *)&vmtag->setup_data, 1);
+	of_get_u64_array(node, "load-address", &vmtag->load_address, 1);
+
+	if (of_get_bool(node, "disabled")) {
+		pr_notice("vm%d [%s] disabled in dts\n", vmtag->vmid, vmtag->name);
+		return -EINVAL;
+	}
 
 	if (of_get_bool(node, "vm_32bit"))
-		vmtag->flags &= ~VM_FLAGS_64BIT;
+		vmtag->flags |= VM_FLAGS_32BIT;
 
 	if (of_get_bool(node, "native_wfi"))
 		vmtag->flags |= VM_FLAGS_NATIVE_WFI;
@@ -119,8 +124,17 @@ int parse_vm_info_of(struct device_node *node, struct vmtag *vmtag)
 	if (of_get_bool(node, "no_of_resource"))
 		vmtag->flags |= VM_FLAGS_NO_OF_RESOURCE;
 
-	/* change the setup_data from PA to VA */
-	vmtag->setup_data = ptov(vmtag->setup_data);
+	if (of_get_bool(node, "host_vm"))
+		vmtag->flags |= VM_FLAGS_HOST;
+
+	vmtag->kernel_file = of_getprop(node, "kernel_image", NULL);
+	vmtag->dtb_file = of_getprop(node, "dtb_image", NULL);
+	vmtag->initrd_file = of_getprop(node, "initrd_image", NULL);
+
+	/*
+	 * all the VM created by hypervisor directoly is native vm.
+	 */
+	vmtag->flags |= VM_FLAGS_NATIVE;
 
 	return 0;
 }
@@ -177,7 +191,7 @@ static int create_pdev_virq_of(struct vm *vm, struct device_node *node)
 		return 0;
 
 	val = (of32_t *)of_getprop(node, "interrupts", &len);
-	if (!val || (len < 4))
+	if (!val || (len < sizeof(of32_t)))
 		return 0;
 
 	/* get the irq count for the device */
@@ -185,12 +199,13 @@ static int create_pdev_virq_of(struct vm *vm, struct device_node *node)
 	if (nr_icells == 0)
 		return 0;
 
-	len = len / 4;
+	len = len / sizeof(of32_t);
 	if (vm_is_native(vm))
 		hw = 1;
 	else {
 		virq_affinity = (of32_t *)of_getprop(node, "virq_affinity", &len_aff);
-		if (virq_affinity && (len_aff == len))
+		if (virq_affinity &&
+		    (len_aff / sizeof(of32_t) == len / nr_icells))
 			hw = 1;
 	}
 
@@ -223,28 +238,33 @@ static int create_pdev_iomem_of(struct vm *vm, struct device_node *node)
 	uint64_t addr, size;
 	int i, nr_addr, ret;
 
+	/* virqchip do not need request and map the virtual
+	 * address, the virqchip will handle it. */
+	if (node->class == DT_CLASS_VIRQCHIP)
+		return 0;
+
 	/* get the count of memory region for the device */
 	nr_addr = of_n_addr_count(node);
 
 	for (i = 0; i < nr_addr; i++) {
 		ret = of_translate_address_index(node, &addr, &size, i);
-		if (ret) {
+		if (ret || (size == 0)) {
 			pr_warn("bad address index %d for %s\n", i, node->name);
 			continue;
 		}
 
-		if (size == 0)
+		if (vm_is_host_vm(vm) && !platform_iomem_valid(addr)) {
+			pr_warn("address range [0x%lx 0x%lx] droped by platform\n",
+					addr, size);
 			continue;
-
-		if (vm_is_hvm(vm)) {
-			if (!platform_iomem_valid(addr))
-				continue;
 		}
 
-		split_vspace_area(&vm->vs, addr, size, VM_IO);
-		create_guest_mapping(&vm->vs, addr, addr, size, VM_GUEST_IO);
-		pr_notice("[VM%d IOMEM] 0x%x->0x%x 0x%x %s\n",
-				vm->vmid, addr, addr, size, node->name);
+		/* map the physical memory for vm */
+		pr_info("[VM%d IOMEM] 0x%x->0x%x 0x%x %s\n", vm->vmid,
+				addr, addr, size, node->name);
+		split_vmm_area(&vm->mm, addr, size, VM_GUEST_IO | VM_RW);
+		create_guest_mapping(&vm->mm, addr, addr,
+				size, VM_GUEST_IO | VM_RW);
 	}
 
 	return 0;
@@ -256,9 +276,10 @@ static int create_vm_pdev_of(struct vm *vm, struct device_node *node)
 
 	ret += create_pdev_iomem_of(vm, node);
 	ret += create_pdev_virq_of(vm, node);
+	ret += iommu_assign_node(vm, node);
 
 	if (ret)
-		pr_notice("create %s fail\n", node->name);
+		pr_err("create %s fail\n", node->name);
 
 	return ret;
 }
@@ -273,6 +294,8 @@ static void *__create_vm_resource_of(struct device_node *node, void *arg)
 	struct vm *vm = (struct vm *)arg;
 
 	switch(node->class) {
+	case DT_CLASS_IRQCHIP:
+	case DT_CLASS_VIRQCHIP:
 	case DT_CLASS_PCI_BUS:
 	case DT_CLASS_PDEV:
 		create_vm_pdev_of(vm, node);
@@ -347,8 +370,8 @@ static int create_vm_virqchip_common(struct vm *vm, struct device_node *node)
 	return 0;
 }
 
-static int inline
-create_vm_vtimer_common(struct vm *vm, struct device_node *node)
+static int inline create_vm_vtimer_common(struct vm *vm,
+		struct device_node *node)
 {
 	of_get_u32_array(node, "vtimer_irq", &vm->vtimer_virq, 1);
 	if ((vm->vtimer_virq > 31) || (vm->vtimer_virq < 16))
@@ -380,8 +403,10 @@ static int create_vm_iomem_common(struct vm *vm, struct device_node *node)
 		paddr = fdt32_to_cpu64(data[2], data[3]);
 		size = fdt32_to_cpu64(data[4], data[5]);
 
-		split_vspace_area(&vm->vs, vaddr, size, VM_IO);
-		create_guest_mapping(&vm->vs, vaddr, paddr, size, VM_IO);
+		split_vmm_area(&vm->mm, vaddr, size, VM_GUEST_IO);
+		create_guest_mapping(&vm->mm, vaddr,
+				paddr, size, VM_GUEST_IO | VM_RW);
+
 		data += IOMEM_ENTRY_CNT;
 	}
 

@@ -163,14 +163,9 @@ int user_ia_fault(gp_regs *regs, int ec, uint32_t esr)
 {
 	struct task *task = current;
 
-	if (task->request & TASK_REQ_STOP) {
-		pr_info("task %d:%d exited\n", task->pid, task->tid);
-		task_stop();
-	} else {
-		pr_err("User instruction abort pid:%d tid:%d ESR:0x%x IP:0x%x\n",
-			task->pid, task->tid, esr, regs->pc);
-		process_die();
-	}
+	pr_err("User instruction abort pid:%d tid:%d ESR:0x%x IP:0x%x\n",
+		task->pid, task->tid, esr, regs->pc);
+	process_die();
 
 	return 0;
 }
@@ -213,7 +208,6 @@ static void handle_sync_exception(gp_regs *regs)
 	uint32_t ec_type;
 	struct sync_desc *ec;
 
-	current->user_gp_regs = regs;
 	esr_value = read_esr();
 	ec_type = ESR_ELx_EC(esr_value);
 	if (ec_type >= ESR_ELx_EC_MAX)
@@ -236,7 +230,7 @@ void sync_exception_from_current_el(gp_regs *regs)
 void sync_exception_from_lower_el(gp_regs *regs)
 {
 #ifdef CONFIG_VIRT
-	extern handle_vcpu_sync_exception(regs);
+	extern void handle_vcpu_sync_exception(gp_regs *regs);
 
 	/*
 	 * check whether this task is a vcpu task or a normal

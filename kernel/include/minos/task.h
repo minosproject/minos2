@@ -5,14 +5,14 @@
 #include <minos/flag.h>
 #include <config/config.h>
 #include <minos/task_def.h>
-#include <minos/procinfo.h>
+#include <minos/proc.h>
 
 #define to_task_info(task)	(&(task)->ti)
 
 #ifdef CONFIG_TASK_RUN_TIME
 #define TASK_RUN_TIME CONFIG_TASK_RUN_TIME
 #else
-#define TASK_RUN_TIME 100
+#define TASK_RUN_TIME 50
 #endif
 
 struct process;
@@ -34,17 +34,22 @@ static inline uint8_t get_task_prio(struct task *task)
 
 static inline int task_is_suspend(struct task *task)
 {
-	return !!(task->stat & TASK_STAT_WAIT_EVENT);
+	return !!(task->state & TASK_STATE_WAIT_EVENT);
 }
 
 static inline int task_is_running(struct task *task)
 {
-	return (task->stat == TASK_STAT_RUNNING);
+	return (task->state == TASK_STATE_RUNNING);
 }
 
 static inline int task_is_vcpu(struct task *task)
 {
 	return (task->flags & TASK_FLAGS_VCPU);
+}
+
+static inline int task_is_32bit(struct task *task)
+{
+	return (task->flags & TASK_FLAGS_32BIT);
 }
 
 static inline void task_set_resched(struct task *task)
@@ -62,42 +67,67 @@ static inline int task_need_resched(struct task *task)
 	return (task->ti.flags & TIF_NEED_RESCHED);
 }
 
-#define task_stat_pend_ok(status)	\
-	((status) == TASK_STAT_PEND_OK)
-#define task_stat_pend_timeout(status)	\
-	((status) == TASK_STAT_PEND_TO)
-#define task_stat_pend_abort(status)	\
-	((status) == TASK_STAT_PEND_ABORT)
+static inline void task_need_stop(struct task *task)
+{
+	set_bit(TIF_NEED_STOP, &task->ti.flags);
+	smp_wmb();
+}
 
-#define task_to_proc(task) (task)->proc
+static inline void task_need_freeze(struct task *task)
+{
+	set_bit(TIF_NEED_FREEZE, &task->ti.flags);
+	smp_wmb();
+}
 
-void task_stop(void);
+static inline int is_task_need_stop(struct task *task)
+{
+	return !!(task->ti.flags & (__TIF_NEED_FREEZE | __TIF_NEED_STOP));
+}
+
+#define task_state_pend_ok(status)	\
+	((status) == TASK_STATE_PEND_OK)
+#define task_state_pend_timeout(status)	\
+	((status) == TASK_STATE_PEND_TO)
+#define task_state_pend_abort(status)	\
+	((status) == TASK_STATE_PEND_ABORT)
+
+/*
+ * set current running task's state do not need to obtain
+ * a lock, when need to wakeup the task, below state the state
+ * can be changed:
+ * 1 - running -> wait_event
+ * 2 - wait_event -> running (waked up by event)
+ * 3 - new -> running
+ * 4 - running -> stopped
+ */
+#define set_current_state(_state, to) 		\
+	do {			 		\
+		current->state = (_state); 	\
+		current->delay = (to);		\
+		smp_mb();			\
+	} while (0)
+
 void do_release_task(struct task *task);
-void release_thread(struct task *task);
-int kill(struct task *task, int signal);
 
-struct task *create_task(char *name, task_func_t func, void *user_sp,
-		int prio, int aff, unsigned long opt,
-		struct process *proc, void *arg);
+struct task *create_task(char *name,
+		task_func_t func,
+		size_t stk_size,
+		void *usp,
+		int prio,
+		int aff,
+		unsigned long opt,
+		void *arg);
 
-#define task_lock(task)						\
-	do {							\
-		spin_lock(&task->s_lock);			\
-	} while (0)
+struct task *create_vcpu_task(char *name, task_func_t func, int aff,
+		unsigned long flags, void *vcpu);
 
-#define task_unlock(task)					\
-	do {							\
-		spin_unlock(&task->s_lock);			\
-	} while (0)
+struct task *create_kthread(char *name, task_func_t func, int prio,
+		int aff, unsigned long opt, void *arg);
 
-#define task_lock_irqsave(task, flags)				\
-	do {							\
-		spin_lock_irqsave(&task->s_lock, flags);	\
-	} while (0)
+void os_for_all_task(void (*hdl)(struct task *task));
 
-#define task_unlock_irqrestore(task, flags)			\
-	do {							\
-		spin_unlock_irqrestore(&task->s_lock, flags);	\
-	} while (0)
+void task_die(void);
+void task_suspend(void);
 
 #endif
+

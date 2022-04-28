@@ -30,14 +30,11 @@
 #include <minos/of.h>
 #include <minos/ramdisk.h>
 
-extern void softirq_init(void);
-extern void init_timers(void);
 extern void cpu_idle(void);
-extern void sched_tick_enable(unsigned long exp);
+extern void mem_init(void);
 extern int allsymbols_init(void);
 extern void platform_init(void);
 extern int create_idle_task(void);
-extern int load_root_service(void);
 extern int kernel_vspace_init(void);
 
 #ifdef CONFIG_VIRT
@@ -55,8 +52,6 @@ void boot_main(void)
 
 	kernel_vspace_init();
 	mem_init();
-	kmem_init();
-	umem_init();
 
 #ifdef CONFIG_DEVICE_TREE
 	of_init_bootargs();
@@ -74,9 +69,6 @@ void boot_main(void)
 #ifdef CONFIG_SMP
 	smp_init();
 #endif
-
-	init_timers();
-
 	subsys_init();
 	subsys_init_percpu();
 
@@ -98,9 +90,7 @@ void boot_main(void)
 #ifdef CONFIG_VIRT
 	virt_init();
 #endif
-
 	ramdisk_init();
-	load_root_service();
 
 	cpu_idle();
 }
@@ -122,8 +112,6 @@ void boot_secondary(int cpuid)
 	 */
 	while (!is_cpus_all_up())
 		mb();
-
-	percpu_init(cpuid);
 
 	early_init_percpu();
 

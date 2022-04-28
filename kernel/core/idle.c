@@ -23,7 +23,13 @@
 #include <minos/of.h>
 #include <minos/task.h>
 #include <minos/flag.h>
-#include <minos/proc.h>
+#include <minos/bootarg.h>
+#include <minos/console.h>
+#include <minos/flag.h>
+
+#ifdef CONFIG_VIRT
+extern void start_all_vm(void);
+#endif
 
 void system_reboot(void)
 {
@@ -54,54 +60,80 @@ int system_suspend(void)
 static inline bool pcpu_can_idle(struct pcpu *pcpu)
 {
 	return (pcpu->local_rdy_grp == (1 << OS_PRIO_IDLE)) &&
-			(is_list_empty(&pcpu->stop_list) &&
-			(is_list_empty(&pcpu->die_process)));
+		(is_list_empty(&pcpu->stop_list));
 }
 
-static void do_pcpu_cleanup_work(struct pcpu *pcpu)
+static void pcpu_release_task(struct pcpu *pcpu)
 {
-	extern void release_thread(struct task *task);
+	unsigned long flags;
 	struct task *task;
 
-	/*
-	 * the race may happen when other task in this pcpu
-	 * call stop(), so need to disable the preempt to avoid
-	 * the idle task preempt by other task here. currently
-	 * the stop list will only write when the task request stop
-	 * so do not need to diable the interrupt.
-	 */
-	for (; ;) {
-		task = NULL;
-		preempt_disable();
-		if (!is_list_empty(&pcpu->stop_list)) {
-			task = list_first_entry(&pcpu->stop_list,
-					struct task, stat_list);
-			list_del(&task->stat_list);
-		}
-		preempt_enable();
+	local_irq_save(flags);
 
-		if (!task)
-			break;
-
-		if (task->proc)
-			release_thread(task);
-		else
-			do_release_task(task);
+	while (!is_list_empty(&pcpu->stop_list)) {
+		task = list_first_entry(&pcpu->stop_list, struct task, state_list);
+		list_del(&task->state_list);
+		do_release_task(task);
 	}
 
-	clean_process_on_pcpu(pcpu);
+	local_irq_restore(flags);
+}
+
+static int kworker_task(void *data)
+{
+	struct pcpu *pcpu = get_pcpu();
+	flag_t flag;
+
+	pcpu->kworker = current;
+	flag_init(&pcpu->kworker_flag, 0);
+
+	for (;;) {
+		flag = flag_pend(&pcpu->kworker_flag, KWORKER_FLAG_MASK,
+				FLAG_WAIT_SET_ANY | FLAG_CONSUME, 0);
+		if (flag == 0) {
+			pr_err("kworker: no event trigger\n");
+			continue;
+		}
+
+		if (flag & KWORKER_TASK_RECYCLE)
+			pcpu_release_task(pcpu);
+	}
+
+	return 0;
+}
+
+static void start_system_task(void)
+{
+	extern int load_root_service(void);
+	int cpu = smp_processor_id();
+	struct task *task;
+	char name[32];
+
+	pr_notice("create kworker task...\n");
+	sprintf(name, "kworker/%d", cpu);
+	task = create_kthread(name, kworker_task,
+			OS_PRIO_DEFAULT_1, cpu, 0, NULL);
+	ASSERT(task != NULL);
+
+	if (cpu == 0) {
+		pr_notice("Load Root Service ...\n");
+		load_root_service();
+	}
 }
 
 void cpu_idle(void)
 {
 	struct pcpu *pcpu = get_pcpu();
 
-	set_os_running();
+	start_system_task();
 
+	set_os_running();
 	local_irq_enable();
 
+	pcpu_irqwork(pcpu->pcpu_id);
+
 	while (1) {
-		do_pcpu_cleanup_work(pcpu);
+		sched();
 
 		/*
 		 * need to check whether the pcpu can go to idle
@@ -117,8 +149,5 @@ void cpu_idle(void)
 			}
 			local_irq_enable();
 		}
-
-		set_need_resched();
-		sched();
 	}
 }

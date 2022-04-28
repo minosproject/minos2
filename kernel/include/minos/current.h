@@ -10,6 +10,5 @@
 #define current_task_info	get_current_task_info()
 #define current_pid		current->pid
 #define current_tid		current->tid
-#define current_regs		(gp_regs *)current->stack_base
-
+#define current_user_regs	current->user_regs
 #endif

@@ -16,7 +16,7 @@
 #endif
 
 #ifndef CONFIG_NR_TASKS
-#define CONFIG_NR_TASKS 4096
+#define CONFIG_NR_TASKS 256
 #endif
 
 #define OS_NR_TASKS CONFIG_NR_TASKS
@@ -32,63 +32,42 @@
 #define OS_PRIO_DEFAULT_7	7
 
 #define OS_PRIO_REALTIME	OS_PRIO_DEFAULT_0
-#define OS_PRIO_DRIVER		OS_PRIO_DEFAULT_1
-#define OS_PRIO_SYSTEM		OS_PRIO_DEFAULT_2
-#define OS_PRIO_VCPU		OS_PRIO_DEFAULT_3
-#define OS_PRIO_DEFAULT		OS_PRIO_DEFAULT_4
+#define OS_PRIO_SRV		OS_PRIO_DEFAULT_2
+#define OS_PRIO_SYSTEM		OS_PRIO_DEFAULT_3
+#define OS_PRIO_VCPU		OS_PRIO_DEFAULT_4
+#define OS_PRIO_DEFAULT		OS_PRIO_DEFAULT_5
 #define OS_PRIO_IDLE		OS_PRIO_DEFAULT_7
 #define OS_PRIO_LOWEST		OS_PRIO_IDLE
 
-#define TASK_FLAGS_SRV			BIT(0)
+#define TASK_FLAGS_SRV			BIT(0) // should not change, need keep same as pangu
 #define TASK_FLAGS_DRV			BIT(1)
 #define TASK_FLAGS_VCPU			BIT(2)
 #define TASK_FLAGS_REALTIME		BIT(3)
-#define TASK_FLAGS_DEDICATED_HEAP	BIT(4)
-#define TASK_FLAGS_IDLE			BIT(5)
-#define TASK_FLAGS_KERNEL		BIT(6)
-#define TASK_FLAGS_NO_AUTO_START	BIT(7)
-#define TASK_FLAGS_ROOT			BIT(8)
+
+#define TASK_FLAGS_IDLE			BIT(4)
+#define TASK_FLAGS_NO_AUTO_START	BIT(5)
+#define TASK_FLAGS_32BIT		BIT(6)
+#define TASK_FLAGS_PERCPU		BIT(7)
+#define TASK_FLAGS_DEDICATED_HEAP	BIT(8)
+#define TASK_FLAGS_ROOT			BIT(9)
+#define TASK_FLAGS_KERNEL		BIT(10)
 
 #define TASK_AFF_ANY		(-1)
 #define TASK_NAME_SIZE		(32)
 
-#define TASK_STAT_RUNNING	0x00
-#define TASK_STAT_WAIT_EVENT	0x01
-#define TASK_STAT_WAKING	0x02
-#define TASK_STAT_STOPPED	0x04
+#define TASK_STATE_RUNNING 0x00
+#define TASK_STATE_READY 0x01
+#define TASK_STATE_WAIT_EVENT 0x02
+#define TASK_STATE_WAKING 0x04
+#define TASK_STATE_SUSPEND 0x08
+#define TASK_STATE_STOP 0x10
 
-enum {
-	TASK_EVENT_NULL = 0,
-	TASK_EVENT_PROCESS,
-	TASK_EVENT_THREAD,
-	TASK_EVENT_NOTIFY,
-	TASK_EVENT_PMA,
-	TASK_EVENT_ENDPOINT,
-	TASK_EVENT_SOCKET,
-	TASK_EVENT_VM,
-	TASK_EVENT_VCPU,
-	TASK_EVENT_IRQ,
-	TASK_EVENT_VIRQ,
-	TASK_EVENT_STDIO,
-	TASK_EVENT_POLL,
-	TASK_EVENT_PORT,
+#define KWORKER_FLAG_MASK 0xffff
+#define KWORKER_TASK_RECYCLE BIT(0)
 
-	TASK_EVENT_SIGNAL,
-	TASK_EVENT_MBOX,
-	TASK_EVENT_Q,
-	TASK_EVENT_MUTEX,
-	TASK_EVENT_FLAG,
-	TASK_EVENT_SEM,
-	TASK_EVENT_TIMER,
-	TASK_EVENT_KOBJ_REPLY,
-	TASK_EVENT_STARTUP,
-	TASK_EVENT_FUTEX,
-	TASK_EVENT_ROOT_SERVICE,
-};
-
-#define TASK_STAT_PEND_OK       0u  /* Pending status OK, not pending, or pending complete */
-#define TASK_STAT_PEND_TO       1u  /* Pending timed out */
-#define TASK_STAT_PEND_ABORT    2u  /* Pending aborted */
+#define TASK_STATE_PEND_OK       0u  /* Pending status OK, not pending, or pending complete */
+#define TASK_STATE_PEND_TO       1u  /* Pending timed out */
+#define TASK_STATE_PEND_ABORT    2u  /* Pending aborted */
 
 #define KWORKER_FLAG_MASK	0xffff
 #define KWORKER_TASK_RECYCLE	BIT(0)
@@ -115,59 +94,53 @@ struct task {
 	void *stack_top;
 	void *stack_bottom;
 
-	/*
-	 * pid - process id
-	 * tid - task id
-	 * hid - handle id
-	 */
-	int pid;
-	int tid;
+	gp_regs *user_regs;
 
 	unsigned long flags;
 
-	struct list_head list;		// link to the event list which event wait.
-	struct list_head proc_list;	// link to the process list, if is a thread.
-	struct list_head stat_list;	// link to the sched list used for sched.
+	int pid;
+	int tid;
+
+	struct list_head list;
+	struct list_head proc_list;
+	struct list_head task_list;	// link to the task list, if is a thread.
+	struct list_head state_list;	// link to the sched list used for sched.
 
 	uint32_t delay;
-	struct timer_list delay_timer;
+	struct timer delay_timer;
 
 	/*
 	 * the next task belongs to the same process
 	 */
 	struct task *next;
-	struct process *proc;
 
 	/*
 	 * the spinlock will use to protect the below member
 	 * which may modified by different cpu at the same
 	 * time:
-	 * 1 - stat
-	 * 2 - pend_stat
+	 * 1 - state
+	 * 2 - pend_state
 	 */
 	spinlock_t s_lock;
-	int stat;
-	long pend_stat;
-	long request;
-
-	/*
-	 * below data used for userspace ipc and event.
-	 */
-	gp_regs *user_gp_regs;
+	int state;
+	long pend_state;
 
 	int wait_type;			// which event is task waitting for.
-	void *msg;			// used for mbox to pass data
 	unsigned long wait_event;	// the event instance which the task is waitting.
-	long ipccode;
 	struct list_head event_list;
-
 	struct flag_node *flag_node;	// used for the flag event.
-	int flags_rdy;
+	union {
+		unsigned long ipcdata;
+		long retcode;
+		void *msg;
+		long flags_rdy;
+	};
 
 	/*
 	 * affinity - the cpu node which the task affinity to
 	 */
 	int cpu;
+	int last_cpu;
 	int affinity;
 	int prio;
 
@@ -178,20 +151,18 @@ struct task {
 
 	char name[TASK_NAME_SIZE];
 
-	void (*sched_out)(struct task *task);
-	void (*sched_in)(struct task *task);
-	void (*return_to_user)(struct task *task);
-	void (*exit_from_user)(struct task *task);
+	void (*exit_from_user)(struct task *task, gp_regs *regs);
+	void (*return_to_user)(struct task *task, gp_regs *regs);
 
 	union {
 		void *pdata;			// the private data of this task, such as vcpu.
+		struct process *proc;
 #ifdef CONFIG_VIRT
 		struct vcpu *vcpu;
 #endif
 	};
 
 	struct ktask_stat *kstat;
-
 	struct cpu_context cpu_context;
 } __cache_line_align;
 

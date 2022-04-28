@@ -267,8 +267,10 @@ long elf_load_process(struct process *proc, struct ramdisk_file *file)
 
 static int setup_user_memory_region(struct process *proc, struct bootdata *env)
 {
+	extern int get_system_setup_info(unsigned long *addr, size_t *size);
 	struct memory_region *region;
-	unsigned long flags;
+	unsigned long addr;
+	size_t size;
 	int ret;
 
 	env->heap_start = SYS_PROC_HEAP_BASE;
@@ -277,36 +279,41 @@ static int setup_user_memory_region(struct process *proc, struct bootdata *env)
 	env->vmap_end = SYS_PROC_VMAP_END;
 
 	/*
+	 * map the dtb memory to the root service.
+	 */
+	ret = get_system_setup_info(&addr, &size);
+	if (!ret) {
+		env->dtb_start = pa2sva(addr);
+		env->dtb_end = pa2sva(addr + size);
+
+		ret = map_process_memory(proc, env->dtb_start, size, addr, VM_RO);
+		if (ret) {
+			pr_err("map DTB region for root service failed\n");
+			return ret;
+		}
+	} else {
+		pr_err("no dtb memory found in system\n");
+	}
+
+	/*
 	 * user memory region will mapped as point to point
 	 * to the root service's address space. currently the
 	 * dtb memory and the ramdisk memory will mapped to
 	 * root service.
 	 */
 	for_each_memory_region(region) {
-		switch (region->flags & MEMORY_REGION_F_MASK) {
-		case MEMORY_REGION_F_DTB:
-			env->dtb_start = pa2sva(region->phy_base);
-			env->dtb_end = pa2sva(region->phy_base + region->size);
-			flags = VM_RO;
-			break;
-		case MEMORY_REGION_F_RAMDISK:
+		if (region->type == MEMORY_REGION_TYPE_RAMDISK) {
 			env->ramdisk_start = pa2sva(region->phy_base);
 			env->ramdisk_end = pa2sva(region->phy_base + region->size);
-			flags = VM_RO;
+			ret = map_process_memory(proc, env->ramdisk_start, region->size,
+					region->phy_base, VM_RO);
+			if (ret)
+				pr_err("map memory region for root service failed\n");
 			break;
-		default:
-			continue;
-		}
-
-		ret = map_process_memory(proc, pa2sva(region->phy_base),
-				region->size, region->phy_base, flags);
-		if (ret) {
-			pr_err("map memory region for root service failed\n");
-			return ret;
 		}
 	}
 
-	return 0;
+	return ret;
 }
 
 static int setup_root_service_env(struct process *proc)

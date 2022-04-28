@@ -36,7 +36,7 @@ struct syscall_regs {
 
 static inline struct syscall_regs *task_syscall_regs(struct task *task)
 {
-	return (struct syscall_regs *)&task->user_gp_regs->x0;
+	return (struct syscall_regs *)&task->user_regs->x0;
 }
 
 ssize_t kobject_copy_ipc_data(struct task *tdst, struct task *tsrc, int check_size)

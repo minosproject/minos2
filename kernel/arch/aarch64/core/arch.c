@@ -29,13 +29,21 @@
 #include <minos/ramdisk.h>
 #include <asm/tcb.h>
 #include <minos/vspace.h>
-#include <minos/proc.h>
 #include <minos/mm.h>
 
 #ifdef CONFIG_VIRT
 #define read_esr()	read_esr_el2()
 #else
 #define read_esr()	read_esr_el1()
+#endif
+
+#ifdef CONFIG_VIRT
+extern void vcpu_context_restore(struct task *task);
+extern void vcpu_context_save(struct task *task);
+#endif
+
+#ifdef CONFIG_DEVICE_TREE
+extern void of_parse_host_device_tree(void);
 #endif
 
 void arch_dump_register(gp_regs *regs)
@@ -119,8 +127,14 @@ void arch_dump_stack(gp_regs *regs, unsigned long *stack)
 
 int arch_taken_from_guest(gp_regs *regs)
 {
-	/* TBD */
-	return ((regs->pstate & 0xf) != (AARCH64_SPSR_EL2h));
+	return !!((regs->pstate & 0xf) != (AARCH64_SPSR_EL2h));
+}
+
+int arch_is_exit_to_user(struct task *task)
+{
+	gp_regs *regs = (gp_regs *)task->stack_base;
+
+	return !!((regs->pstate & 0xf) != (AARCH64_SPSR_EL2h));
 }
 
 static inline uint64_t task_ttbr_value(struct task *task)
@@ -130,137 +144,44 @@ static inline uint64_t task_ttbr_value(struct task *task)
 	return (uint64_t)vtop(vs->pgdp) | ((uint64_t)vs->asid << 48);
 }
 
-#if defined(CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
-static void save_cpu_context_no_vhe(struct task *task, struct cpu_context *c)
-{
-	c->hcr_el2 = read_sysreg(HCR_EL2);
-
-	c->sctlr_el1 = read_sysreg(SCTLR_EL1);
-	c->cpacr_el1 = read_sysreg(CPACR_EL1);
-	c->mdscr_el1 = read_sysreg(MDSCR_EL1);
-	c->cntvoff_el2 = read_sysreg(CNTVOFF_EL2);
-	c->cntkctl_el1 = read_sysreg(CNTKCTL_EL1);
-	c->cntv_ctl_el0 = read_sysreg(CNTV_CTL_EL0);
-}
-
-static void restore_cpu_context_no_vhe(struct task *task, struct cpu_context *c)
-{
-	write_sysreg(c->hcr_el2, HCR_EL2);
-
-	write_sysreg(c->sctlr_el1, SCTLR_EL1);
-	write_sysreg(c->cpacr_el1, CPACR_EL1);
-	write_sysreg(c->mdscr_el1, MDSCR_EL1);
-	write_sysreg(c->cntvoff_el2, CNTVOFF_EL2);
-	write_sysreg(c->cntkctl_el1, CNTKCTL_EL1);
-	write_sysreg(c->cntv_ctl_el0, CNTV_CTL_EL0);
-}
-#else
-static void restore_cpu_context_vhe(struct task *task, struct cpu_context *c)
-{
-
-}
-
-static void save_cpu_context_vhe(struct task *task, struct cpu_context *c)
-{
-
-}
-#endif
-
-static void user_task_sched_out(struct task *task)
+static inline void user_task_sched_out(struct task *task)
 {
 	struct cpu_context *c = &task->cpu_context;
 	extern void fpsimd_state_save(struct task *task,
 		struct fpsimd_context *c);
 
-#if defined( CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
-	save_cpu_context_no_vhe(task, c);
-#else
-	save_cpu_context_vhe(task, c);
-#endif
 	c->tpidr_el0 = read_sysreg(TPIDR_EL0);
 	fpsimd_state_save(task, &c->fpsimd_state);
 }
 
-static void user_task_sched_in(struct task *task)
+static inline void user_task_sched_in(struct task *task)
 {
 	struct cpu_context *c = &task->cpu_context;
 	extern void fpsimd_state_restore(struct task *task,
 		struct fpsimd_context *c);
 
-#if defined(CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
-	restore_cpu_context_no_vhe(task, c);
-#else
-	restore_cpu_context_vhe(task, c);
-#endif
-
 	write_sysreg(c->tpidr_el0, TPIDR_EL0);
 	write_sysreg(c->tpidrro_el0, TPIDRRO_EL0);
 	fpsimd_state_restore(task, &c->fpsimd_state);
 
-	/*
-	 * switch to the process's page table
-	 */
-#if defined(CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
-	write_sysreg(c->ttbr_el0, VTTBR_EL2);
-#else
 	write_sysreg(c->ttbr_el0, TTBR0_EL1);
-#endif
 }
 
-void kernel_task_sched_out(struct task *task)
+void arch_task_sched_out(struct task *task)
 {
-
+	if (!(task->flags & TASK_FLAGS_KERNEL))
+		user_task_sched_out(task);
 }
 
-void kernel_task_sched_in(struct task *task)
+void arch_task_sched_in(struct task *task)
 {
-
-}
-
-static void aarch64_init_user_task(struct task *task, gp_regs *regs)
-{
-	regs->pstate = AARCH64_SPSR_EL0t;
-
-	task->sched_out = user_task_sched_out;
-	task->sched_in = user_task_sched_in;
-
-	task->cpu_context.tpidr_el0 = 0;
-	task->cpu_context.tpidrro_el0 = (uint64_t)task->proc->pid << 32 | (task->tid);
-	task->cpu_context.ttbr_el0 = task_ttbr_value(task);
-}
-
-static void aarch64_init_kernel_task(struct task *task, gp_regs *regs)
-{
-	extern void aarch64_task_exit(void);
-
-	/*
-	 * if the task is not a deadloop the task will exist
-	 * by itself like below
-	 *	int main(int argc, char **argv)
-	 *	{
-	 *		do_some_thing();
-	 *		return 0;
-	 *	}
-	 * then the lr register should store a function to
-	 * handle the task's exist
-	 *
-	 * kernel task will not use fpsimd now, so kernel task
-	 * do not need to save/restore it
-	 */
-	regs->lr = (uint64_t)aarch64_task_exit;
-
-#ifdef CONFIG_VIRT
-	regs->pstate = AARCH64_SPSR_EL2h;
-#else
-	regs->pstate = AARCH64_SPSR_EL1h;
-#endif
-
-	task->sched_out = kernel_task_sched_out;
-	task->sched_in = kernel_task_sched_in;
+	if (!(task->flags & TASK_FLAGS_KERNEL))
+		user_task_sched_in(task);
 }
 
 void arch_init_task(struct task *task, void *entry, void *user_sp, void *arg)
 {
+	extern void aarch64_task_exit(void);
 	gp_regs *regs = stack_to_gp_regs(task->stack_top);
 
 	memset(regs, 0, sizeof(gp_regs));
@@ -268,36 +189,79 @@ void arch_init_task(struct task *task, void *entry, void *user_sp, void *arg)
 
 	regs->pc = (uint64_t)entry;
 	regs->sp = (uint64_t)user_sp;
+	regs->x18 = (uint64_t)task;
 
-	if (task->flags & TASK_FLAGS_KERNEL)
-		aarch64_init_kernel_task(task, regs);
-	else
-		aarch64_init_user_task(task, regs);
+	if (task->flags & TASK_FLAGS_KERNEL) {
+		/*
+		 * if the task is not a deadloop the task will exist
+		 * by itself like below
+		 * int main(int argc, char **argv)
+		 * {
+		 *	do_some_thing();
+		 *	return 0;
+		 * }
+		 * then the lr register should store a function to
+		 * handle the task's exist
+		 *
+		 * kernel task will not use fpsimd now, so kernel task
+		 * do not need to save/restore it
+		 */
+		regs->lr = (uint64_t)aarch64_task_exit;
+		regs->pstate = AARCH64_SPSR_EL1h;
+	} else {
+		regs->pstate = AARCH64_SPSR_EL0t;
+		task->cpu_context.tpidr_el0 = 0;
+		task->cpu_context.tpidrro_el0 = (uint64_t)task->proc->pid << 32 | (task->tid);
+		task->cpu_context.ttbr_el0 = task_ttbr_value(task);
+	}
 }
 
 void arch_set_task_user_stack(struct task *task, unsigned long stack)
 {
-	gp_regs *regs = stack_to_gp_regs(task->stack_top);
-	regs->sp = stack;
+       gp_regs *regs = stack_to_gp_regs(task->stack_top);
+       regs->sp = stack;
 }
 
 void arch_set_task_reg0(struct task *task, unsigned long data)
 {
-	gp_regs *regs = stack_to_gp_regs(task->stack_top);
-	regs->x0 = data;
+       gp_regs *regs = stack_to_gp_regs(task->stack_top);
+       regs->x0 = data;
 }
 
 void arch_set_tls(struct task *task, unsigned long tls)
 {
-	struct cpu_context *ctx = &task->cpu_context;
-
-	ctx->tpidr_el0 = tls;
+       struct cpu_context *ctx = &task->cpu_context;
+       ctx->tpidr_el0 = tls;
 }
 
 void arch_set_task_entry_point(struct task *task, long entry)
 {
-	gp_regs *regs = stack_to_gp_regs(task->stack_top);
-	regs->pc = entry;
+       gp_regs *regs = stack_to_gp_regs(task->stack_top);
+       regs->pc = entry;
+}
+
+pgd_t *arch_alloc_process_page_table(void)
+{
+       pgd_t *pgt;
+
+       /*
+	* - 3 levels page table.
+	* - 4KB page size.
+	* - 512G virtual memory space.
+	* - 4KB PGD  
+        */
+       pgt = get_free_pages(1, GFP_KERNEL);
+       if (!pgt)
+               return NULL;
+
+       memset(pgt, 0, PAGE_SIZE);
+       return pgt;
+}
+
+int arch_get_asid_size(void)
+{
+       // TBD, get from the register
+       return 256;
 }
 
 void arch_release_task(struct task *task)
@@ -321,10 +285,12 @@ static int __init_text aarch64_init_percpu(void)
 	reg = read_sysreg64(HCR_EL2);
 	reg |= HCR_EL2_IMO | HCR_EL2_FMO | HCR_EL2_AMO;
 	write_sysreg64(reg, HCR_EL2);
-	write_sysreg64(0x3 << 20, CPACR_EL2);
+	// write_sysreg64(0x3 << 20, CPACR_EL2);
 	dsb();
+	isb();
 #else
 	write_sysreg64(0x3 << 20, CPACR_EL1);
+	dsb();
 	isb();
 #endif
 
@@ -348,7 +314,7 @@ int arch_early_init(void)
 int __arch_init(void)
 {
 #ifdef CONFIG_DEVICE_TREE
-	of_parse_device_tree();
+	of_parse_host_device_tree();
 #endif
 	return 0;
 }
@@ -401,69 +367,54 @@ void arch_smp_init(phy_addr_t *smp_h_addr)
 #endif
 }
 
-static pgd_t *__arch_alloc_process_page_table(void)
+static void *relocate_dtb_address(unsigned long dtb)
 {
-	pgd_t *pgt;
+	unsigned long mem_end, relocated_base = dtb;
+	extern unsigned long minos_end;
+	size_t size;
+
+	ASSERT(!fdt_check_header((void *)dtb));
+
 	/*
-	 * 3 levels page table 4kb page size and 8K PGD with 1TB
-	 * virtual address.
+	 * DTB image start address should bigger than minos_end, or
+	 * DTB image should included in minos.bin.
 	 */
-	pgt = get_free_pages(1, GFP_KERNEL);
-	if (!pgt)
-		return NULL;
+	mem_end = PAGE_BALIGN(ptov(minos_end));
+	size = fdt_totalsize(dtb);
+	if ((dtb < minos_end) && ((dtb + size) > minos_end))
+		panic("minos data overlaped by dtb image\n");
 
-	memset(pgt, 0, PAGE_SIZE);
-	return pgt;
-}
+	if (dtb > mem_end) {
+		pr_notice("relocate dtb from 0x%x to 0x%x\n", dtb, mem_end);
+		memmove((void *)mem_end, (void *)dtb, size);
 
-pgd_t *arch_alloc_process_page_table(void)
-{
-	/*
-	 * for VHE system, allocate process page table with ASID
-	 * otherwise allocate virtual machine page table with
-	 * VMID. all use 1TB virtual address space
-	 */
-#if defined(CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
-	return arch_alloc_guest_pgd();
-#else
-	return __arch_alloc_process_page_table();
-#endif
-}
+		/*
+		 * call of init again to check and setup the new
+		 * device tree memory address.
+		 */
+		relocated_base = mem_end;
+		minos_end += PAGE_BALIGN(size);
+	}
 
-void arch_set_task_reg(struct task *task, int index, unsigned long value)
-{
-	unsigned long *regs = (unsigned long *)task->stack_base;
-
-	ASSERT(index < (sizeof(gp_regs) / sizeof(unsigned long)));
-	regs[index] = value;
-}
-
-int arch_get_asid_size(void)
-{
-	// TBD, get from the register
-	return 256;
+	return (void *)relocated_base;
 }
 
 void arch_main(void *dtb)
 {
-	char *name = NULL;
 	extern void boot_main(void);
+	char *name = NULL;
 
 	pr_notice("Starting Minos AARCH64\n");
+#ifdef CONFIG_DTB_LOAD_ADDRESS
+	dtb = (void *)ptov(CONFIG_DTB_LOAD_ADDRESS);
+#else
+	dtb = (void *)ptov(dtb);
+#endif
 	pr_notice("DTB address [0x%x]\n", dtb);
 
-	/*
-	 * the dtb file need to store at the end of the os memory
-	 * region and the size can not beyond 2M, also it must
-	 * 4K align, memory management will not protect this area
-	 * so please put the dtb data to a right place
-	 */
-#ifdef CONFIG_DTB_LOAD_ADDRESS
-	of_init((void *)ptov(CONFIG_DTB_LOAD_ADDRESS));
-#else
-	of_init((void *)ptov(dtb));
-#endif
+	dtb = relocate_dtb_address((unsigned long)dtb);
 
+	of_init(dtb);
 	of_get_console_name(&name);
 	console_init(name);
 

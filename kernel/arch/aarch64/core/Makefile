@@ -11,6 +11,5 @@ obj-y += mem_map.o
 obj-y += vector.o
 obj-y += cpu_feature.o
 obj-y += stage1.o
-obj-y += stage2.o
 obj-y += fpsimd.o
 obj-y += asm_syscall.o

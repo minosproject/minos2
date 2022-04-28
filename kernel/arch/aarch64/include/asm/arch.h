@@ -106,7 +106,7 @@ static inline unsigned long guest_va_to_pa(unsigned long va, int read)
 		asm volatile ("at s12e1w, %0;" : : "r" (va));
 	isb();
 	pa = read_sysreg64(PAR_EL1) & 0x0000fffffffff000;
-	pa = pa | (va & (~(~PAGE_MASK)));
+	pa = pa | (va & PAGE_MASK);
 	write_sysreg64(tmp, PAR_EL1);
 
 	return pa;
@@ -133,60 +133,14 @@ static inline void cpu_relax(void)
 	asm volatile("yield" ::: "memory");
 }
 
-#ifdef CONFIG_VIRT
-static inline void arch_set_pcpu_data(void *pcpu)
-{
-	__asm__ volatile("msr TPIDR_EL2, %0" : : "r" (pcpu));
-}
-
-static inline void *arch_get_pcpu_data(void)
-{
-	uint64_t v;
-	__asm__ volatile("mrs %0, TPIDR_EL2" : "=r" (v));
-	return (void *)v;
-}
-#else
-static inline void arch_set_pcpu_data(void *pcpu)
-{
-	__asm__ volatile("msr TPIDR_EL1, %0" : : "r" (pcpu));
-}
-
-static inline void *arch_get_pcpu_data(void)
-{
-	uint64_t v;
-	__asm__ volatile("mrs %0, TPIDR_EL1" : "=r" (v));
-	return (void *)v;
-}
-#endif
-
 static inline unsigned long arch_get_virtual_address_size(void)
 {
 	return (unsigned long)1 << 39;
 }
 
-static inline void __write_once_size(volatile void *p, void *res, int size)
-{
-	switch (size) {
-	case 1: *(volatile uint8_t *)p = *(uint8_t *)res; break;
-	case 2: *(volatile uint16_t *)p = *(uint16_t *)res; break;
-	case 4: *(volatile uint32_t *)p = *(uint32_t *)res; break;
-	case 8: *(volatile uint64_t *)p = *(uint64_t *)res; break;
-	default:
-		barrier();
-		__builtin_memcpy((void *)p, (const void *)res, size);
-		barrier();
-	}
-}
+int arch_is_exit_to_user(struct task *task);
+int arch_is_taken_from_guest(gp_regs *regs);
 
-#define WRITE_ONCE(x, val) \
-({							\
-	union { typeof(x) __val; char __c[1]; } __u =	\
-		{ .__val = (typeof(x)) (val) }; \
-	__write_once_size(&(x), __u.__c, sizeof(x));	\
-	__u.__val;					\
-})
-
-int arch_taken_from_guest(gp_regs *regs);
 void arch_switch_task_sw(struct task *cur, struct task *next);
 void arch_dump_stack(gp_regs *regs, unsigned long *sp);
 void arch_dump_register(gp_regs *regs);

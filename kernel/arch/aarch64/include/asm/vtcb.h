@@ -57,7 +57,40 @@ enum vcpu_sysreg {
 };
 
 struct vcpu_context {
-	uint64_t sys_regs[NR_SYS_REGS];
+	uint64_t vbar_el1;
+	uint64_t esr_el1;
+	uint64_t sp_el1;
+	uint64_t sp_el0;
+	uint64_t elr_el1;
+	uint64_t vmpidr;
+	uint64_t vpidr;
+	uint64_t sctlr_el1;
+	uint64_t hcr_el2;
+	uint64_t spsr_el1;
+	uint64_t far_el1;
+	uint64_t actlr_el1;
+	uint64_t tpidr_el1;
+	uint64_t csselr;
+	uint64_t cpacr;
+	uint64_t contextidr;
+	uint64_t tpidr_el0;
+	uint64_t tpidrro_el0;
+	uint64_t cntkctl;
+	uint64_t afsr0;
+	uint64_t afsr1;
+	uint32_t teecr;
+	uint32_t teehbr;
+	uint32_t dacr32_el2;
+	uint32_t ifsr32_el2;
+
+	uint64_t vtcr_el2;
+	uint64_t ttbr0_el1;
+	uint64_t ttbr1_el1;
+	uint64_t vttbr_el2;
+	uint64_t mair_el1;
+	uint64_t amair_el1;
+	uint64_t tcr_el1;
+	uint64_t par_el1;
 };
 
 #endif

@@ -78,7 +78,7 @@ endfunc hvc_call
 
 func aarch64_task_exit
 	mov	x0, x0
-	bl	task_stop
+	bl	task_exit
 1:
 	b	1b
 endfunc aarch64_task_exit

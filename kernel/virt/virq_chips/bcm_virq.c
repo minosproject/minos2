@@ -26,6 +26,7 @@
 #include <minos/of.h>
 #include <virt/virq_chip.h>
 #include <device/bcm_irq.h>
+#include <virt/vmm.h>
 
 struct bcm2836_virq {
 	struct vdev vdev;
@@ -51,7 +52,7 @@ static void bcm2836_virq_deinit(struct vdev *vdev)
 {
 	struct bcm2836_virq *bcm2836 = vdev_to_bcm_virq(vdev);
 
-	free(bcm2836->iomem);
+	free_shmem(bcm2836->iomem);
 	vdev_release(vdev);
 	free(bcm2836);
 }
@@ -64,7 +65,7 @@ static void bcm2836_virq_reset(struct vdev *vdev)
 }
 
 static int bcm2836_virq_read(struct vdev *vdev, gp_regs *regs,
-		unsigned long address, unsigned long *read_value)
+		int idx, unsigned long offset, unsigned long *read_value)
 {
 	/* guest can directly read the memory space */
 
@@ -218,9 +219,8 @@ static int bcm2836_timer_int_action(struct vcpu *vcpu, struct vdev *vdev,
 }
 
 static int bcm2836_virq_write(struct vdev *vdev, gp_regs *reg,
-		unsigned long address, unsigned long *write_value)
+		int idx, unsigned long offset, unsigned long *write_value)
 {
-	unsigned long offset = address - BCM2836_INC_BASE;
 	struct vcpu *vcpu = get_current_vcpu();
 	int cpu, irq;
 
@@ -528,44 +528,21 @@ static int bcm2836_update_virq(struct vcpu *vcpu,
 
 static int bcm2836_enter_to_guest(struct vcpu *vcpu, void *data)
 {
-	struct virq_desc *virq, *n;
-	struct virq_struct *virq_struct = vcpu->virq_struct;
+	struct virq_struct *vs = vcpu->virq_struct;
+	struct virq_desc *virq;
+	struct vm *vm = vcpu->vm;
+	int bit;
 
-	/*
-	 * just inject one virq the time since when the
-	 * virq is handled, the vm will trap to hypervisor
-	 * again, actually here can inject all virq to the
-	 * guest, but it is hard to judge whether all virq
-	 * has been handled by guest vm TBD
-	 */
-	list_for_each_entry_safe(virq, n, &virq_struct->pending_list, list) {
-		if (!virq_is_pending(virq)) {
-			pr_err("virq is not request %d\n", virq->vno);
-			list_del(&virq->list);
-			virq->list.next = NULL;
+	for_each_set_bit(bit, vs->pending_bitmap, vm_irq_count(vm)) {
+		virq = get_virq_desc(vcpu, bit);
+		if (virq == NULL) {
+			pr_err("bad virq %d for vm %s\n", bit, vm->name);
+			clear_bit(bit, vs->pending_bitmap);
 			continue;
 		}
 
-#if 0
-		/*
-		 * virq is not enabled this time, need to
-		 * send it later, but this will infence the idle
-		 * condition jugement TBD
-		 */
-		if (!virq_is_enabled(virq))
-			continue;
-#endif
-
-		/*
-		 * update the virq interrupt status and
-		 * delete the virq from the virq list then
-		 * add it to active list
-		 */
 		bcm2836_send_virq(vcpu, virq->vno);
-		virq_clear_pending(virq);
 		virq->state = VIRQ_STATE_ACTIVE;
-		list_del(&virq->list);
-		list_add_tail(&virq_struct->active_list, &virq->list);
 	}
 
 	return 0;
@@ -585,7 +562,7 @@ static struct virq_chip *bcm2836_virqchip_init(struct vm *vm,
 	if (!bcm2836)
 		return NULL;
 
-	bcm2836->iomem = get_io_page();
+	bcm2836->iomem = alloc_shmem(1);
 	if (!bcm2836->iomem) {
 		free(bcm2836);
 		return NULL;
@@ -604,12 +581,13 @@ static struct virq_chip *bcm2836_virqchip_init(struct vm *vm,
 
 	memset(bcm2836->iomem, 0, PAGE_SIZE);
 	vdev = &bcm2836->vdev;
-	host_vdev_init(vm, vdev, BCM2836_INC_BASE, PAGE_SIZE);
-	vdev_set_name(vdev, "bcm2836-irq");
+	host_vdev_init(vm, vdev, "bcm2836-intc");
+	vdev_add_iomem_range(vdev, BCM2836_INC_BASE, PAGE_SIZE);
 	vdev->read = bcm2836_virq_read;
 	vdev->write = bcm2836_virq_write;
 	vdev->reset = bcm2836_virq_reset;
 	vdev->deinit = bcm2836_virq_deinit;
+	vdev_add(vdev);
 
 	/*
 	 * map the io space to guest as read only Notice :
@@ -622,9 +600,9 @@ static struct virq_chip *bcm2836_virqchip_init(struct vm *vm,
 	 * 0x40000200 - 0x40000300 : bcm2835 inc controller
 	 *
 	 */
-	split_vmm_area(&vm->mm, 0x400000000, 0x1000, VM_IO | VM_MAP_PRIVATE);
-	create_guest_mapping(&vm->vs, BCM2836_INC_BASE, (unsigned long)bcm2836->iomem,
-			PAGE_SIZE, VM_IO | VM_RO);
+	split_vmm_area(&vm->mm, 0x400000000, 0x1000, VM_GUEST_IO);
+	create_guest_mapping(&vm->mm, BCM2836_INC_BASE, (unsigned long)bcm2836->iomem,
+			PAGE_SIZE, VM_GUEST_IO | VM_RO);
 
 	vc = alloc_virq_chip();
 	if (!vc)

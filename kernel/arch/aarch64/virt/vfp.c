@@ -30,12 +30,15 @@ struct vfp_context {
 #endif
 	uint32_t fpsr;
 	uint32_t fpcr;
+	uint32_t cptr;
 };
 
-static void vfp_state_init(struct vcpu *vcpu, void *context)
+static void vfp_state_init(struct vcpu *vcpu, void *c)
 {
+	struct vfp_context *context = (struct vfp_context *)c;
+
 	memset(context, 0, sizeof(struct vfp_context));
-	c->cptr = 0x300000;
+	context->cptr = 0x300000;
 }
 
 static void vfp_state_save(struct vcpu *vcpu, void *context)

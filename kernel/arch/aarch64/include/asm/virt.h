@@ -26,4 +26,6 @@ void arch_set_vfiq_flag(void);
 void arch_clear_vfiq_flag(void);
 void arch_clear_virq_flag(void);
 
+void arch_vcpu_init(struct vcpu *, void *, void *);
+
 #endif

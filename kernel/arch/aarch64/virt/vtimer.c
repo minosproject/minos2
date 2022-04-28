@@ -42,16 +42,12 @@
 #define REG_CNTV_TVAL		0x38
 #define REG_CNTV_CTL		0x3c
 
-#define CNT_CTL_ISTATUS		(1 << 2)
-#define CNT_CTL_IMASK		(1 << 1)
-#define CNT_CTL_ENABLE		(1 << 0)
-
 #define ACCESS_REG		0x0
 #define ACCESS_MEM		0x1
 
 struct vtimer {
 	struct vcpu *vcpu;
-	struct timer_list timer;
+	struct timer timer;
 	int virq;
 	uint32_t cnt_ctl;
 	uint64_t cnt_cval;
@@ -89,7 +85,13 @@ static void virt_timer_expire_function(unsigned long data)
 {
 	struct vtimer *vtimer = (struct vtimer *)data;
 
-	send_virq_to_vcpu(vtimer->vcpu, vtimer->virq);
+	/*
+	 * just wake up the target vCPU. when switch to
+	 * this vcpu, the value of vtimer will restore and
+	 * if the irq is not mask, the vtimer will trigger
+	 * the hardware irq again.
+	 */
+	wake(&vtimer->vcpu->vcpu_event);
 }
 
 static void vtimer_state_restore(struct vcpu *vcpu, void *context)
@@ -97,12 +99,12 @@ static void vtimer_state_restore(struct vcpu *vcpu, void *context)
 	struct vtimer_context *c = (struct vtimer_context *)context;
 	struct vtimer *vtimer = &c->virt_timer;
 
-	del_timer(&vtimer->timer);
+	stop_timer(&vtimer->timer);
 
 	write_sysreg64(c->offset, ARM64_CNTVOFF_EL2);
 	write_sysreg64(vtimer->cnt_cval, ARM64_CNTV_CVAL_EL0);
 	write_sysreg32(vtimer->cnt_ctl, ARM64_CNTV_CTL_EL0);
-	dsb();
+	isb();
 }
 
 static void vtimer_state_save(struct vcpu *vcpu, void *context)
@@ -111,22 +113,20 @@ static void vtimer_state_save(struct vcpu *vcpu, void *context)
 	struct vtimer_context *c = (struct vtimer_context *)context;
 	struct vtimer *vtimer = &c->virt_timer;
 
-	vtimer->cnt_ctl = read_sysreg32(ARM64_CNTV_CTL_EL0);
-	write_sysreg32(vtimer->cnt_ctl & ~CNT_CTL_ENABLE, CNTV_CTL_EL0);
 	vtimer->cnt_cval = read_sysreg64(ARM64_CNTV_CVAL_EL0);
-	dsb();
+	vtimer->cnt_ctl = read_sysreg32(ARM64_CNTV_CTL_EL0);
+	write_sysreg32(0, CNTV_CTL_EL0);
+	isb();
 
-	if (task->stat == TASK_STAT_STOPPED)
+	if ((task->state == TASK_STATE_STOP) ||
+			(task->state == TASK_STATE_SUSPEND))
 		return;
 
 	if ((vtimer->cnt_ctl & CNT_CTL_ENABLE) &&
 		!(vtimer->cnt_ctl & CNT_CTL_IMASK)) {
-
 		mod_timer(&vtimer->timer, ticks_to_ns(vtimer->cnt_cval +
 				c->offset - boot_tick));
 	}
-
-	dsb();
 }
 
 static void vtimer_state_init(struct vcpu *vcpu, void *context)
@@ -144,29 +144,27 @@ static void vtimer_state_init(struct vcpu *vcpu, void *context)
 
 	vtimer = &c->virt_timer;
 	vtimer->vcpu = vcpu;
-	init_timer_on_cpu(&vtimer->timer, vcpu->task->affinity);
-	vtimer->timer.function = virt_timer_expire_function;
-	vtimer->timer.data = (unsigned long)vtimer;
 	vtimer->virq = vcpu->vm->vtimer_virq;
 	vtimer->cnt_ctl = 0;
 	vtimer->cnt_cval = 0;
+	init_timer(&vtimer->timer, virt_timer_expire_function,
+			(unsigned long)vtimer);
 
 	vtimer = &c->phy_timer;
 	vtimer->vcpu = vcpu;
-	init_timer_on_cpu(&vtimer->timer, vcpu->task->affinity);
-	vtimer->timer.function = phys_timer_expire_function;
-	vtimer->timer.data = (unsigned long)vtimer;
 	vtimer->virq = 26;
 	vtimer->cnt_ctl = 0;
 	vtimer->cnt_cval = 0;
+	init_timer(&vtimer->timer, phys_timer_expire_function,
+			(unsigned long)vtimer);
 }
 
 static void vtimer_state_stop(struct vcpu *vcpu, void *context)
 {
 	struct vtimer_context *c = (struct vtimer_context *)context;
 
-	del_timer_sync(&c->virt_timer.timer);
-	del_timer_sync(&c->phy_timer.timer);
+	stop_timer(&c->virt_timer.timer);
+	stop_timer(&c->phy_timer.timer);
 }
 
 static inline void
@@ -212,8 +210,9 @@ static void vtimer_handle_cntp_ctl(struct vcpu *vcpu, int access,
 				(vtimer->cnt_cval != 0)) {
 			ns = ticks_to_ns(vtimer->cnt_cval + c->offset);
 			mod_timer(&vtimer->timer, ns);
-		} else
-			del_timer(&vtimer->timer);
+		} else {
+			stop_timer(&vtimer->timer);
+		}
 	}
 }
 
@@ -319,9 +318,17 @@ int virtual_timer_irq_handler(uint32_t irq, void *data)
 		return 0;
 	}
 
+	/*
+	 * this case ususally happened when the vcpu called
+	 * WFI to enter idle idle mode, but the vtimer irq is
+	 * triggered when context switch. then when in idle task
+	 * this IRQ is responsed. two case need consider:
+	 *
+	 * 1 - the vtimer interrup will send to wrong vcpu ?
+	 * 2 - Here the logic of idle can be optimized to avoid
+	 *     this situation
+	 */
 	value = read_sysreg32(ARM64_CNTV_CTL_EL0);
-	dsb();
-
 	if (!(value & CNT_CTL_ISTATUS)) {
 		pr_debug("vtimer is not trigger\n");
 		return 0;
@@ -329,7 +336,6 @@ int virtual_timer_irq_handler(uint32_t irq, void *data)
 
 	value = value | CNT_CTL_IMASK;
 	write_sysreg32(value, ARM64_CNTV_CTL_EL0);
-	dsb();
 
 	return send_virq_to_vcpu(vcpu, vcpu->vm->vtimer_virq);
 }

@@ -5,11 +5,19 @@
 
 typedef struct event mutex_t;
 
-#define OS_MUTEX_AVAILABLE	0xffff
+#define OS_MUTEX_AVAILABLE (-1)
 
-#define DEFINE_MUTEX(name)	\
-	mutex_t name = {	\
-		.type = 0xff,	\
+#define DEFINE_MUTEX(name)			\
+	mutex_t name = {			\
+		.type = OS_EVENT_TYPE_MUTEX,	\
+		.owner = 0,			\
+		.cnt = OS_MUTEX_AVAILABLE,	\
+		.data = NULL,			\
+		.lock = {0, 0},			\
+		.wait_list = {			\
+			.prev = &wait_list,	\
+			.next = &wait_list,	\
+		}				\
 	}
 
 mutex_t *mutex_create(char *name);
@@ -20,7 +28,7 @@ int mutex_post(mutex_t *m);
 
 static void inline mutex_init(mutex_t *mutex)
 {
-	event_init(to_event(mutex), OS_EVENT_TYPE_MUTEX, NULL);
+	event_init(TO_EVENT(mutex), OS_EVENT_TYPE_MUTEX, NULL);
 	mutex->cnt = OS_MUTEX_AVAILABLE;
 }
 

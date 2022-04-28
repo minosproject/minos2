@@ -19,7 +19,7 @@
 #include <asm/io.h>
 #include <minos/irq.h>
 #include <minos/timer.h>
-#include <common/gvm.h>
+#include <generic/gvm.h>
 #include <minos/time.h>
 #include <virt/resource.h>
 #include <virt/vmcs.h>
@@ -59,7 +59,7 @@ struct vwdt_dev {
 	uint8_t access_lock;
 	unsigned long load_value;
 	unsigned long timeout_value;
-	struct timer_list wdt_timer;
+	struct timer wdt_timer;
 	struct vdev vdev;
 };
 
@@ -75,9 +75,8 @@ static uint32_t inline wdt_timeleft(struct vwdt_dev *wdt)
 }
 
 static int vwdt_mmio_read(struct vdev *vdev, gp_regs *regs,
-		unsigned long address, unsigned long *value)
+		int idx, unsigned long offset, unsigned long *value)
 {
-	unsigned long offset = address - SP805_IOMEM_BASE;
 	struct vwdt_dev *wdt = vdev_to_vwdt(vdev);
 
 	switch (offset) {
@@ -158,7 +157,7 @@ static void inline vwdt_config_ctrl(struct vwdt_dev *wdt,
 			mod_timer(&wdt->wdt_timer, wdt->timeout_value);
 		} else {
 			wdt->int_trigger = 0;
-			del_timer(&wdt->wdt_timer);
+			stop_timer(&wdt->wdt_timer);
 		}
 	}
 
@@ -188,11 +187,10 @@ static void inline vwdt_config_load(struct vwdt_dev *wdt, uint32_t v)
 }
 
 static int vwdt_mmio_write(struct vdev *vdev, gp_regs *regs,
-		unsigned long address, unsigned long *value)
+		int idx, unsigned long offset, unsigned long *value)
 {
 	uint32_t v = (uint32_t)(*value);
 	struct vwdt_dev *wdt = vdev_to_vwdt(vdev);
-	unsigned long offset = address - SP805_IOMEM_BASE;
 
 	if ((offset != SP805_WDT_LOCK) && wdt->access_lock) {
 		pr_err("register is locked of the wdt\n");
@@ -237,14 +235,14 @@ static void vwdt_reset(struct vdev *vdev)
 	dev->int_trigger = 0;
 	dev->load_value = 0;
 	dev->timeout_value = 0;
-	del_timer(&dev->wdt_timer);
+	stop_timer(&dev->wdt_timer);
 }
 
 static void vwdt_deinit(struct vdev *vdev)
 {
 	struct vwdt_dev *dev = vdev_to_vwdt(vdev);
 
-	del_timer(&dev->wdt_timer);
+	stop_timer(&dev->wdt_timer);
 	dev->int_enable = 0;
 	dev->access_lock = 1;
 	dev->reset_enable = 0;
@@ -259,7 +257,6 @@ static void *vwdt_init(struct vm *vm, struct device_node *node)
 	int ret;
 	uint32_t irq;
 	struct vwdt_dev *dev;
-	struct vcpu *vcpu = get_vcpu_in_vm(vm, 0);
 	uint64_t base, size;
 	unsigned long flags;
 
@@ -277,8 +274,13 @@ static void *vwdt_init(struct vm *vm, struct device_node *node)
 	if (!dev)
 		return NULL;
 
-	host_vdev_init(vm, &dev->vdev, base, size);
-	vdev_set_name(&dev->vdev, "vwdt");
+	host_vdev_init(vm, &dev->vdev, "vwdt");
+	if (vdev_add_iomem_range(&dev->vdev, base, size)) {
+		pr_err("add iomem for vwdt failed\n");
+		free(dev);
+		return NULL;
+	}
+
 	request_virq(vm, irq, 0);
 
 	dev->access_lock = 1;
@@ -286,10 +288,10 @@ static void *vwdt_init(struct vm *vm, struct device_node *node)
 	dev->vdev.write = vwdt_mmio_write;
 	dev->vdev.deinit = vwdt_deinit;
 	dev->vdev.reset = vwdt_reset;
+	vdev_add(&dev->vdev);
 
-	init_timer_on_cpu(&dev->wdt_timer, vcpu->task->affinity);
-	dev->wdt_timer.function = vwdt_timer_expire;
-	dev->wdt_timer.data = (unsigned long)dev;
+	init_timer(&dev->wdt_timer, vwdt_timer_expire,
+			(unsigned long)dev);
 
 	return NULL;
 }

@@ -20,6 +20,7 @@
 #include <minos/atomic.h>
 #include <minos/task.h>
 #include <minos/kobject.h>
+#include <uapi/procinfo_uapi.h>
 
 struct kobject *uproc_info_pma;
 struct kobject *ktask_stat_pma;
@@ -97,7 +98,7 @@ void init_ktask_stat(struct task *task)
 	kstat->tid = task->tid;
 	kstat->start_ns = NOW();
 
-	kstat->state = task->stat;
+	kstat->state = task->state;
 	kstat->cpu = task->cpu;
 	kstat->prio = task->prio;
 	kstat->cpu_usage = 0x0;
@@ -113,7 +114,7 @@ void update_ktask_stat(struct task *task)
 {
 	struct ktask_stat *kstat = task->kstat;
 
-	kstat->state = task->stat;
+	kstat->state = task->state;
 	kstat->cpu = task->cpu;
 	kstat->cpu_usage = 0x0;
 	kstat->prio = task->prio;

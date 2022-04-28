@@ -12,39 +12,40 @@
 typedef void *(*vdev_init_t)(struct vm *vm, struct device_node *node);
 
 struct vdev {
-	char name[VDEV_NAME_SIZE];
-	struct vm *vm;
-	void *iomem;
-	uint32_t mem_size;
-	unsigned long gvm_paddr;
-	unsigned long hvm_paddr;
+	char name[VDEV_NAME_SIZE + 1];
 	int host;
+	struct vm *vm;
+	struct vmm_area *gvm_area;
 	struct list_head list;
-	int (*read)(struct vdev *, gp_regs *,
+
+	int (*read)(struct vdev *, gp_regs *, int,
 			unsigned long, unsigned long *);
-	int (*write)(struct vdev *, gp_regs *,
+	int (*write)(struct vdev *, gp_regs *, int,
 			unsigned long, unsigned long *);
 	void (*deinit)(struct vdev *vdev);
 	void (*reset)(struct vdev *vdev);
 	int (*suspend)(struct vdev *vdev);
 	int (*resume)(struct vdev *vdev);
-	struct kobject kobj;
 };
 
-struct vdev *create_host_vdev(struct vm *vm,
-		unsigned long base, uint32_t size);
+struct vdev *create_host_vdev(struct vm *vm, const char *name);
+
 void vdev_release(struct vdev *vdev);
-int iomem_vdev_init(struct vm *vm, struct vdev *vdev, uint32_t size);
-int host_vdev_init(struct vm *vm, struct vdev *vdev,
-		unsigned long base, uint32_t size);
+
+void host_vdev_init(struct vm *vm, struct vdev *vdev, const char *name);
+
 int vdev_mmio_emulation(gp_regs *regs, int write,
 		unsigned long address, unsigned long *value);
-void vdev_set_name(struct vdev *vdev, char *name);
 
-static inline unsigned long vdev_iomem_base(struct vdev *vdev)
-{
-	return vdev->gvm_paddr;
-}
+int vdev_add_iomem_range(struct vdev *vdev,
+		unsigned long base, size_t size);
+
+struct vmm_area *vdev_alloc_iomem_range(struct vdev *vdev,
+		size_t size, int flags);
+
+struct vmm_area *vdev_get_vmm_area(struct vdev *vdev, int idx);
+
+void vdev_add(struct vdev *vdev);
 
 static int inline vdev_notify_gvm(struct vdev *vdev, uint32_t irq)
 {
@@ -53,7 +54,7 @@ static int inline vdev_notify_gvm(struct vdev *vdev, uint32_t irq)
 
 static int inline vdev_notify_hvm(struct vdev *vdev, uint32_t irq)
 {
-	return send_virq_to_vm(get_vm_by_id(0), irq);
+	return send_virq_to_vm(get_host_vm(), irq);
 }
 
 #endif

@@ -18,7 +18,7 @@
 #include <minos/tty.h>
 #include <virt/vmm.h>
 #include <virt/virq.h>
-#include <common/hypervisor.h>
+#include <generic/hypervisor.h>
 #include <virt/hypercall.h>
 #include <asm/svccc.h>
 #include <minos/console.h>
@@ -59,7 +59,7 @@ static int dcon_putc(struct tty *tty, char ch)
 	if (!dcon->open)
 		return 0;
 
-	if ((tx->widx - tx->ridx) >= tx->size) {
+	if ((tx->widx - tx->ridx) > tx->size) {
 		pr_err("write buffer overflow\n");
 		return -EIO;
 	}
@@ -95,10 +95,10 @@ struct tty_ops vm_tty_ops = {
 };
 
 static int dcon_get_resource(struct vm *vm, struct device_node *node,
-		struct vspace_area **__va, uint32_t *__irq)
+		struct vmm_area **__va, uint32_t *__irq)
 {
 	int ret;
-	struct vspace_area *va;
+	struct vmm_area *va;
 	unsigned long flags;
 	uint64_t base, size;
 	uint32_t irq = 0;
@@ -118,14 +118,16 @@ static int dcon_get_resource(struct vm *vm, struct device_node *node,
 			return -EINVAL;
 
 		request_virq(vm, irq, 0);
-		va = request_vspace_area(&vm->vs, base, 0, size, VM_GUEST_PRIVATE);
+		va = request_vmm_area(&vm->mm, base, 0, size,
+				VM_GUEST_SHMEM | VM_RW);
 	} else {
 		/*
 		 * since the debug console is only for native vm which
 		 * will never released, so it is ok not set the physical
-		 * address in the vspace_area
+		 * address in the vmm_area
 		 */
-		va = alloc_vspace_area_page(&vm->vs, DCON_RING_SIZE, VM_GUEST_PRIVATE);
+		va = alloc_free_vmm_area(&vm->mm, DCON_RING_SIZE,
+			PAGE_MASK, VM_GUEST_SHMEM | VM_RW);
 		if (!va)
 			return -ENOMEM;
 	}
@@ -140,7 +142,7 @@ static int dcon_init(struct vm *vm, struct device_node *node,
 		struct vm_debug_console *dcon, void *ring)
 {
 	struct vm_ring *r;
-	struct vspace_area *va;
+	struct vmm_area *va;
 
 	if (dcon_get_resource(vm, node, &va, &dcon->irq))
 		return -ENODEV;
@@ -148,7 +150,7 @@ static int dcon_init(struct vm *vm, struct device_node *node,
 	pr_notice("debug_console base: 0x%x\n", va->start);
 
 	dcon->ring_addr = va->start;
-	map_vspace_area(&vm->vs, va, vtop(ring));
+	map_vmm_area(&vm->mm, va, (unsigned long)ring);
 
 	/*
 	 * init the vm ring struct
@@ -169,7 +171,7 @@ static int dcon_init(struct vm *vm, struct device_node *node,
 	return 0;
 }
 
-static int __init_text create_dconsole(struct vm *vm, struct device_node *node)
+static int create_dconsole(struct vm *vm, struct device_node *node)
 {
 	void *ring;
 	struct tty *tty;
@@ -190,7 +192,7 @@ static int __init_text create_dconsole(struct vm *vm, struct device_node *node)
 	if (!dcon)
 		goto release_tty;
 
-	ring = get_shared_pages(PAGE_NR(DCON_RING_SIZE), VM_GUEST_SHM);
+	ring = alloc_shmem(PAGE_NR(DCON_RING_SIZE));
 	if (!ring)
 		goto release_dcon;
 
@@ -208,13 +210,14 @@ static int __init_text create_dconsole(struct vm *vm, struct device_node *node)
 	return 0;
 
 free_ring:
-	free(ring);
+	free_shmem(ring);
 release_dcon:
 	free(dcon);
 release_tty:
 	release_tty(tty);
 	return -ENOMEM;
 }
+
 VDEV_DECLARE(vm_debug_console, vm_debug_console_match, create_dconsole);
 
 static void dcon_write(struct vm_debug_console *dcon)
@@ -225,7 +228,6 @@ static void dcon_write(struct vm_debug_console *dcon)
 	if (!dcon->tty->open) {
 		ring->ridx = ring->widx;
 		wmb();
-
 		return;
 	}
 
@@ -236,8 +238,8 @@ static void dcon_write(struct vm_debug_console *dcon)
 	while (ridx != widx)
 		console_putc(ring->buf[VM_RING_IDX(ridx++, ring->size)]);
 
-	ring->ridx = ring->widx;
 	mb();
+	ring->ridx = ring->widx;
 }
 
 static int dcon_hvc_handler(gp_regs *c, uint32_t id, uint64_t *args)

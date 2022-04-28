@@ -16,10 +16,12 @@
 
 #include <minos/minos.h>
 #include <minos/ramdisk.h>
+#include <minos/mm.h>
 
 void *ramdisk_start, *ramdisk_end;
 static struct ramdisk_inode *root;
 static struct ramdisk_sb *sb;
+static void *ramdisk_data;
 
 void set_ramdisk_address(void *start, void *end)
 {
@@ -29,12 +31,30 @@ void set_ramdisk_address(void *start, void *end)
 
 int ramdisk_init(void)
 {
+	unsigned long start = ptov(ramdisk_start);
+	size_t size = ramdisk_end - ramdisk_start;
+
+	/*
+	 * need remap the ramdisk memory space, if it
+	 * is not in the kernel memory space TBD.
+	 */
 	if (!ramdisk_start || !ramdisk_end) {
 		pr_err("ramdisk address is not set\n");
 		return -EINVAL;
 	}
 
-	if (strncmp(ramdisk_start, RAMDISK_MAGIC, RAMDISK_MAGIC_SIZE) != 0) {
+	if (!IS_PAGE_ALIGN(ramdisk_start)) {
+		pr_err("ramdisk start address need PAGE align\n");
+		return -EINVAL;
+	}
+
+	if (create_host_mapping(start, (unsigned long)ramdisk_start, size, VM_RO)) {
+		pr_err("unable map ramdisk memory\n");
+		return -ENOMEM;
+	}
+
+	if (strncmp((void *)start, RAMDISK_MAGIC, RAMDISK_MAGIC_SIZE) != 0) {
+		destroy_host_mapping(start, size);
 		pr_err("bad ramdisk format\n");
 		return -EBADF;
 	}
@@ -44,10 +64,29 @@ int ramdisk_init(void)
 	 * information, inclue the superblock and the
 	 * root inode
 	 */
+	ramdisk_start = (void *)ptov(ramdisk_start);
+	ramdisk_end = (void *)ptov(ramdisk_end);
+
 	sb = ramdisk_start + RAMDISK_MAGIC_SIZE;
 	root = ramdisk_start + sb->inode_offset;
+	ramdisk_data = ramdisk_start + sb->data_offset;
 
 	return 0;
+}
+
+const char *ramdisk_file_name(struct ramdisk_file *file)
+{
+	return file->inode->f_name;
+}
+
+unsigned long ramdisk_file_size(struct ramdisk_file *file)
+{
+	return file->inode->f_size;
+}
+
+unsigned long ramdisk_file_base(struct ramdisk_file *file)
+{
+	return (unsigned long)ramdisk_data + file->inode->f_offset;
 }
 
 static struct ramdisk_inode *get_file_inode(const char *name)
@@ -55,7 +94,7 @@ static struct ramdisk_inode *get_file_inode(const char *name)
 	struct ramdisk_inode *inode;
 
 	for (inode = root; inode < root + sb->file_cnt; inode++) {
-		if (strncmp(inode->fname, name, RAMDISK_FNAME_SIZE - 1) == 0)
+		if (strncmp(inode->f_name, name, RAMDISK_FNAME_SIZE - 1) == 0)
 			return inode;
 	}
 
@@ -71,7 +110,7 @@ int ramdisk_read(struct ramdisk_file *file, void *buf,
 	if ((offset + size) > file->inode->f_size)
 		return -EINVAL;
 
-	memcpy(buf, ramdisk_start + file->inode->f_offset + offset, size);
+	memcpy(buf, ramdisk_data + file->inode->f_offset + offset, size);
 	return 0;
 }
 

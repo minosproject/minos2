@@ -57,6 +57,7 @@
 #define ESR_ELx_EC_MAX		(0x3F)
 
 #define ESR_ELx_EC_SHIFT	(26)
+#define ESR_ELx_EC_WIDTH	(6)
 #define ESR_ELx_EC_MASK		(ULONG(0x3F) << ESR_ELx_EC_SHIFT)
 #define ESR_ELx_EC(esr)		(((esr) & ESR_ELx_EC_MASK) >> ESR_ELx_EC_SHIFT)
 
@@ -108,6 +109,7 @@
 #define ESR_ELx_SSE		(ULONG(1) << ESR_ELx_SSE_SHIFT)
 #define ESR_ELx_SRT_SHIFT	(16)
 #define ESR_ELx_SRT_MASK	(ULONG(0x1F) << ESR_ELx_SRT_SHIFT)
+#define ESR_ELx_SRT(val)	(((val) & ESR_ELx_SRT_MASK) >> ESR_ELx_SRT_SHIFT)
 #define ESR_ELx_SF_SHIFT	(15)
 #define ESR_ELx_SF 		(ULONG(1) << ESR_ELx_SF_SHIFT)
 #define ESR_ELx_AR_SHIFT	(14)
@@ -395,5 +397,9 @@
 #define TCR_HA			(UL(1) << 39)
 #define TCR_HD			(UL(1) << 40)
 #define TCR_NFD1		(UL(1) << 54)
+
+#define CNT_CTL_ISTATUS		(1 << 2)
+#define CNT_CTL_IMASK		(1 << 1)
+#define CNT_CTL_ENABLE		(1 << 0)
 
 #endif

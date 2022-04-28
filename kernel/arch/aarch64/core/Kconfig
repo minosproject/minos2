@@ -14,13 +14,6 @@ config NR_CPUS_CLUSTER1
 	  cpu count in SOC cluster1, this
 	  will help to caculate the cpuid
 
-config PLATFORM_ADDRESS_RANGE
-	int
-	default 40
-	help
-	  the virtual memory range of the system range
-	  is 0x0 - 2^PLATFORM_ADDRESS_RANGE
-
 config EXCEPTION_STACK_SIZE
 	hex "the stack size of the exception vector"
 	default 0x2000

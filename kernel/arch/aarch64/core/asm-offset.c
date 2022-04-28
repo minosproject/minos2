@@ -15,9 +15,7 @@
  */
 
 #include <minos/kbuild.h>
-#include <minos/task_info.h>
 #include <minos/percpu.h>
-#include <minos/proc.h>
 #include <minos/task_def.h>
 
 #define __NO_STUBS	1
@@ -30,9 +28,10 @@ int main(void)
 	DEFINE(PCPU_ID_OFFSET, offsetof(struct pcpu, pcpu_id));
 	DEFINE(PCPU_STACK_OFFSET, offsetof(struct pcpu, stack));
 	DEFINE(TASK_SIZE, sizeof(struct task));
-	DEFINE(PROCESS_SIZE, sizeof(struct process));
 	DEFINE(TASK_STACK_OFFSET, offsetof(struct task, stack_base));
 	DEFINE(PCPU_CURRENT_TASK, offsetof(struct pcpu, running_task));
+	DEFINE(GP_REGS_SIZE, sizeof(gp_regs));
+	DEFINE(TASK_USER_REGS_OFFSET, offsetof(struct task, user_regs));
 
 	return 0;
 }

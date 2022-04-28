@@ -57,14 +57,13 @@ struct process *create_process(int pid, task_func_t func,
 	/*
 	 * create a root task for this process
 	 */
-	task = create_task(ui->cmd, func, usp, prio, aff, opt |
-			TASK_FLAGS_NO_AUTO_START | TASK_FLAGS_ROOT, proc, NULL);
+	task = create_task(ui->cmd, func, TASK_STACK_SIZE, usp, prio, aff,
+			opt | TASK_FLAGS_NO_AUTO_START | TASK_FLAGS_ROOT, proc);
 	if (!task)
 		goto task_create_fail;
 
 	proc->root_task = task;
 	list_add_tail(&proc->task_list, &task->proc_list);
-	task->pid = proc->pid;
 	proc->task_cnt++;
 
 	ret = init_proc_handles(proc);
@@ -109,7 +108,7 @@ static void request_process_stop(struct process *proc, int handle)
 		 * task, but the task who already get the instance
 		 * of this task can sending data to it currently.
 		 */
-		tmp->request |= TASK_REQ_STOP;
+		task_need_stop(tmp);
 		if (tmp == current)
 			continue;
 
@@ -124,9 +123,8 @@ static void request_process_stop(struct process *proc, int handle)
 		 */
 		if (tmp->ti.flags & __TIF_IN_USER)
 			smp_function_call(tmp->cpu, task_exit_helper, NULL, 0);
-		else if ((tmp->stat == TASK_STAT_WAIT_EVENT) &&
-				(tmp->wait_type == TASK_EVENT_ROOT_SERVICE))
-			wake_up(tmp, -EABORT);
+		else if (tmp->wait_type == OS_EVENT_TYPE_ROOT_SERVICE)
+			wake_up_abort(tmp);
 	}
 	spin_unlock(&proc->lock);
 
@@ -145,7 +143,7 @@ static void request_process_stop(struct process *proc, int handle)
  */
 void process_die(void)
 {
-	gp_regs *regs = current_regs;
+	gp_regs *regs = current_user_regs;
 
 	if (proc_is_root(current_proc)) {
 		pr_fatal("root service exit 0x%x %d\n", regs->pc, regs->x0);
@@ -168,13 +166,12 @@ void kill_process(struct process *proc, int handle)
 int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 {
 	struct iqueue *iqueue = &proc->iqueue;
-	struct task *task = current;
-	uint32_t token = new_event_token();
-	long ret;
+	struct imsg imsg;
+	int ret;
 
+	imsg_init(&imsg, current);
 	spin_lock(&iqueue->lock);
-	list_add_tail(&iqueue->processing_list, &task->list);
-	__event_task_wait(token, TASK_EVENT_ROOT_SERVICE, 0);
+	list_add_tail(&iqueue->processing_list, &imsg.list);
 	spin_unlock(&iqueue->lock);
 
 	/*
@@ -183,15 +180,19 @@ int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info)
 	 */
 	poll_event_send_with_data(proc->kobj.poll_struct,
 			EV_KERNEL, POLL_KEV_PAGE_FAULT,
-			virtaddr, info, token);
+			virtaddr, info, imsg.token);
 
 	/*
 	 * handle page_fault fail, then the ret is the handle
 	 * of this process in root service.
 	 */
-	wait_event(&ret);
+	ret = wait_event(&imsg.ievent, imsg.token == 0, -1);
+	if (task_state_pend_abort(ret)) {
+		pr_err("process_page_fault fail\n");
+		return ret;
+	}
 
-	return ret;
+	return imsg.retcode;
 }
 
 static long process_recv(struct kobject *kobj, void __user *data,
@@ -353,6 +354,20 @@ static struct kobject_ops proc_kobj_ops = {
 	.close		= process_close,
 };
 
+int wake_up_process(struct process *proc)
+{
+       int ret = 0;
+       struct task *task;
+
+       if (!proc)
+               return -EINVAL;
+
+       list_for_each_entry(task, &proc->task_list, proc_list)
+	       ret +=  __wake_up(task, TASK_STATE_PEND_OK, 0);
+
+       return ret;
+}
+
 struct process *create_root_process(task_func_t func, void *usp,
 		int prio, int aff, unsigned long opt)
 {
@@ -414,3 +429,25 @@ static int process_create(struct kobject **kobjr, right_t *right, unsigned long 
 	return 0;
 }
 DEFINE_KOBJECT(process, KOBJ_TYPE_PROCESS, process_create);
+
+static int process_task_create_hook(void *item, void *context)
+{
+	struct task *task = (struct task *)item;
+	struct process *proc = task->proc;
+
+	if (task->flags & TASK_FLAGS_KERNEL)
+		return 0;
+
+	task->pid = proc->pid;
+	task->state = TASK_STATE_WAIT_EVENT;
+	get_and_init_ktask_stat(task);
+
+	return 0;
+}
+
+static int process_subsys_init(void)
+{
+	return register_hook(process_task_create_hook,
+			OS_HOOK_CREATE_TASK);
+}
+subsys_initcall(process_subsys_init);

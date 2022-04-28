@@ -10,9 +10,8 @@
 	chosen {
 		minos,stdout = "pl011";
 		bootargs = "bootwait=3 tty=vm0 rootfs=virtio-blk.drv";
-		minos,initrd-start = <0x0 0xc3c00000>;
-		minos,initrd-end = <0x0 0xc3e00000>;
-
+		minos,ramdisk-start = <0x0 0xc4000000>;
+		minos,ramdisk-end = <0x0 0xC40E7000>;
 	};
 
 	aliases {

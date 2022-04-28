@@ -87,29 +87,27 @@ static long sys_do_futex_wait(struct futex *ft, uint32_t *kaddr,
 	unsigned long timeout;
 
 	timeout = ktime ? futex_timeout_val(ktime) : 0;
-	spin_lock(&ft->lock);
 
 	/*
 	 * the lock may has been released, return to userspace
 	 * again to require the lock at userspace. else wait on
 	 * this futex's wiat list.
 	 */
-	if (*kaddr != val)
-		goto out;
-
-	ret = 1;
+	spin_lock(&ft->lock);
+	if (*kaddr != val) {
+		spin_unlock(&ft->lock);
+		return 0;
+	}
 	list_add_tail(&ft->wait_list, &current->list);
-	event_task_wait(ft, TASK_EVENT_FUTEX, timeout);
-out:
+	__wait_event(ft, OS_EVENT_TYPE_FUTEX, timeout);
 	spin_unlock(&ft->lock);
 
-	if (ret) {
-		wait_event(&ret);
-		ASSERT(current->list.next != NULL);
-		spin_lock(&ft->lock);
-		list_del(&current->list);
-		spin_unlock(&ft->lock);
-	}
+	ret = do_wait();
+
+	ASSERT(current->list.next != NULL);
+	spin_lock(&ft->lock);
+	list_del(&current->list);
+	spin_unlock(&ft->lock);
 
 	return ret;
 }
@@ -128,12 +126,8 @@ static long sys_do_futex_wake(struct futex *ft, uint32_t *kaddr,
 
 	spin_lock(&ft->lock);
 	list_for_each_entry_safe(task, tmp, &ft->wait_list, list) {
-		if (!task_is_suspend(task))
-			continue;
-
 		wake_up(task, 0);
 		wakecnt++;
-
 		if (wakecnt == val)
 			break;
 	}

@@ -126,13 +126,17 @@ static inline void *__of_getprop(void *dtb, int node,
 		char *attr, int *len)
 {
 	const void *data;
+	int length;
 
 	if (!dtb || node <= 0 || !attr)
 		return NULL;
 
-	data = fdt_getprop(dtb, node, attr, len);
-	if (!data || (*len <= 0))
+	data = fdt_getprop(dtb, node, attr, &length);
+	if (!data || (length <= 0))
 		return NULL;
+
+	if (len)
+		*len = length;
 
 	return (void *)data;
 }
@@ -292,7 +296,7 @@ int __of_get_u64_array(void *dtb, int node, char *attr,
 	memset(array, 0, sizeof(uint64_t) * len);
 	val = (fdt64_t *)__of_getprop(dtb, node, attr, &length);
 	if (!val) {
-		pr_err("can not get %s\n", attr);
+		pr_err("of: attr %s not found\n", attr);
 		return -EINVAL;
 	}
 
@@ -314,7 +318,7 @@ static inline struct device_node *alloc_device_node(void)
 {
 	struct device_node *node;
 
-	node = zalloc_kmem(sizeof(struct device_node));
+	node = zalloc(sizeof(struct device_node));
 	if (!node) {
 		pr_warn("%s no enough memory\n", __func__);
 		return NULL;
@@ -983,29 +987,38 @@ void of_release_all_node(struct device_node *node)
 	} while (tmp);
 }
 
-void of_parse_device_tree(void)
+struct device_node *of_parse_device_tree(void *dtb)
 {
-	void *data = dtb_address;
+	struct device_node *node;
+	void *data = dtb;
 
-	of_root_node = alloc_device_node();
-	if (!of_root_node)
-		return;
+	node = alloc_device_node();
+	if (!node)
+		return node;
 
-	of_root_node->data = data;
-	of_root_node->name = "root node";
-	of_root_node->offset = 0;
-	of_root_node->parent = NULL;
-	of_root_node->sibling = NULL;
-	of_root_node->next = NULL;
-	of_root_node->class = DT_CLASS_OTHER;
-	of_root_node->compatible = fdt_getprop(data, 0, "compatible", NULL);
-	of_root_node->flags = DEVICE_NODE_F_OF | DEVICE_NODE_F_ROOT;
+	node->data = data;
+	node->name = "root node";
+	node->offset = 0;
+	node->parent = NULL;
+	node->sibling = NULL;
+	node->next = NULL;
+	node->class = DT_CLASS_OTHER;
+	node->compatible = fdt_getprop(data, 0, "compatible", NULL);
+	node->flags = DEVICE_NODE_F_OF | DEVICE_NODE_F_ROOT;
 
 	/*
 	 * now parse all the node and convert them to the
 	 * device node struct for the hypervisor and vm0 use
 	 */
-	__of_parse_device_node(of_root_node, of_root_node);
+	__of_parse_device_node(node, node);
+
+	return node;
+}
+
+void of_parse_host_device_tree(void)
+{
+	of_root_node = of_parse_device_tree(dtb_address);
+	ASSERT(of_root_node);
 }
 
 static inline void *of_get_chosen_prop(const char *name, int len)
@@ -1102,11 +1115,22 @@ void of_setup_platform(void)
 
 int of_init(void *dtb)
 {
-	if (!dtb || !IS_PAGE_ALIGN((unsigned long)dtb) || fdt_check_header(dtb)) {
+	if (!dtb || fdt_check_header(dtb)) {
 		pr_err("bad device tree address: 0x%lx\n", dtb);
 		BUG();
 	}
 
 	dtb_address = dtb;
+	return 0;
+}
+
+int get_system_setup_info(unsigned long *addr, size_t *size)
+{
+	if (!dtb_address)
+		return -ENOENT;
+
+	*addr = vtop(dtb_address);
+	*size = PAGE_BALIGN(fdt_totalsize(dtb_address));
+
 	return 0;
 }

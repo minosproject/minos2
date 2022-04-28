@@ -56,7 +56,7 @@ enum {
 
 #define FILENAME_MAX	256
 
-#define ULONG(v)	(unsigned long)(v)
+#define ULONG(v)	((unsigned long)(v))
 
 #define MAX(a, b)	(a) > (b) ? (a) : (b)
 #define MIN(a, b)	(a) < (b) ? (a) : (b)
@@ -102,7 +102,6 @@ typedef void (*void_func_t)(void);
 #define PAGE_SIZE	(SIZE_4K)
 #define PAGE_SHIFT	(12)
 #define PAGE_MASK	(0xfffUL)
-#define PAGE_NR(size)	((size) >> PAGE_SHIFT)
 
 #define BLOCK_SIZE	(0x200000)
 #define BLOCK_SHIFT	(21)
@@ -141,6 +140,11 @@ typedef void (*void_func_t)(void);
 #define PAGE_BALIGN(x)	BALIGN((unsigned long)(x), PAGE_SIZE)
 #define PAGE_ALIGN(x)	ALIGN((unsigned long)(x), PAGE_SIZE)
 
+#define BLOCK_BALIGN(x)	BALIGN((unsigned long)(x), BLOCK_SIZE)
+#define BLOCK_ALIGN(x)	ALIGN((unsigned long)(x), BLOCK_SIZE)
+
+#define PAGE_NR(size)	(PAGE_BALIGN(size) >> PAGE_SHIFT)
+
 #define IS_PAGE_ALIGN(x)	(!((unsigned long)(x) & (PAGE_SIZE - 1)))
 #define IS_BLOCK_ALIGN(x)	(!((unsigned long)(x) & (0x1fffff)))
 
@@ -159,10 +163,6 @@ typedef void (*void_func_t)(void);
 #define GENMASK_ULL(h, l) \
     (((~0ULL) << (l)) & (~0ULL >> (BITS_PER_LONG - 1 - (h))))
 
-#define __AC(X,Y)	(X##Y)
-#define _AC(X,Y)	__AC(X,Y)
-#define _AT(T,X)	((T)(X))
-
 #define INT_MAX 	(2147483647)
 #define INT_MIN		(-2147483648)
 
@@ -170,6 +170,10 @@ typedef void (*void_func_t)(void);
 	while (1)
 
 #define NR_CPUS		CONFIG_NR_CPUS
+
+#define BAD_ADDRESS (-1)
+
+#define OS_PRIO_MAX 8
 
 extern int8_t const ffs_one_table[256];
 
@@ -189,5 +193,27 @@ typedef struct spinlock {
 	int next_ticket;
 #endif
 } spinlock_t;
+
+static inline void __write_once_size(volatile void *p, void *res, int size)
+{
+	switch (size) {
+	case 1: *(volatile uint8_t *)p = *(uint8_t *)res; break;
+	case 2: *(volatile uint16_t *)p = *(uint16_t *)res; break;
+	case 4: *(volatile uint32_t *)p = *(uint32_t *)res; break;
+	case 8: *(volatile uint64_t *)p = *(uint64_t *)res; break;
+	default:
+		barrier();
+		__builtin_memcpy((void *)p, (const void *)res, size);
+		barrier();
+	}
+}
+
+#define WRITE_ONCE(x, val) \
+({							\
+	union { typeof(x) __val; char __c[1]; } __u =	\
+		{ .__val = (typeof(x)) (val) }; \
+	__write_once_size(&(x), __u.__c, sizeof(x));	\
+	__u.__val;					\
+})
 
 #endif

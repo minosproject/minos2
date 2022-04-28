@@ -171,7 +171,7 @@ images: ramdisk rootfs kernel
 
 ramdisk: apps kernel
 	$(Q) echo "\n\033[32m ---> Packing Ramdisk image ... \033[0m \n"
-	$(Q) tools/make_ramdisk.sh -o out/ramdisk.bin -- out/ramdisk/*
+	$(Q) mkrmd -d out/ramdisk.bin out/ramdisk
 
 rootfs: apps
 	$(Q) echo "\n\033[32m ---> Packing Rootfs image ... \033[0m \n"

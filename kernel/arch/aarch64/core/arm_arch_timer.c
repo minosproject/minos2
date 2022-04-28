@@ -57,51 +57,44 @@ extern unsigned long sched_tick_handler(unsigned long data);
 void arch_enable_timer(unsigned long expires)
 {
 	uint64_t deadline;
+	unsigned long ctl;
 
 	if (expires == 0) {
-		write_sysreg32(0, ARM64_CNTSIRQ_CTL);
+		write_sysreg32(0, ARM64_CNTSCHED_CTL);
 		return;
 	}
 
 	deadline = ns_to_ticks(expires);
-	write_sysreg64(deadline, ARM64_CNTSIRQ_CVAL);
-	write_sysreg32(1 << 0, ARM64_CNTSIRQ_CTL);
+	write_sysreg64(deadline, ARM64_CNTSCHED_CVAL);
+
+	ctl = read_sysreg(ARM64_CNTSCHED_CTL);
+	ctl |= CNT_CTL_ENABLE;
+	ctl &= ~CNT_CTL_IMASK;
+	write_sysreg(ctl, ARM64_CNTSCHED_CTL);
 	isb();
 }
 
 unsigned long get_sys_ticks(void)
 {
-	unsigned long ticks;
-
-	ticks = read_sysreg64(CNTPCT_EL0);
-	dsb();
-
-	return ticks;
+	isb();
+	return read_sysreg64(CNTPCT_EL0);
 }
 
 unsigned long get_current_time(void)
 {
-	uint64_t ticks;
-
-	ticks = read_sysreg64(CNTPCT_EL0) - boot_tick;
-	dsb();
-
-	return ticks_to_ns(ticks);
+	isb();
+	return ticks_to_ns(read_sysreg64(CNTPCT_EL0) - boot_tick);
 }
 
 unsigned long get_sys_time(void)
 {
-	uint64_t ticks;
-
-	ticks = read_sysreg64(CNTPCT_EL0);
-	dsb();
-
-	return ticks_to_ns(ticks);
+	isb();
+	return ticks_to_ns(read_sysreg64(CNTPCT_EL0));
 }
 
 static int __init_text timers_arch_init(void)
 {
-	int i, ret;
+	int i, ret, from_dt;
 	struct armv8_timer_info *info;
 	struct device_node *node = NULL;
 
@@ -127,15 +120,15 @@ static int __init_text timers_arch_init(void)
 	ret = of_get_u32_array(node, "clock-frequency", &cpu_khz, 1);
 	if (cpu_khz > 0) {
 		cpu_khz = cpu_khz / 1000;
-		pr_notice("get timer clock freq from dt %d\n", cpu_khz);
+		from_dt = 1;
 	} else {
 		cpu_khz = read_sysreg32(CNTFRQ_EL0) / 1000;
-		pr_notice("get timer clock freq from reg %d\n", cpu_khz);
+		from_dt = 0;
 	}
 
+	isb();
 	boot_tick = read_sysreg64(CNTPCT_EL0);
-	rmb();
-
+	pr_notice("clock freq from %s %d\n", from_dt ? "DTB" : "REG", cpu_khz);
 	pr_notice("boot ticks is :0x%x\n", boot_tick);
 
 	if (platform->time_init)
@@ -153,42 +146,13 @@ static int __init_text timers_arch_init(void)
 static int timer_interrupt_handler(uint32_t irq, void *data)
 {
 	extern void soft_timer_interrupt(void);
+	unsigned long ctl;
 
-	write_sysreg32(0, ARM64_CNTSIRQ_CTL);
+	ctl = read_sysreg(ARM64_CNTSCHED_CTL);
+	ctl |= CNT_CTL_IMASK;			// disable the interrupt.
+	write_sysreg(ctl, ARM64_CNTSCHED_CTL);
+
 	soft_timer_interrupt();
-
-	return 0;
-}
-
-void sched_tick_disable(void)
-{
-	write_sysreg32(0, ARM64_CNTSCHED_CTL);
-	wmb();
-}
-
-void sched_tick_enable(unsigned long exp)
-{
-	unsigned long deadline;
-
-	if (exp == 0) {
-		write_sysreg32(0, ARM64_CNTSCHED_CTL);
-		return;
-	}
-
-	deadline = read_sysreg64(CNTPCT_EL0);
-	deadline += ns_to_ticks(exp);
-	write_sysreg64(deadline, ARM64_CNTSCHED_CVAL);
-	write_sysreg32(1 << 0, ARM64_CNTSCHED_CTL);
-	wmb();
-}
-
-static int sched_timer_handler(uint32_t irq, void *data)
-{
-	/* disable timer to avoid interrupt */
-	write_sysreg32(0, ARM64_CNTSCHED_CTL);
-	wmb();
-
-	(void)sched_tick_handler((unsigned long)data);
 
 	return 0;
 }
@@ -196,7 +160,6 @@ static int sched_timer_handler(uint32_t irq, void *data)
 static int __init_text timers_init(void)
 {
 	struct armv8_timer_info *sched_timer_info = NULL;
-	struct armv8_timer_info *soft_timer_info = NULL;
 
 #ifdef CONFIG_VIRT
 	struct armv8_timer_info *info;
@@ -219,27 +182,15 @@ static int __init_text timers_init(void)
 	}
 
 	sched_timer_info = &timer_info[HYP_TIMER];
-	soft_timer_info = &timer_info[NONSEC_PHY_TIMER];
 #else
 	sched_timer_info = &timer_info[VIRT_TIMER];
-	soft_timer_info = &timer_info[NONSEC_PHY_TIMER];
 #endif
 
-	/* used for sched ticks */
-	if (sched_timer_info && sched_timer_info->irq) {
-		request_irq(sched_timer_info->irq, sched_timer_handler,
-			sched_timer_info->flags & 0xf, "sched_timer_int", NULL);
-	} else {
-		pr_err("can not find sched timer\n");
-	}
-
-	/* used for software timer */
-	if (soft_timer_info && soft_timer_info->irq) {
-		request_irq(soft_timer_info->irq, timer_interrupt_handler,
-			soft_timer_info->flags & 0xf, "software_timer_int", NULL);
-	} else {
-		pr_err("can not find software timer\n");
-	}
+	ASSERT(sched_timer_info && sched_timer_info->irq);
+	request_irq(sched_timer_info->irq,
+			timer_interrupt_handler,
+			sched_timer_info->flags & 0xf,
+			"sched_timer_int", NULL);
 
 	return 0;
 }

@@ -127,10 +127,7 @@ static void inline stage1_pmd_clear(pmd_t *pmdp)
 
 static void *stage1_get_free_page(unsigned long flags)
 {
-	if (flags & VM_HOST)
-		return alloc_kpages(1);
-	else
-		return get_free_page(GFP_KERNEL);
+	return get_free_page(GFP_KERNEL);
 }
 
 static unsigned long stage1_xxx_addr_end(unsigned long start, unsigned long end, size_t map_size)
@@ -205,14 +202,12 @@ static inline pmd_t stage1_pmd_attr(unsigned long phy, unsigned long flags)
 	pmd_t pmd = phy & S1_PMD_MASK;
 
 	switch (flags & VM_TYPE_MASK) {
-	case __VM_NC:
-		pmd |= S1_BLOCK_NC;
+	case __VM_NORMAL_NC:
+		pmd |= S1_BLOCK_NORMAL_NC;
 		break;
 	case __VM_IO:
 		pmd |= S1_BLOCK_DEVICE;
 		break;
-	case __VM_WC:
-		pmd |= S1_BLOCK_WC;
 		break;
 	case __VM_WT:
 		pmd |= S1_BLOCK_WT;
@@ -255,14 +250,11 @@ static inline pte_t stage1_pte_attr(unsigned long phy, unsigned long flags)
 	pte_t pte = phy & S1_PTE_MASK;
 
 	switch (flags & VM_TYPE_MASK) {
-	case __VM_NC:
-		pte |= S1_PAGE_NC;
+	case __VM_NORMAL_NC:
+		pte |= S1_PAGE_NORMAL_NC;
 		break;
 	case __VM_IO:
 		pte |= S1_PAGE_DEVICE;
-		break;
-	case __VM_WC:
-		pte |= S1_PAGE_WC;
 		break;
 	case __VM_WT:
 		pte |= S1_PAGE_WT;

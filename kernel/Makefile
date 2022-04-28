@@ -178,7 +178,7 @@ _all: all
 
 core-y		:= core/ kobjects/
 drivers-y	:= drivers/ platform/
-external-y	:= external/
+external-y	:= libs/
 libs-y		:=
 
 -include .config
@@ -195,7 +195,7 @@ MBUILD_IMAGE 	:= minos.bin
 MBUILD_IMAGE_ELF := minos.elf
 MBUILD_IMAGE_SYMBOLS := allsymbols.o
 
-all: include/config/config.h $(version_h) $(offset_h) minos
+all: include/config/config.h $(version_h) $(offset_h) minos dtbs
 
 minos-dirs	:= $(patsubst %/,%,$(filter %/, $(core-y) $(external-y) $(drivers-y) $(libs-y)))
 
@@ -328,9 +328,6 @@ include/config/config.h: .config
 
 dtbs: FORCE
 	$(Q) $(MAKE) $(build)=$@
-
-mvm :
-	$(Q) echo "Build Minos userspace tools for Virtual Machine"
 
 clean: $(clean-dirs)
 #	$(Q) echo "  CLEAN   all .o .*.d *.dtb built-in.o"

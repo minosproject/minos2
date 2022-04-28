@@ -73,7 +73,7 @@ int of_translate_address_index(struct device_node *node,
 int of_translate_address(struct device_node *node,
 		uint64_t *address, uint64_t *size);
 
-void of_parse_device_tree(void);
+struct device_node *of_parse_device_tree(void *);
 void of_release_all_node(struct device_node *node);
 void *of_device_node_match(struct device_node *node, void *s, void *e);
 int of_get_phandle(struct device_node *node);

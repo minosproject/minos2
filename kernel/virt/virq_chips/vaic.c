@@ -122,6 +122,7 @@ static int aic_update_virq(struct vcpu *vcpu,
 static int aic_enter_to_guest(struct vcpu *vcpu, void *data)
 {
 	int fiq = 0;
+#if 0
 	struct virq_desc *virq, *n;
 	struct virq_struct *virq_struct = vcpu->virq_struct;
 
@@ -142,6 +143,7 @@ static int aic_enter_to_guest(struct vcpu *vcpu, void *data)
 			fiq = 1;
 		break;
 	}
+#endif
 
 	return fiq;
 }
@@ -157,14 +159,14 @@ static void aic_virq_reset(struct vdev *vdev)
 }
 
 static int aic_virq_read(struct vdev *vdev, gp_regs *reg,
-		unsigned long address, unsigned long *read_value)
+		int idx, unsigned long address, unsigned long *read_value)
 {
 	pr_notice("%s\n", __func__);
 	return 0;
 }
 
 static int aic_virq_write(struct vdev *vdev, gp_regs *reg,
-		unsigned long address, unsigned long *value)
+		int idx, unsigned long address, unsigned long *value)
 {
 	pr_notice("%s\n", __func__);
 	return 0;
@@ -180,12 +182,12 @@ struct virq_chip *create_aic_virqchip(struct vm *vm,
 	if (!aic)
 		return NULL;
 
-	host_vdev_init(vm, &aic->vdev, base, size);
-	vdev_set_name(&aic->vdev, "apple-aic");
+	host_vdev_init(vm, &aic->vdev, "apple-aic");
 	aic->vdev.read = aic_virq_read;
 	aic->vdev.write = aic_virq_write;
 	aic->vdev.reset = aic_virq_reset;
 	aic->vdev.deinit = aic_virq_deinit;
+	vdev_add(&aic->vdev);
 
 	vc = alloc_virq_chip();
 	if (!vc) {

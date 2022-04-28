@@ -66,4 +66,6 @@ void clean_process_on_pcpu(struct pcpu *pcpu);
 
 int process_page_fault(struct process *proc, uint64_t virtaddr, uint64_t info);
 
+int wake_up_process(struct process *proc);
+
 #endif

@@ -40,8 +40,7 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 {
 	struct irq_desc *idesc = kobj_to_irqdesc(kobj);
 	unsigned long flags;
-	long ret = 0, status = TASK_STAT_PEND_OK;
-	int wait = 0;
+	long ret = 0;
 
 	if (event_is_polled(kobj->poll_struct, EV_IN))
 		return -EPERM;
@@ -58,28 +57,24 @@ static long irq_kobj_read(struct kobject *kobj, void __user *data,
 		goto out;
 
 	/*
-	 * somebody already poll on this irq
+	 * somebody already poll on this irq ?
 	 */
 	if (idesc->owner || timeout == 0) {
-		ret = -EAGAIN;
-		goto out;
+		spin_unlock_irqrestore(&idesc->lock, flags);
+		return -EAGAIN;
 	}
 
 	idesc->owner = current;
-	__event_task_wait((unsigned long)idesc, TASK_EVENT_IRQ, timeout);
-	wait = 1;
+	__wait_event(idesc, OS_EVENT_TYPE_IRQ, timeout);
 out:
 	spin_unlock_irqrestore(&idesc->lock, flags);
 
-	if (!wait)
-		return ret;
-
-	status = wait_event(&ret);
-	if (!task_stat_pend_ok(status)) {
+	ret = do_wait();
+	if (ret != 0) {
 		spin_lock_irqsave(&idesc->lock, flags);
 		idesc->owner = 0;
 		spin_unlock_irqrestore(&idesc->lock, flags);
-	} else if (ret == 0) {
+	} else {
 		clear_bit(IRQ_FLAGS_PENDING_BIT, &idesc->flags);
 	}
 

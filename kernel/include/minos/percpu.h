@@ -7,8 +7,6 @@
 #include <minos/preempt.h>
 #include <minos/flag.h>
 
-#define PCPU_IDLE_F_TASKS_RELEASE	(1 << 0)
-
 typedef enum {
 	PCPU_STATE_OFFLINE	= 0x0,
 	PCPU_STATE_RUNNING,
@@ -18,23 +16,12 @@ typedef enum {
 struct task;
 
 struct pcpu {
-	int pcpu_id;
+	int pcpu_id;		// fixed place, do not change.
 	volatile int state;
 
+	void *stack;
+
 	unsigned long percpu_offset;
-
-	uint32_t nr_pcpu_task;
-
-	int os_is_running;
-
-	spinlock_t lock;
-	struct list_head new_list;
-	struct list_head stop_list;
-
-	struct list_head die_process;
-
-	struct task *running_task;	// current task
-	struct task *idle_task;
 
 	/*
 	 * each pcpu has its local sched list, 8 priority
@@ -42,22 +29,34 @@ struct pcpu {
 	 * priority:
 	 * 7 - used for idle task
 	 * 6 - used for vcpu task
+	 *
+	 * only the new_list can be changed by other cpu, the
+	 * lock is for the new_list.
 	 */
+	spinlock_t lock;
+	struct list_head new_list;
+	struct list_head die_process;
+
+	struct list_head stop_list;
+	struct task *running_task;
+	struct task *idle_task;
+	uint32_t nr_pcpu_task;
+
 	uint8_t local_rdy_grp;
-	struct list_head ready_list[8];
+	uint8_t padding[3];
+	struct list_head ready_list[OS_PRIO_MAX];
+	int tasks_in_prio[OS_PRIO_MAX];
 
-	/*
-	 * each pcpu will have one kernel task which
-	 * will do some maintenance work for the pcpu
-	 */
+	struct timer sched_timer;
+	int os_is_running;
+
 	struct task *kworker;
-	struct flag_grp fg;
-
-	void *stack;
-
+	struct flag_grp kworker_flag;
 } __cache_line_align;
 
 extern unsigned long percpu_offset[];
+
+extern struct pcpu pcpus[NR_CPUS];
 
 void percpu_init(int cpuid);
 

@@ -45,59 +45,58 @@ void event_init(struct event *event, int type, void *pdata)
 	spin_lock_init(&event->lock);
 	init_list(&event->wait_list);
 	event->data = pdata;
+
+	if (event->type == OS_EVENT_TYPE_NORMAL) {
+		if (pdata == NULL)
+			event->data = (void *)current;
+		event->owner = current->tid;
+		event->cnt = 0;
+	}
 }
 
-void __event_task_wait(unsigned long token, int mode, uint32_t to)
+void __wait_event(void *ev, int mode, uint32_t to)
 {
 	struct task *task = current;
-
-	/*
-	 * after __event_task_wait, the process will call sched()
-	 * by itself, before sched() is called, the task can not
-	 * be sched out, since at the same time another thread
-	 * may wake up this process, which may case dead lock
-	 * with current design.
-	 */
-	do_not_preempt();
-
-	task->pend_stat = TASK_STAT_PEND_OK;
-	task->wait_type = mode;
-	task->delay = (to == -1 ? 0 : to);
-	task->stat = TASK_STAT_WAIT_EVENT;
-	task->wait_event = token;
-}
-
-void event_task_wait(void *ev, int mode, uint32_t to)
-{
-	struct task *task = get_current_task();
 	struct event *event;
 
 	/*
 	 * the process of flag is different with other IPC
 	 * method
 	 */
-	if (mode == TASK_EVENT_FLAG) {
+	if (mode == OS_EVENT_TYPE_FLAG) {
 		task->flag_node = ev;
-	} else {
+	} else if (mode <= OS_EVENT_TYPE_NORMAL) {
 		event = (struct event *)ev;
 		list_add_tail(&event->wait_list, &task->event_list);
 	}
 
-	__event_task_wait((unsigned long)ev, mode, to);
+	/*
+	 * after event_task_wait, the process will call sched()
+	 * by itself, before sched() is called, the task can not
+	 * be sched out, since at the same time another thread
+	 * may wake up this process, which may case dead lock
+	 * with current design.
+	 */
+	do_not_preempt();
+	task->state = TASK_STATE_WAIT_EVENT;
+	task->pend_state = TASK_STATE_PEND_OK;
+	task->wait_type = mode;
+	task->delay = (to == -1 ? 0 : to);
 }
 
-int event_task_remove(struct task *task, struct event *ev)
+int remove_event_waiter(struct event *ev, struct task *task)
 {
-	/* if task has already timeout or deleted */
-	if (task->event_list.next != NULL) {
+	if (task->event_list.next == NULL) {
+		return -ENOENT;
+	} else {
 		list_del(&task->event_list);
 		task->event_list.next = NULL;
-	}
 
-	return 0;
+		return 0;
+	}
 }
 
-struct task *event_get_waiter(struct event *ev)
+static inline struct task *get_event_waiter(struct event *ev)
 {
 	struct task *task;
 
@@ -105,78 +104,89 @@ struct task *event_get_waiter(struct event *ev)
 		return NULL;
 
 	task = list_first_entry(&ev->wait_list, struct task, event_list);
-	event_task_remove(task, ev);
+	list_del(&task->event_list);
 
 	return task;
 }
 
-struct task *event_highest_task_ready(struct event *ev, void *msg,
-		uint32_t msk, int pend_stat)
+/*
+ * num - the number need to wake ? <= 0 means, wakeup all.
+ * will return the number of task which have been wake.
+ */
+int __wake_up_event_waiter(struct event *ev, void *msg,
+		int pend_state, int opt)
 {
-	int retry;
 	struct task *task;
+	int ret, cnt = 0, num;
 
-again:
-	task = event_get_waiter(ev);
-	if (!task)
-		return NULL;
+	num = opt & OS_EVENT_OPT_BROADCAST ? 0 : 1;
 
-	/*
-	 * try to wake up the task and make sure is not wakeup
-	 * by timeout handler.
-	 */
-	retry = __wake_up(task, 0, TASK_STAT_PEND_OK, NULL);
-	if (retry)
-		goto again;
+	do {
+		task = get_event_waiter(ev);
+		if (!task)
+			break;
 
-	return task;
+		ret = __wake_up(task, pend_state, (unsigned long)msg);
+		if (ret)
+			continue;
+
+		if (++cnt == num)
+			break;
+	} while (1);
+
+	return cnt;
 }
 
-void event_del_always(struct event *ev)
-{
-	struct task *task, *n;
-
-	list_for_each_entry_safe(task, n, &ev->wait_list, event_list) {
-		event_task_remove(task, ev);
-		wake_up_abort(task);
-	}
-}
-
-void event_pend_down(struct task *task)
-{
-	task->pend_stat = TASK_STAT_PEND_OK;
-	task->wait_event = (unsigned long)NULL;
-	task->wait_type = 0;
-}
-
-long wait_event(long *retcode)
+void event_pend_down(void)
 {
 	struct task *task = current;
-	long status = TASK_STAT_PEND_OK;
 
-	ASSERT(task->stat == TASK_STAT_WAIT_EVENT);
-	sched();
-
-	if (retcode != NULL)
-		*retcode = task->ipccode;
-
-	status = task->pend_stat;
-	task->ipccode = 0;
-	task->pend_stat = TASK_STAT_PEND_OK;
-
-	return status;
+	task->pend_state = TASK_STATE_PEND_OK;
+	task->wait_event = (unsigned long)NULL;
+	task->wait_type = 0;
+	task->ipcdata = 0;
 }
 
-long wait_event_locked(int ev, uint32_t timeout, long *retcode,
-		spinlock_t *lock)
+long __wake(struct event *ev, int pend_state, long retcode)
 {
-	long status;
+	struct task *task = (struct task *)ev->data;
+	unsigned long flags;
+	long __ret;
 
-	__event_task_wait(new_event_token(), ev, timeout);
+	if (ev->type != OS_EVENT_TYPE_NORMAL || !task)
+		return -EPERM;
+			
+	if (task == current) {
+		__ret = __wake_up(task, TASK_STATE_PEND_OK, retcode);
+	} else {
+		spin_lock_irqsave(&ev->lock, flags);
+		__ret = __wake_up(task, TASK_STATE_PEND_OK, retcode);
+		spin_unlock_irqrestore(&ev->lock, flags);
+	}
 
-	if (lock) spin_unlock(lock);
-	status = wait_event(retcode);
-	if (lock) spin_lock(lock);
+	return __ret;
+}
 
-	return status;
+long do_wait(void)
+{
+	long ret = 0;
+
+	sched();
+
+	switch (current->pend_state) {
+	case TASK_STATE_PEND_OK:
+		ret = current->retcode;
+		break;
+	case TASK_STATE_PEND_TO:
+		ret = -ETIMEDOUT;
+		break;
+	case TASK_STATE_PEND_ABORT:
+	default:
+		ret = -EABORT;
+		break;
+	}
+
+	event_pend_down();
+
+	return ret;
 }

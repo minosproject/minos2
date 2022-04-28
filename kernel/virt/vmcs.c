@@ -27,7 +27,7 @@ int __vcpu_trap(uint32_t type, uint32_t reason, unsigned long data,
 	unsigned long flags;
 	struct vcpu *vcpu = get_current_vcpu();
 	struct vmcs *vmcs = vcpu->vmcs;
-	struct vm *vm0 = get_vm_by_id(0);
+	struct vm *vm0 = get_host_vm();
 
 	if (vcpu->vmcs_irq < 0) {
 		pr_err("no hvm irq for this vcpu\n");
@@ -53,10 +53,16 @@ int __vcpu_trap(uint32_t type, uint32_t reason, unsigned long data,
 	 */
 	while (vmcs->guest_index != vmcs->host_index) {
 		if (vcpu_affinity(vcpu) < vcpu_affinity(vm0->vcpus[0]))
-			sched_yield();
+			sched();
 		else
 			cpu_relax();
 		mb();
+
+		if (is_task_need_stop(current)) {
+			local_irq_restore(flags);
+			pr_err("vcpu need stop, exit %s\n", __func__);
+			return -EABORT;
+		}
 	}
 
 	vmcs->trap_type = type;
@@ -64,18 +70,21 @@ int __vcpu_trap(uint32_t type, uint32_t reason, unsigned long data,
 	vmcs->trap_data = data;
 	vmcs->trap_ret = 0;
 	vmcs->trap_result = result ? *result : 0;
+	smp_mb();
 
 	/*
 	 * increase the host index of the vmcs, then send the
 	 * virq to the vcpu0 of the vm0
 	 */
 	vmcs->host_index++;
-	mb();
+	smp_mb();
 
 	if (send_virq_to_vm(vm0, vcpu->vmcs_irq)) {
 		pr_err("vmcs failed to send virq for vm-%d\n",
 				vcpu->vm->vmid);
 		vmcs->host_index--;
+		smp_mb();
+
 		vmcs->trap_ret = -EPERM;
 		vmcs->trap_result = 0;
 		return -EFAULT;
@@ -96,9 +105,15 @@ int __vcpu_trap(uint32_t type, uint32_t reason, unsigned long data,
 	if (!nonblock) {
 		while (vmcs->guest_index != vmcs->host_index) {
 			if (vcpu_affinity(vcpu) < vm0->vcpu_nr)
-				sched_yield();
+				sched();
 			else
 				cpu_relax();
+
+			if (is_task_need_stop(current)) {
+				local_irq_restore(flags);
+				pr_err("vcpu need stop, exit %s\n", __func__);
+				return -EABORT;
+			}
 		}
 
 		if (result)
@@ -142,23 +157,24 @@ unsigned long vm_create_vmcs(struct vm *vm)
 	uint32_t size;
 	struct vcpu *vcpu;
 	void *base;
-	struct vm *vm0 = get_vm_by_id(0);
 	unsigned long hvm_vmcs;
 
 	if (vm->vmcs || vm->hvm_vmcs)
 		return 0;
 
 	size = VMCS_SIZE(vm->vcpu_nr);
+	base = alloc_shmem(PAGE_NR(size));
+	if (!base)
+		return 0;
 
-	hvm_vmcs = create_hvm_iomem_map(vm, 0, size, VM_GUEST_PRIVATE);
-	if (hvm_vmcs == INVALID_ADDR) {
+	memset(base, 0, size);
+
+	hvm_vmcs = create_hvm_shmem_map(vm, (unsigned long)base, size);
+	if (hvm_vmcs == BAD_ADDRESS) {
 		pr_err("mapping vmcs to hvm failed\n");
+		free_shmem(base);
 		return 0;
 	}
-
-	base = (void *)arch_translate_ipa_to_pa(&vm0->vs, hvm_vmcs);
-	if (!base)
-		panic("some thing error in create_hvm_iomem_map\n");
 
 	for (i = 0; i < vm->vcpu_nr; i++) {
 		vcpu = vm->vcpus[i];

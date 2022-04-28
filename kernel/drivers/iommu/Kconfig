@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0
+
+if VIRT
+
+menu "IOMMU drivers"
+
+config IOMMU
+	def_bool y
+
+config IOMMU_IPMMU
+	bool "ipmmu driver"
+	default y if SOC_R8A7795
+	help
+	  iommu driver for r8a7795
+
+endmenu
+
+endif
+
+comment "IOMMU drivers need virtualization support"
+	depends on !VIRT

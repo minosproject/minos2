@@ -57,7 +57,7 @@ static int arch_cpu_feature_init(void)
 	unsigned long *cf;
 	uint64_t value;
 
-	cf = alloc_kmem(BITS_TO_LONGS(CPU_FEATURE_BITS));
+	cf = malloc(BITS_TO_LONGS(CPU_FEATURE_BITS));
 	if (!cf)
 		panic("can not allocate memory for cpu feature\n");
 

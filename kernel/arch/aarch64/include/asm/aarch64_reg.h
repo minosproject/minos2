@@ -20,11 +20,7 @@
 #include <config/config.h>
 
 #ifdef CONFIG_VIRT
-	#ifdef CONFIG_ARM_VHE
-		#include <asm/aarch64_el2_reg.h>
-	#else
-		#include <asm/aarch64_el2_vhe_reg.h>
-	#endif	//CONFIG_ARM_VHE
+	#include <asm/aarch64_el2_reg.h>
 #else
 	#include <asm/aarch64_el1_reg.h>
 #endif	// CONFIG_VIRT

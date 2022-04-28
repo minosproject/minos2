@@ -30,10 +30,6 @@ else
 	ARMV8_ARCH	= armv8-a
 endif
 
-ifeq ($(CONFIG_ARM_VHE), y)
-	ARMV8_ARCH	= armv8.1-a
-endif
-
 MBUILD_LDFLAGS	+= -X
 
 MBUILD_CFLAGS	+= -mgeneral-regs-only $(lseinstr) $(brokengasinst)

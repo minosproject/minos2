@@ -27,6 +27,7 @@
 static void *ramdisk_start, *ramdisk_end;
 static struct ramdisk_inode *root;
 static struct ramdisk_sb *sb;
+static void *ramdisk_data;
 
 int ramdisk_init(unsigned long start, unsigned long end)
 {
@@ -50,6 +51,7 @@ int ramdisk_init(unsigned long start, unsigned long end)
 	 */
 	sb = ramdisk_start + RAMDISK_MAGIC_SIZE;
 	root = ramdisk_start + sb->inode_offset;
+	ramdisk_data = ramdisk_start + sb->data_offset;
 
 	return 0;
 }
@@ -59,7 +61,7 @@ static struct ramdisk_inode *get_file_inode(const char *name)
 	struct ramdisk_inode *inode;
 
 	for (inode = root; inode < root + sb->file_cnt; inode++) {
-		if (strncmp(inode->fname, name, RAMDISK_FNAME_SIZE - 1) == 0)
+		if (strncmp(inode->f_name, name, RAMDISK_FNAME_SIZE - 1) == 0)
 			return inode;
 	}
 
@@ -75,7 +77,7 @@ int ramdisk_read(struct ramdisk_file *file, void *buf,
 	if ((offset + size) > file->inode->f_size)
 		return -EINVAL;
 
-	memcpy(buf, ramdisk_start + file->inode->f_offset + offset, size);
+	memcpy(buf, ramdisk_data + file->inode->f_offset + offset, size);
 	return 0;
 }
 

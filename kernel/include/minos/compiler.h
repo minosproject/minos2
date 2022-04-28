@@ -16,5 +16,11 @@
 #define unused(__arg__)		(void)(__arg__)
 
 #define __user
+#define __guest
+
+#ifndef weak_alias
+#define weak_alias(old, new) \
+        extern __typeof(old) new __attribute__((__weak__, __alias__(#old)))
+#endif
 
 #endif

@@ -318,7 +318,7 @@ static int handle_page_fault_internal(struct process *proc,
 	if ((virt < SYS_PROC_HEAP_BASE) || (virt >= SYS_PROC_HEAP_END)) {
 		pr_err("access invalid address 0x%x [0x%x 0x%x] 0x%x\n", virt,
 				SYS_PROC_HEAP_BASE, SYS_PROC_HEAP_END,
-				current->user_gp_regs->pc);
+				current->user_regs->pc);
 		goto out;
 	}
 
@@ -464,7 +464,7 @@ static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int w
 int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 {
 	struct process *proc = current_proc;
-	gp_regs *regs= current_regs;
+	gp_regs *regs= current_user_regs;
 	int ret;
 
 	if (proc_is_root(proc))

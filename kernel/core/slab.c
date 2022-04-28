@@ -23,6 +23,14 @@
 #include <minos/slab.h>
 #include <minos/poll.h>
 
+struct slab_header {
+	unsigned long size;
+	union {
+		unsigned long magic;
+		struct slab_header *next;
+	};
+} __packed;
+
 #define HASH_TABLE_SIZE	8
 
 #define SLAB_MEM_BASE ptov(511UL * 1024 * 1024 * 1024)

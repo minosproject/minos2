@@ -16,300 +16,562 @@
 
 #include <minos/minos.h>
 #include <virt/vm.h>
-#include <minos/vspace.h>
-#include <asm/tlb.h>
-#include <asm/cache.h>
+#include <virt/iommu.h>
+#include <minos/arch.h>
 
-int create_guest_mapping(struct vspace *vs, vir_addr_t start,
+#define VM_IPA_SIZE (1UL << 40)
+
+struct block_section {
+	unsigned long start;
+	unsigned long size;
+	unsigned long end;
+	unsigned long free_blocks;
+	unsigned long total_blocks;
+	unsigned long current_index;
+	unsigned long *bitmap;
+	struct block_section *next;
+};
+
+static struct block_section *bs_head;
+static DEFINE_SPIN_LOCK(bs_lock);
+static unsigned long free_blocks;
+
+#define mm_to_vm(__mm) container_of((__mm), struct vm, mm)
+#define VMA_SIZE(vma) ((vma)->end - (vma)->start)
+
+static int __create_guest_mapping(struct mm_struct *mm, virt_addr_t vir,
 		phy_addr_t phy, size_t size, unsigned long flags)
 {
-	unsigned long end;
+	struct vm *vm = mm_to_vm(mm);
+	unsigned long tmp;
+	int ret;
 
-	end = BALIGN(start + size, PAGE_SIZE);
-	start = ALIGN(start, PAGE_SIZE);
+	tmp = BALIGN(vir + size, PAGE_SIZE);
+	vir = ALIGN(vir, PAGE_SIZE);
 	phy = ALIGN(phy, PAGE_SIZE);
+	size = tmp - vir;
 
-	return arch_guest_map(vs, start, end, phy, flags | VM_HUGE_2M);
+	pr_debug("map [x%x 0x%x] to [0x%x 0x%x] vm-%d\n",
+			vir, vir + size, phy, phy + size, vm->vmid);
+	ret = arch_guest_map(mm, vir, vir + size, phy, flags);
+	if (!ret)
+		ret = iommu_iotlb_flush_all(vm);
+
+	return ret;
 }
 
-int destroy_guest_mapping(struct vspace *vs, unsigned long vir, size_t size)
-{
-	if (!IS_PAGE_ALIGN(vir) || !IS_PAGE_ALIGN(size)) {
-		pr_warn("destroy guest mapping 0x%x->0x%x\n", vir, vir + size);
-		return -EINVAL;
-	}
-
-	return arch_guest_unmap(vs, vir, vir + size);
-}
-
-static int vspace_area_map_ln(struct vspace *vs, struct vspace_area *va)
-{
-	return create_guest_mapping(vs, va->start, va->pstart, va->size, va->flags);
-}
-
-static int vspace_area_map_bk(struct vspace *vs, struct vspace_area *va)
+int create_guest_mapping(struct mm_struct *mm, virt_addr_t vir,
+		phy_addr_t phy, size_t size, unsigned long flags)
 {
 	int ret;
-	struct mem_block *block;
-	unsigned long base = va->start;
-	unsigned long size = va->size;
 
-	list_for_each_entry(block, &va->b_head, list) {
-		ret = create_guest_mapping(vs, base, block->phy_base,
-				MEM_BLOCK_SIZE, va->flags | VM_HUGE_2M);
+	spin_lock(&mm->lock);
+	ret = __create_guest_mapping(mm, vir, phy, size, flags);
+	spin_unlock(&mm->lock);
+
+	return ret;
+}
+
+static int __destroy_guest_mapping(struct mm_struct *mm,
+		unsigned long vir, size_t size)
+{
+	unsigned long end;
+	int ret;
+
+	if (!IS_PAGE_ALIGN(vir) || !IS_PAGE_ALIGN(size)) {
+		pr_warn("WARN: destroy guest mapping [0x%x 0x%x]\n",
+				vir, vir + size);
+		end = PAGE_BALIGN(vir + size);
+		vir = PAGE_ALIGN(vir);
+		size = end - vir;
+	}
+
+	ret = arch_guest_unmap(mm, vir, vir + size);
+	if (!ret)
+		ret = iommu_iotlb_flush_all(mm_to_vm(mm));
+
+	return ret;
+}
+
+int destroy_guest_mapping(struct mm_struct *mm, unsigned long vir, size_t size)
+{
+	int ret;
+
+	spin_lock(&mm->lock);
+	ret = __destroy_guest_mapping(mm, vir, size);
+	spin_unlock(&mm->lock);
+
+	return ret;
+}
+
+static struct vmm_area *__alloc_vmm_area_entry(unsigned long base, size_t size)
+{
+	struct vmm_area *va;
+
+	va = zalloc(sizeof(struct vmm_area));
+	if (!va)
+		return NULL;
+
+	va->start = base;
+	va->pstart = BAD_ADDRESS;
+	va->end = base + size;
+	va->flags = 0;
+
+	return va;
+}
+
+static int __add_free_vmm_area(struct mm_struct *mm, struct vmm_area *area)
+{
+	struct vmm_area *tmp, *next, *va = area;
+	size_t size;
+
+	/*
+	 * indicate it not inserted to the free list
+	 */
+	va->list.next = NULL;
+	size = va->end - va->start;
+	va->flags = 0;
+	va->vmid = 0;
+	va->pstart = 0;
+repeat:
+	/*
+	 * check whether this two vmm_area can merged to one
+	 * vmm_area and do the action
+	 */
+	list_for_each_entry_safe(tmp, next, &mm->vmm_area_free, list) {
+		if (va->start == tmp->end) {
+			va->start = tmp->start;
+			list_del(&tmp->list);
+			free(tmp);
+			goto repeat;
+		}
+
+		if (va->end == tmp->start) {
+			va->end = tmp->end;
+			list_del(&tmp->list);
+			free(tmp);
+			goto repeat;
+		}
+
+		if (size <= (tmp->end - tmp->start)) {
+			list_insert_before(&tmp->list, &va->list);
+			break;
+		}
+	}
+
+	if (va->list.next == NULL)
+		list_add_tail(&mm->vmm_area_free, &va->list);
+
+	return 0;
+}
+
+static void inline release_vmm_area_bk(struct vmm_area *va)
+{
+	struct mem_block *block = va->b_head, *tmp;
+
+	while (block != NULL) {
+		tmp = block->next;
+		block->next = NULL;
+		vmm_free_memblock(block);
+		block = tmp;
+	}
+
+	va->b_head = NULL;
+}
+
+static void release_vmm_area_memory(struct vmm_area *va)
+{
+	/*
+	 * can not free the physical memory when the memory
+	 * is not belong to this vmm_area, this means the va
+	 * is shareded with other vmm area, not the owner of
+	 * it.
+	 */
+	if (va->flags & __VM_SHARED)
+		return;
+
+	switch (va->flags & VM_MAP_TYPE_MASK) {
+	case VM_MAP_PT:
+		break;
+	case VM_MAP_BK:
+		release_vmm_area_bk(va);
+		break;
+	default:
+		if (va->pstart != BAD_ADDRESS) {
+			if (va->flags & __VM_SHMEM)
+				free_shmem((void *)va->pstart);
+			else
+				free_pages((void *)va->pstart);
+			va->pstart = BAD_ADDRESS;
+		}
+		break;
+	}
+}
+
+int release_vmm_area(struct mm_struct *mm, struct vmm_area *va)
+{
+	release_vmm_area_memory(va);
+	spin_lock(&mm->lock);
+	list_del(&va->list);
+	__add_free_vmm_area(mm, va);
+	spin_unlock(&mm->lock);
+
+	return 0;
+}
+
+static int vmm_area_map_ln(struct mm_struct *mm, struct vmm_area *va)
+{
+	return __create_guest_mapping(mm, va->start,
+			va->pstart, VMA_SIZE(va), va->flags);
+}
+
+static int vmm_area_map_bk(struct mm_struct *mm, struct vmm_area *va)
+{
+	struct mem_block *block = va->b_head;;
+	unsigned long base = va->start;
+	unsigned long size = VMA_SIZE(va);
+	int ret;
+
+	while (block) {
+		ret = __create_guest_mapping(mm, base, BFN2PHY(block->bfn),
+				MEM_BLOCK_SIZE, va->flags | VM_HUGE | VM_GUEST);
 		if (ret)
 			return ret;
 
 		base += MEM_BLOCK_SIZE;
 		size -= MEM_BLOCK_SIZE;
-
-		if (size == 0)
-			break;
+		block = block->next;
 	}
+
+	ASSERT(size == 0);
 
 	return 0;
 }
 
-static inline int vspace_area_map_pg(struct vspace *vs, struct vspace_area *va)
+int map_vmm_area(struct mm_struct *mm,
+		struct vmm_area *va, unsigned long pbase)
 {
 	int ret;
-	struct page *page = va->p_head;
-	unsigned long base = va->start;
-	unsigned long size = va->size;
-
-	do {
-		ret = create_guest_mapping(vs, base, page_pa(page), PAGE_SIZE, va->flags);
-		if (ret)
-			return ret;
-
-		size -= PAGE_SIZE;
-		page = page->next;
-
-		if (page == NULL)
-			break;
-	} while (size > 0);
-
-	return 0;
-}
-
-int map_vspace_area(struct vspace *vs, struct vspace_area *va, unsigned long pbase)
-{
-	va->pstart = pbase;
 
 	switch (va->flags & VM_MAP_TYPE_MASK) {
-	case VM_MAP_BK:
-		vspace_area_map_bk(vs, va);
+	case VM_MAP_PT:
+		va->pstart = va->start;
+		ret = vmm_area_map_ln(mm, va);
 		break;
-	case VM_MAP_PG:
-		vspace_area_map_pg(vs, va);
+	case VM_MAP_BK:
+		ret = vmm_area_map_bk(mm, va);
 		break;
 	default:
-		vspace_area_map_ln(vs, va);
+		va->pstart = pbase;
+		ret = vmm_area_map_ln(mm, va);
 		break;
 	}
 
-	return 0;
+	return ret;
 }
 
-static void inline release_vspace_area_pg(struct vspace_area *va)
+static struct vmm_area *__split_vmm_area(struct mm_struct *mm,
+		struct vmm_area *vma, unsigned long base,
+		unsigned long end, int flags)
 {
-	struct page *page = va->p_head, *tmp;
+	struct vmm_area *left = NULL, *right = NULL;
+	size_t left_size, right_size;
 
-	while (page != NULL) {
-		tmp = page->next;
-		release_pages(page);
-		page = tmp;
+	left_size = base - vma->start;
+	right_size = vma->end - end;
+
+	if (left_size == 0 && right_size == 0)
+		goto out;
+
+	if (left_size > 0) {
+		left = __alloc_vmm_area_entry(vma->start, left_size);
+		if (!left)
+			return NULL;
+		list_add(&mm->vmm_area_free, &left->list);
 	}
-}
 
-static void inline release_vspace_area_bk(struct vspace_area *va)
-{
-	struct mem_block *block, *n;
-
-	list_for_each_entry_safe(block, n, &va->b_head, list) {
-		release_mem_block(block);
-		list_del(&block->list);
+	if (right_size > 0) {
+		right = __alloc_vmm_area_entry(end, right_size);
+		if (!right)
+			goto out_err_right;
+		list_add(&mm->vmm_area_free, &right->list);
 	}
+out:
+	vma->start = base;
+	vma->end = end;
+	vma->flags = flags;
+	list_del(&vma->list);
+	list_add_tail(&mm->vmm_area_used, &vma->list);
+
+	return vma;
+
+out_err_right:
+	if (left) {
+		list_del(&left->list);
+		free(left);
+	}
+	return NULL;
 }
 
-static void release_vspace_area_in_vm0(struct vm *vm)
+static struct vmm_area *__alloc_free_vmm_area(struct mm_struct *mm,
+		struct vmm_area *vma, size_t size,
+		unsigned long mask, int flags)
 {
-	struct vm *vm0 = get_vm_by_id(0);
-	struct vspace *vs = &vm0->vs;
-	struct vspace_area *va, *n;
+	unsigned long base, end;
 
-	spin_lock(&vs->vspace_area_lock);
+	base = (vma->start + mask) & ~mask;
+	end = base + size;
+	if (!((base >= vma->start) && (end <= vma->end)))
+		return NULL;
 
-	list_for_each_entry_safe(va, n, &vs->vspace_area_used, list) {
+	return __split_vmm_area(mm, vma, base, end, flags);
+}
+
+struct vmm_area *alloc_free_vmm_area(struct mm_struct *mm,
+		size_t size, unsigned long mask, int flags)
+{
+	struct vmm_area *va;
+	struct vmm_area *new = NULL;
+
+	mask = (mask == BLOCK_MASK) ? BLOCK_MASK : PAGE_MASK;
+	size = BALIGN(size, PAGE_SIZE);
+
+	spin_lock(&mm->lock);
+	list_for_each_entry(va, &mm->vmm_area_free, list) {
+		if ((va->end - va->start) < size)
+			continue;
+
+		new = __alloc_free_vmm_area(mm, va, size, mask, flags);
+		if (new)
+			break;
+	}
+	spin_unlock(&mm->lock);
+
+	return new;
+}
+
+struct vmm_area *split_vmm_area(struct mm_struct *mm,
+		unsigned long base, size_t size, int flags)
+{
+	unsigned long end = base + size;
+	struct vmm_area *va, *out = NULL;
+
+	if ((flags & VM_NORMAL) && (!IS_PAGE_ALIGN(base) || !IS_PAGE_ALIGN(size))) {
+		pr_err("vm_area is not PAGE align 0x%p 0x%x\n",
+				base, size);
+		return NULL;
+	}
+
+	spin_lock(&mm->lock);
+	list_for_each_entry(va, &mm->vmm_area_free, list) {
+		if ((base >= va->start) && (end <= va->end)) {
+			out = va;
+			break;
+		}
+	}
+
+	if (!out)
+		goto exit;
+
+	out = __split_vmm_area(mm, out, base, end, flags);
+exit:
+	spin_unlock(&mm->lock);
+
+	if (!out)
+		pr_err("split vma [0x%lx 0x%lx] failed\n", base, end);
+
+	return out;
+}
+
+struct vmm_area *request_vmm_area(struct mm_struct *mm,
+		unsigned long base, unsigned long pbase,
+		size_t size, int flags)
+{
+	struct vmm_area *va;
+
+	va = split_vmm_area(mm, base, size, flags);
+	if (!va)
+		return NULL;
+
+	va->pstart = pbase;
+
+	return va;
+}
+
+static void dump_vmm_areas(struct mm_struct *mm)
+{
+	struct vmm_area *va;
+
+	pr_debug("***** free vmm areas *****\n");
+	list_for_each_entry(va, &mm->vmm_area_free, list)
+		pr_debug("[VA] 0x%p->0x%p\n", va->start, va->end);
+
+	pr_debug("***** used vmm areas *****\n");
+	list_for_each_entry(va, &mm->vmm_area_used, list)
+		pr_debug("[VA] 0x%p->0x%p\n", va->start, va->end);
+}
+
+static void release_vmm_area_in_vm0(struct vm *vm)
+{
+	struct vm *vm0 = get_host_vm();
+	struct mm_struct *mm = &vm0->mm;
+	struct vmm_area *va, *n;
+
+	spin_lock(&mm->lock);
+	list_for_each_entry_safe(va, n, &mm->vmm_area_used, list) {
 		if (va->vmid != vm->vmid)
 			continue;
 
-		/*
-		 * the kernel memory space for vm, mapped as NORMAL and
-		 * PT attr, need to unmap it
-		 */
-		destroy_guest_mapping(&vm0->vs, va->start, va->size);
+		__destroy_guest_mapping(mm, va->start, VMA_SIZE(va));
 
 		if (!(va->flags & VM_SHARED))
-			free((void *)va->pstart);
+			free_pages((void *)va->pstart);
 
 		list_del(&va->list);
-		add_free_vspace_area(vs, va);
+		__add_free_vmm_area(mm, va);
 	}
-
-	spin_unlock(&vs->vspace_area_lock);
+	spin_unlock(&mm->lock);
 }
 
-static void release_vspace_area_memory(struct vspace_area *va)
+int unmap_vmm_area(struct mm_struct *mm, struct vmm_area *va)
 {
-	switch (va->flags & VM_MAP_TYPE_MASK) {
-	case VM_MAP_BK:
-		release_vspace_area_bk(va);
-		break;
-	case VM_MAP_PG:
-		release_vspace_area_pg(va);
-		break;
-	default:
-		if (va->pstart && !(va->flags & VM_PFNMAP) && !(va->flags & VM_SHARED))
-			free((void *)va->pstart);
-		break;
-	}
+	int ret;
+
+	spin_lock(&mm->lock);
+	ret = __destroy_guest_mapping(mm, va->start, VMA_SIZE(va));
+	spin_unlock(&mm->lock);	
+
+	return ret;
 }
 
 void release_vm_memory(struct vm *vm)
 {
-	struct vspace *vs = &vm->vs;
-	struct vspace_area *va, *n;
+	struct mm_struct *mm = &vm->mm;
+	struct vmm_area *va, *n;
 
 	/*
-	 * first unmap the memory and clear the stage2
-	 * page table
+	 * first unmap all the memory which maped to
+	 * this VM. this will free the pages which used
+	 * as the PAGE_TABLE, then free to the host.
 	 */
-	arch_guest_vspace_release(vs);
+	destroy_guest_mapping(mm, 0, VM_IPA_SIZE);
 
 	/*
-	 * - release all the vspace_area and its memory
-	 * - release the page table page and page table
-	 * - set all the vspace to 0
+	 * - release all the vmm_area and its memory
+	 * - release the page table
+	 * - set all the mm_struct to 0
 	 * this function will not be called when vm is
 	 * running, do not to require the lock
 	 */
-	list_for_each_entry_safe(va, n, &vs->vspace_area_used, list) {
-		release_vspace_area_memory(va);
+	list_for_each_entry_safe(va, n, &mm->vmm_area_used, list) {
+		release_vmm_area_memory(va);
 		list_del(&va->list);
 		free(va);
 	}
 
-	list_for_each_entry_safe(va, n, &vs->vspace_area_free, list) {
+	list_for_each_entry_safe(va, n, &mm->vmm_area_free, list) {
 		list_del(&va->list);
 		free(va);
 	}
 
-	/*
-	 * for guest vm, release the vm0's memory belong to this
-	 * vm
-	 */
-	release_vspace_area_in_vm0(vm);
+	/* release the vm0's memory belong to this vm */
+	release_vmm_area_in_vm0(vm);
+
+	free_pages((void *)mm->pgdp);
 }
 
-unsigned long create_hvm_iomem_map(struct vm *vm, unsigned long gbase,
-		uint32_t size, unsigned long gflags)
+unsigned long create_hvm_shmem_map(struct vm *vm,
+			unsigned long phy, uint32_t size)
 {
-	struct vspace_area *va;
-	struct vm *vm0 = get_vm_by_id(0);
-	void *iomem = NULL;
+	struct vm *vm0 = get_host_vm();
+	struct vmm_area *va;
 
-	va = alloc_vspace_area_page(&vm0->vs, size, gflags);
+	va = alloc_free_vmm_area(&vm0->mm, size, PAGE_MASK, VM_GUEST_SHMEM |
+			VM_SHARED | VM_RW);
 	if (!va)
-		return INVALID_ADDR;
-
-	size = PAGE_BALIGN(size);
-	iomem = get_shared_pages(PAGE_NR(size), gflags);
-	if (!iomem)
-		return INVALID_ADDR;
-	memset(iomem, 0, size);
-
-	/*
-	 * map the physical memory to the guest's virtual memory space
-	 */
-	if (gbase) {
-		if (create_guest_mapping(&vm->vs, gbase,
-				(unsigned long)iomem, size, gflags)) {
-			free_pages(iomem);
-			release_vspace_area(&vm0->vs, va);
-			return INVALID_ADDR;
-		}
-	}
+		return BAD_ADDRESS;
 
 	va->vmid = vm->vmid;
-	map_vspace_area(&vm0->vs, va, (unsigned long)iomem);
+	map_vmm_area(&vm0->mm, va, phy);
 
 	return va->start;
 }
 
-/*
- * map VMx virtual memory to hypervisor memory
- * space to let hypervisor can access guest vm's
- * memory
- */
-void *map_vm_mem(unsigned long gva, size_t size)
+int copy_from_guest(void *target, void __guest *src, size_t size)
 {
+	unsigned long start = (unsigned long)src;
+	size_t copy_size, left = size;
 	unsigned long pa;
+	int ret;
 
-	/* assume the memory is continuously */
-	pa = guest_va_to_pa(gva, 1);
-	if (create_host_mapping(ptov(pa), pa, size, 0))
-		return NULL;
+	while (left > 0) {
+		copy_size = PAGE_BALIGN(start) - PAGE_ALIGN(start);
+		if (copy_size == 0)
+			copy_size = PAGE_SIZE;
+		if (copy_size > left)
+			copy_size = left;
 
-	return (void *)ptov(pa);
+		pa = guest_va_to_pa(start, 1);
+		ret = create_host_mapping(PAGE_ALIGN(ptov(pa)),
+				PAGE_ALIGN(pa), PAGE_SIZE, VM_RO);
+		if (ret)
+			return ret;
+
+		memcpy(target, (void *)vtop(pa), copy_size);
+		destroy_host_mapping(PAGE_ALIGN(ptov(pa)), PAGE_SIZE);
+
+		target += copy_size;
+		start += copy_size;
+		left -= copy_size;
+	}
+
+	return 0;
 }
 
-void unmap_vm_mem(unsigned long gva, size_t size)
+int translate_guest_ipa(struct mm_struct *mm,
+		unsigned long offset, unsigned long *pa)
 {
-	unsigned long pa;
+	int ret;
 
-	/*
-	 * what will happend if this 4k mapping is used
-	 * in otherwhere
-	 */
-	pa = guest_va_to_pa(gva, 1);
-	flush_dcache_range(ptov(pa), size);
-	destroy_host_mapping(ptov(pa), size);
+	spin_lock(&mm->lock);
+	ret = arch_translate_guest_ipa(mm, offset, pa);
+	spin_unlock(&mm->lock);
+
+	return ret;
 }
 
-static int __vm_mmap(struct vspace *vs, unsigned long hvm_mmap_base,
+static int do_vm_mmap(struct mm_struct *mm, unsigned long hvm_mmap_base,
 		unsigned long offset, unsigned long size)
 {
-	struct vm *vm0 = get_vm_by_id(0);
-	struct vspace *vs0 = &vm0->vs;
-	unsigned long vir, phy;
-	int ret, left;
-	pmd_t pmd;
+	struct vm *vm0 = get_host_vm();
+	struct mm_struct *mm0 = &vm0->mm;
+	unsigned long pa;
+	int ret;
 
-	if (!IS_HUGE_ALIGN(offset) || !IS_HUGE_ALIGN(hvm_mmap_base) ||
-			!IS_HUGE_ALIGN(size)) {
-		pr_err("__vm_vsap fail not PMD align 0x%p 0x%p 0x%x\n",
+	if (!IS_BLOCK_ALIGN(offset) || !IS_BLOCK_ALIGN(hvm_mmap_base) ||
+			!IS_BLOCK_ALIGN(size)) {
+		pr_err("__vm_mmap fail not PMD align 0x%p 0x%p 0x%x\n",
 				hvm_mmap_base, offset, size);
 		return -EINVAL;
 	}
 
-	vir = offset;
-	phy = hvm_mmap_base;
-	left = size >> HUGE_PAGE_SHIFT;
+	while (size > 0) {
+		ret = translate_guest_ipa(mm, offset, &pa);
+		if (ret) {
+			pr_err("addr 0x%x has not mapped in vm-%d\n", offset, vm0->vmid);
+			return -EPERM;
+		}
 
-	while (left > 0) {
-		ret = arch_get_guest_huge_pmd(vs, vir, &pmd);
-		if (ret)
+		ret = create_guest_mapping(mm0, hvm_mmap_base,
+				pa, MEM_BLOCK_SIZE, VM_NORMAL | VM_RW);
+		if (ret) {
+			pr_err("%s failed\n", __func__);
 			return ret;
+		}
 
-		ret = create_guest_mapping(vs0, phy, pmd, HUGE_PAGE_SIZE,
-				VM_HUGE_2M | VM_NORMAL | VM_PFNMAP);
-		if (ret)
-			return ret;
-
-		vir += HUGE_PAGE_SIZE;
-		phy += HUGE_PAGE_SIZE;
-		left--;
+		hvm_mmap_base += MEM_BLOCK_SIZE;
+		offset += MEM_BLOCK_SIZE;
+		size -= MEM_BLOCK_SIZE;
 	}
 
 	return 0;
@@ -324,43 +586,39 @@ static int __vm_mmap(struct vspace *vs, unsigned long hvm_mmap_base,
  * offset - the base address need to be mapped
  * size - the size need to mapped
  */
-struct vspace_area *vm_mmap(struct vm *vm, unsigned long offset, size_t size)
+struct vmm_area *vm_mmap(struct vm *vm, unsigned long offset, size_t size)
 {
-	struct vspace_area *va;
-	struct vm *vm0 = get_vm_by_id(0);
+	struct vm *vm0 = get_host_vm();
+	struct vmm_area *va;
+	int ret;
 
 	/*
 	 * allocate all the memory the GVM request but will not
 	 * map all the memory, only map the memory which mvm request
 	 * for linux, if it need use virtio then need to map all
 	 * the memory, but for other os, may not require to map
-	 * all the memory
+	 * all the memory.
 	 */
-	va = alloc_vspace_area_hugepage(&vm0->vs, size, VM_NORMAL | VM_PFNMAP);
+	va = alloc_free_vmm_area(&vm0->mm, size,
+			BLOCK_MASK, VM_GUEST_NORMAL | VM_SHARED | VM_RW);
 	if (!va)
-		return NULL;
+		return 0;
 
 	pr_info("%s start:0x%x size:0x%x\n", __func__, va->start, size);
-
-	/*
-	 * map all the guest vm's normal memory to the vm0's vspace
-	 * so the vm0 can access all the physical memory of the guest
-	 * vm, offset is the normal memory of the guest vm
-	 */
-	if (__vm_mmap(&vm->vs, va->start, offset, size)) {
-		destroy_guest_mapping(&vm0->vs, va->start, va->size);
-		release_vspace_area(&vm0->vs, va);
+	ret = do_vm_mmap(&vm->mm, va->start, offset, size);
+	if (ret) {
 		pr_err("map guest vm memory to vm0 failed\n");
-		return 0;
+		release_vmm_area(&vm0->mm, va);
+		return NULL;
 	}
 
-	/* mark this vspace_area is for guest vm map */
+	/* mark this vmm_area is for guest vm map */
 	va->vmid = vm->vmid;
 
 	return va;
 }
 
-static int __alloc_vm_memory(struct vspace *vs, struct vspace_area *va)
+static int __alloc_vm_memory(struct mm_struct *mm, struct vmm_area *va)
 {
 	int i, count;
 	unsigned long base;
@@ -368,24 +626,25 @@ static int __alloc_vm_memory(struct vspace *vs, struct vspace_area *va)
 
 	base = ALIGN(va->start, MEM_BLOCK_SIZE);
 	if (base != va->start) {
-		pr_warn("memory base is not mem_block align\n");
+		pr_err("memory base is not mem_block align\n");
 		return -EINVAL;
 	}
 
-	init_list(&va->b_head);
+	va->b_head = NULL;
 	va->flags |= VM_MAP_BK;
-	count = va->size >> MEM_BLOCK_SHIFT;
+	count = VMA_SIZE(va) >> MEM_BLOCK_SHIFT;
 
 	/*
 	 * here get all the memory block for the vm
 	 * TBD: get contiueous memory or not contiueous ?
 	 */
 	for (i = 0; i < count; i++) {
-		block = alloc_mem_block(GFB_VM);
+		block = vmm_alloc_memblock();
 		if (!block)
 			return -ENOMEM;
 
-		list_add_tail(&va->b_head, &block->list);
+		block->next = va->b_head;
+		va->b_head = block;
 	}
 
 	return 0;
@@ -393,125 +652,329 @@ static int __alloc_vm_memory(struct vspace *vs, struct vspace_area *va)
 
 int alloc_vm_memory(struct vm *vm)
 {
-	struct vspace *vs = &vm->vs;
-	struct vspace_area *va;
+	struct mm_struct *mm = &vm->mm;
+	struct vmm_area *va;
 
-	list_for_each_entry(va, &vs->vspace_area_used, list) {
+	list_for_each_entry(va, &mm->vmm_area_used, list) {
 		if (!(va->flags & VM_NORMAL))
 			continue;
 
-		if (__alloc_vm_memory(vs, va))
+		if (__alloc_vm_memory(mm, va)) {
+			pr_err("alloc memory for vm-%d failed\n", vm->vmid);
 			goto out;
+		}
 
-		if (map_vspace_area(vs, va, 0))
+		if (map_vmm_area(mm, va, 0)) {
+			pr_err("map memory for vm-%d failed\n", vm->vmid);
 			goto out;
+		}
 	}
 
 	return 0;
-
 out:
-	pr_err("alloc memory for vm-%d failed\n", vm->vmid);
 	release_vm_memory(vm);
 	return -ENOMEM;
 }
 
-phy_addr_t translate_vm_address(struct vm *vm, unsigned long a)
-{
-	return arch_translate_ipa_to_pa(&vm->vs, a);
-}
-
-static void vspace_area_init(struct vspace *vs, int bit64)
+static void vmm_area_init(struct mm_struct *mm, int bit64)
 {
 	unsigned long base, size;
-
-	init_list(&vs->vspace_area_free);
-	init_list(&vs->vspace_area_used);
+	struct vmm_area *va;
 
 	/*
 	 * the virtual memory space for a virtual machine:
-	 * 64bit - 40bit IPA size
-	 * 32bit - 32bit IPA size (Without LPAE)
-	 * 32bit - 40bit IPA size  (with LPAE)
+	 * 64bit - 40bit (1TB) IPA address space.
+	 * 32bit - 32bit (4GB) IPA address space. (Without LPAE)
+	 * 32bit - TBD (with LPAE)
 	 */
 	if (bit64) {
 		base = 0x0;
-		size = (unsigned long)1 << 40;
+		size = (1UL << 40);
 	} else {
 #ifdef CONFIG_VM_LPAE
 		base = 0x0;
-		size = (unsigned long)1 << 40;
+		size = 0x100000000;
 #else
 		base = 0x0;
 		size = 0x100000000;
 #endif
 	}
 
-	create_free_vspace_area(vs, base, size, 0);
+	va = __alloc_vmm_area_entry(base, size);
+	if (!va)
+		pr_err("failed to alloc free vmm_area\n");
+	else
+		list_add_tail(&mm->vmm_area_free, &va->list);
 }
 
-void vm_vspace_init(struct vm *vm)
+static inline int check_vm_address(struct vm *vm, unsigned long addr)
 {
-	struct vspace *vs = &vm->vs;
+	struct vmm_area *va;
 
-	spin_lock_init(&vs->lock);
-	spin_lock_init(&vs->vspace_area_lock);
-	init_list(&vs->vspace_area_free);
-	init_list(&vs->vspace_area_used);
-
-	vs->pgdp = arch_alloc_guest_pgd();
-	if (vs->pgdp == 0) {
-		pr_err("No memory for vm page table\n");
-		return;
+	list_for_each_entry(va, &vm->mm.vmm_area_used, list) {
+		if ((addr >= va->start) && (addr < va->end))
+			return 0;
 	}
 
-	vspace_area_init(vs, vm_is_64bit(vm));
+	return 1;
+}
+
+static int vm_memory_init(struct vm *vm)
+{
+	struct memory_region *region;
+	struct vmm_area *va;
+	int ret = 0;
+
+	if (!vm_is_native(vm))
+		return 0;
+
+	/*
+	 * find the memory region which belongs to this
+	 * VM and register to this VM.
+	 */
+	for_each_memory_region(region) {
+		if (region->vmid != vm->vmid)
+			continue;
+
+		va = split_vmm_area(&vm->mm, region->phy_base,
+				region->size, VM_NATIVE_NORMAL);
+		if (!va)
+			return -EINVAL;
+	}
+
+	/*
+	 * check whether the entry address, setup_data address and load
+	 * address are in the valid memory region.
+	 */
+	ret = check_vm_address(vm, (unsigned long)vm->load_address);
+	ret += check_vm_address(vm, (unsigned long)vm->entry_point);
+	ret += check_vm_address(vm, (unsigned long)vm->setup_data);
+
+	return ret;
+}
+
+int vm_mm_struct_init(struct vm *vm)
+{
+	struct mm_struct *mm = &vm->mm;
+
+	mm->pgdp = NULL;
+	spin_lock_init(&mm->lock);
+	init_list(&mm->vmm_area_free);
+	init_list(&mm->vmm_area_used);
+
+	mm->pgdp = arch_alloc_guest_pgd();
+	if (mm->pgdp == NULL) {
+		pr_err("No memory for vm page table\n");
+		return -ENOMEM;
+	}
+
+	vmm_area_init(mm, !vm_is_32bit(vm));
+
+	/*
+	 * attch the memory region to the native vm.
+	 */
+	return vm_memory_init(vm);
 }
 
 int vm_mm_init(struct vm *vm)
 {
 	int ret;
 	unsigned long base, end, size;
-	struct vspace_area *va, *n;
-	struct vspace *vs = &vm->vs;
+	struct vmm_area *va, *n;
+	struct mm_struct *mm = &vm->mm;
 
-	dump_vspace_areas(&vm->vs);
+	if (test_and_set_bit(VM_FLAGS_BIT_SKIP_MM_INIT, &vm->flags))
+		return 0;
+
+	dump_vmm_areas(&vm->mm);
 
 	/* just mapping the physical memory for native VM */
-	list_for_each_entry(va, &vs->vspace_area_used, list) {
+	list_for_each_entry(va, &mm->vmm_area_used, list) {
 		if (!(va->flags & __VM_NORMAL))
 			continue;
 
-		ret = map_vspace_area(vs, va, va->start);
+		ret = map_vmm_area(mm, va, va->start);
 		if (ret) {
-			pr_err("build mem mapping failed for vm-%d 0x%p 0x%p\n",
-				vm->vmid, va->start, va->size);
+			pr_err("map mem failed for vm-%d [0x%lx 0x%lx]\n",
+				vm->vmid, va->start, va->end);
+			return ret;
 		}
 	}
 
 	/*
-	 * make sure that all the free vspace_area are PAGE aligned
+	 * make sure that all the free vmm_area are PAGE aligned
+	 * when caculated the end address need to plus 1.
 	 */
-	list_for_each_entry_safe(va, n, &vs->vspace_area_free, list) {
+	list_for_each_entry_safe(va, n, &mm->vmm_area_free, list) {
 		base = BALIGN(va->start, PAGE_SIZE);
-		end = ALIGN(VSPACE_AREA_END(va), PAGE_SIZE);
+		end = ALIGN(va->end, PAGE_SIZE);
 		size = end - base;
 
-		if ((va->size < PAGE_SIZE) || (size == 0) || (base >= end)) {
-			pr_debug("drop unused vspace_area 0x%p ---> 0x%p @0x%x\n",
-					va->start, VSPACE_AREA_END(va) - 1, va->size);
+		if (size < PAGE_SIZE) {
+			pr_debug("drop unused vmm_area [0x%lx 0x%lx]\n",
+					va->start, va->end);
 			list_del(&va->list);
 			free(va);
 			continue;
 		}
 
-		if ((base != va->start) ||(size != va->size)) {
-			pr_debug("adjust vspace_area: 0x%p->0x%p 0x%p->0x%p 0x%x->0x%x\n",
-					va->start, base, VSPACE_AREA_END(va) - 1,
-					end - 1, va->size, size);
+		if (size != (va->end - va->start)) {
+			pr_debug("adjust vma [0x%lx 0x%lx] to [0x%lx->0x%lx]\n",
+					va->start, va->end, base, end);
 			va->start = base;
-			va->size = size;
+			va->end = end;
 		}
 	}
 
 	return 0;
+}
+
+int vmm_has_enough_memory(size_t size)
+{
+	return ((size >> MEM_BLOCK_SHIFT) <= free_blocks);
+}
+
+static int __vmm_free_memblock(uint32_t bfn)
+{
+	unsigned long base = bfn << MEM_BLOCK_SHIFT;
+	struct block_section *bs = bs_head;
+
+	while (bs) {
+		if ((base >= bs->start) && (base < bs->end)) {
+			bfn = (base - bs->start) >> MEM_BLOCK_SHIFT;
+			clear_bit(bfn, bs->bitmap);
+			bs->free_blocks += 1;
+			free_blocks += 1;
+			return 0;
+		}
+
+		bs = bs->next;
+	}
+
+	pr_err("wrong memory block 0x%x\n", bfn);
+
+	return -EINVAL;
+}
+
+int vmm_free_memblock(struct mem_block *mb)
+{
+	uint32_t bfn = mb->bfn;
+	int ret;
+
+	free(mb);
+	spin_lock(&bs_lock);
+	ret = __vmm_free_memblock(bfn);
+	spin_unlock(&bs_lock);
+
+	return ret;
+}
+
+static int get_memblock_from_section(struct block_section *bs, uint32_t *bfn)
+{
+	uint32_t id;
+
+	id = find_next_zero_bit_loop(bs->bitmap,
+			bs->total_blocks, bs->current_index);
+	if (id >= bs->total_blocks)
+		return -ENOSPC;
+
+	set_bit(id, bs->bitmap);
+	bs->current_index = id + 1;
+	bs->free_blocks -= 1;
+	free_blocks -= 1;
+	*bfn = (bs->start >> MEM_BLOCK_SHIFT) + id;
+
+	return 0;
+}
+
+struct mem_block *vmm_alloc_memblock(void)
+{
+	struct block_section *bs;
+	struct mem_block *mb;
+	int success = 0, ret;
+	uint32_t bfn = 0;
+
+	spin_lock(&bs_lock);
+	bs = bs_head;
+	while (bs) {
+		if (bs->free_blocks != 0) {
+			ret = get_memblock_from_section(bs, &bfn);
+			if (ret == 0) {
+				success = 1;
+				break;
+			} else {
+				pr_err("memory block content wrong\n");
+			}
+		}
+		bs = bs->next;
+	}
+	spin_unlock(&bs_lock);
+
+	if (!success)
+		return NULL;
+
+	mb = malloc(sizeof(struct mem_block));
+	if (!mb) {
+		spin_lock(&bs_lock);
+		__vmm_free_memblock(bfn);
+		spin_unlock(&bs_lock);
+		return NULL;
+	}
+
+	mb->bfn = bfn;
+	mb->next = NULL;
+
+	return mb;
+}
+
+void vmm_init(void)
+{
+	struct memory_region *region;
+	struct block_section *bs;
+	unsigned long start, end;
+	int size;
+
+	ASSERT(!is_list_empty(&mem_list));
+
+	/*
+	 * all the free memory will used as the guest VM
+	 * memory. The guest memory will allocated as block.
+	 */
+	list_for_each_entry(region, &mem_list, list) {
+		if (region->type != MEMORY_REGION_TYPE_NORMAL)
+			continue;
+
+		/*
+		 * block section need BLOCK align.
+		 */
+		start = BALIGN(region->phy_base, BLOCK_SIZE);
+		end = ALIGN(region->phy_base + region->size, BLOCK_SIZE);
+		if (end - start <= 0) {
+			pr_warn("VMM drop memory region [0x%lx 0x%lx]\n",
+					region->phy_base,
+					region->phy_base + region->size);
+			continue;
+		}
+
+		pr_notice("VMM add memory region [0x%lx 0x%lx]\n", start, end);
+		bs = malloc(sizeof(struct block_section));
+		ASSERT(bs != NULL);
+		bs->start = start;
+		bs->end = end;
+		bs->size = bs->end - bs->start;
+		bs->total_blocks = bs->free_blocks = bs->size >> BLOCK_SHIFT;
+		bs->current_index = 0;
+		free_blocks += bs->total_blocks;
+
+		/*
+		 * allocate the memory for block bitmap.
+		 */
+		size = BITS_TO_LONGS(bs->free_blocks) * sizeof(long);
+		bs->bitmap = malloc(size);
+		ASSERT(bs->bitmap != NULL);
+		memset(bs->bitmap, 0, size);
+
+		bs->next = bs_head;
+		bs_head = bs;
+	}
 }

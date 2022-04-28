@@ -96,6 +96,7 @@
  * SH0	 : Inner shareable
  * BIT23 :Reserved, res1.
  */
-#define ARM64_TCR_VALUE		0x80823510
+#define ARM64_TCR_VALUE	\
+	TCR_T0SZ(39) | TCR_IRGN0_WBWA | TCR_ORGN0_WBWA | TCR_SH0_INNER | TCR_TG0_4K
 
 #endif

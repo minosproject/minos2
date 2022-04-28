@@ -20,128 +20,92 @@
 #include <minos/mutex.h>
 #include <minos/sched.h>
 
-#define invalid_mutex(mutex)	\
-	((mutex == NULL) && (mutex->type != OS_EVENT_TYPE_MUTEX))
-
 int mutex_accept(mutex_t *mutex)
 {
+	struct task *task = current;
 	int ret = -EBUSY;
-	unsigned long flags;
-	struct task *task = get_current_task();
 
-	if (invalid_mutex(mutex))
-		return -EPERM;
-
-	/* if the mutex is avaliable now, lock it */
-	spin_lock_irqsave(&mutex->lock, flags);
+	spin_lock(&mutex->lock);
 	if (mutex->cnt == OS_MUTEX_AVAILABLE) {
 		mutex->owner = task->tid;
 		mutex->data = task;
-		mutex->cnt = task->prio;
+		mutex->cnt = task->tid;
 		ret = 0;
 	}
-	spin_unlock_irqrestore(&mutex->lock, flags);
+	spin_unlock(&mutex->lock);
 
 	return ret;
 }
 
 int mutex_pend(mutex_t *m, uint32_t timeout)
 {
+	struct task *task = current;
 	int ret;
-	unsigned long flags = 0;
-	struct task *task = get_current_task();
 
 	might_sleep();
 
+	/*
+	 * mutex_pend and mutex_post can not be used in interrupt
+	 * context.
+	 */
 	spin_lock(&m->lock);
 	if (m->cnt == OS_MUTEX_AVAILABLE) {
 		m->owner = task->tid;
 		m->data = (void *)task;
 		m->cnt = task->tid;
-
 		spin_unlock(&m->lock);
 		return 0;
 	}
 
-
-	/*
-	 * priority inversion - only check the realtime task
-	 *
-	 * check the current task's prio to see whether the
-	 * current task's prio is lower than mutex's owner, if
-	 * yes, need to increase the owner's prio
-	 *
-	 * on smp it not easy to deal with the priority, then
-	 * just lock the cpu until the task(own the mutex) has
-	 * finish it work, but there is a big problem, if the
-	 * task need to get two mutex, how to deal with this ?
-	 */
-	event_task_wait(to_event(m), TASK_EVENT_MUTEX, timeout);
+	__wait_event(TO_EVENT(m), OS_EVENT_TYPE_MUTEX, timeout);
 	spin_unlock(&m->lock);
 	
 	sched();
 
-	switch (task->pend_stat) {
-	case TASK_STAT_PEND_OK:
+	switch (task->pend_state) {
+	case TASK_STATE_PEND_OK:
+		m->owner = task->tid;
+		m->data = (void *)task;
+		m->cnt = task->tid;
 		ret = 0;
 		break;
 
-	case TASK_STAT_PEND_ABORT:
+	case TASK_STATE_PEND_ABORT:
 		ret = -EABORT;
-		break;
-	
-	case TASK_STAT_PEND_TO:
-	default:
+	case TASK_STATE_PEND_TO:
 		ret = -ETIMEDOUT;
-		spin_lock_irqsave(&m->lock, flags);
-		event_task_remove(task, (struct event *)m);
-		spin_unlock_irqrestore(&m->lock, flags);
+	default:
+		spin_lock(&m->lock);
+		remove_event_waiter(TO_EVENT(m), task);
+		spin_unlock(&m->lock);
 		break;
 	}
 
-	event_pend_down(task);
+	event_pend_down();
 	
 	return ret;
 }
 
 int mutex_post(mutex_t *m)
 {
-	struct task *task = get_current_task();
+	struct task *task = current;
+	int ret;
 
-	if (in_interrupt()) {
-		pr_err("can not call this in interrupt\n");
-		return -EPERM;
-	}
-
-	spin_lock(&m->lock);
-	if (task != (struct task *)m->data) {
-		pr_err("mutex not belong to this task %d\n", task->tid);
-		spin_unlock(&m->lock);
-		return -EINVAL;
-	}
+	ASSERT(m->owner == task->tid);
 
 	/* 
 	 * find the highest prio task to run, if there is
 	 * no task, then set the mutex is available else
 	 * resched
 	 */
-	task = event_highest_task_ready(to_event(m), NULL,
-			TASK_EVENT_MUTEX, TASK_STAT_PEND_OK);
-	if (task) {
-		m->cnt = task->tid;
-		m->data = task;
-		m->owner = task->tid;
-
-		spin_unlock(&m->lock);
-
-		return 0;
+	spin_lock(&m->lock);
+	ret = wake_up_event_waiter(m, NULL, TASK_STATE_PEND_OK, 0);
+	if (ret == 0) {
+		m->cnt = OS_MUTEX_AVAILABLE;
+		m->data = NULL;
+		m->owner = 0;
 	}
-
-	m->cnt = OS_MUTEX_AVAILABLE;
-	m->data = NULL;
-	m->owner = 0;
-
 	spin_unlock(&m->lock);
 
-	return 0;
+	return ret;
 }

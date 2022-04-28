@@ -57,8 +57,7 @@ int poll_event_send_static(struct pevent_item *pi, struct poll_event_kernel *evk
 	 * wake up the waitter, if has.
 	 */
 	task = peh->task;
-	if (task && (task->stat == TASK_STAT_WAIT_EVENT) &&
-			(task->wait_event == (unsigned long)peh))
+	if (task)
 		wake_up(task, 0);
 
 	spin_unlock_irqrestore(&peh->lock, flags);
@@ -131,7 +130,7 @@ static int __poll_hub_read(struct poll_hub *peh,
 		struct poll_event __user *events,
 		int max_event, uint32_t timeout)
 {
-	long ret = 0, status = TASK_STAT_PEND_OK;
+	long ret = 0, status = TASK_STATE_PEND_OK;
 	struct poll_event_kernel *pevent, *tmp;
 	unsigned long flags;
 	LIST_HEAD(event_list);
@@ -158,9 +157,8 @@ static int __poll_hub_read(struct poll_hub *peh,
 		if (is_list_empty(&peh->event_list)) {
 			if (timeout == 0)
 				goto out;
-
 			peh->task = current;
-			__event_task_wait((unsigned long)peh, TASK_EVENT_POLL, timeout);
+			__wait_event(peh, OS_EVENT_TYPE_POLL, timeout);
 			spin_unlock_irqrestore(&peh->lock, flags);
 
 			/*
@@ -168,8 +166,8 @@ static int __poll_hub_read(struct poll_hub *peh,
 			 * other process will not see it, so do not need to
 			 * consider the case of EABORT
 			 */
-			status = wait_event(&ret);
-			if (!task_stat_pend_ok(status)) {
+			status = do_wait();
+			if (status != 0) {
 				peh->task = NULL;
 				return ret;
 			}

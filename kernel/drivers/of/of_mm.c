@@ -67,24 +67,10 @@ static int __fdt_parse_memory_info(int node, char *attr)
 		}
 
 		len -= size_cell + address_cell;
-		add_memory_region(base, size, MEMORY_REGION_F_NORMAL);
+		add_memory_region(base, size, MEMORY_REGION_TYPE_NORMAL, 0);
 	}
 
 	return 0;
-}
-
-static void __fdt_parse_dtb_mem(void)
-{
-	size_t size;
-
-	/*
-	 * reserve the dtb memory, the dtb memeory size keep
-	 * 4K align
-	 */
-	size = fdt_totalsize(dtb_address);
-	pr_notice("DTB - 0x%x ---> 0x%x\n", vtop(dtb_address), size);
-	size = BALIGN(size, PAGE_SIZE);
-	split_memory_region(vtop(dtb_address), size, MEMORY_REGION_F_DTB);
 }
 
 static void __fdt_parse_memreserve(void)
@@ -97,8 +83,8 @@ static void __fdt_parse_memreserve(void)
 	 * memory space
 	 */
 	if (CONFIG_MINOS_ENTRY_ADDRESS != minos_start) {
-		split_memory_region(minos_start, CONFIG_MINOS_ENTRY_ADDRESS - minos_start,
-				MEMORY_REGION_F_RSV);
+		size = CONFIG_MINOS_ENTRY_ADDRESS - minos_start;
+		split_memory_region(minos_start, size, MEMORY_REGION_TYPE_RSV, 1);
 	}
 
 	count = fdt_num_mem_rsv(dtb_address);
@@ -112,7 +98,7 @@ static void __fdt_parse_memreserve(void)
 
 		pr_notice("find rev memory - id: %d addr: 0x%x size: 0x%x\n",
 				i, address, size);
-		split_memory_region(address, size, MEMORY_REGION_F_RSV);
+		split_memory_region(address, size, MEMORY_REGION_TYPE_RSV, 0);
 	}
 }
 
@@ -125,6 +111,7 @@ static void __fdt_parse_vm_mem(void)
 	uint64_t array[2 * 10];
 	phy_addr_t base;
 	size_t size;
+	int vmid;
 
 	node = fdt_path_offset(dtb_address, "/vms");
 	if (node <= 0) {
@@ -134,10 +121,10 @@ static void __fdt_parse_vm_mem(void)
 
 	fdt_for_each_subnode(child, dtb_address, node) {
 		type = (char *)fdt_getprop(dtb_address, child, "device_type", &len);
-		if (!type)
+		if (!type || (strcmp(type, "virtual_machine") != 0))
 			continue;
-		if (strcmp(type, "virtual_machine") != 0)
-			continue;
+
+		__of_get_u32_array(dtb_address, child, "vmid", (uint32_t *)&vmid, 1);
 
 		/*
 		 * get the memory information for the vm, each vm will
@@ -154,7 +141,7 @@ static void __fdt_parse_vm_mem(void)
 		for (i = 0; i < len; i += 2 ) {
 			base = (phy_addr_t)array[i];
 			size = (size_t)array[i + 1];
-			split_memory_region(base, size, MEMORY_REGION_F_VM);
+			split_memory_region(base, size, MEMORY_REGION_TYPE_VM, vmid);
 		}
 	}
 }
@@ -162,12 +149,12 @@ static void __fdt_parse_vm_mem(void)
 
 static void __fdt_parse_kernel_mem(void)
 {
-	split_memory_region(minos_start, CONFIG_MINOS_RAM_SIZE, MEMORY_REGION_F_KERNEL);
+	split_memory_region(minos_start, CONFIG_MINOS_RAM_SIZE,
+			MEMORY_REGION_TYPE_KERNEL, 0);
 }
 
 static void __fdt_parse_ramdisk_mem(void)
 {
-	extern void set_ramdisk_address(void *start, void *end);
 	const fdt32_t *data;
 	uint64_t start, end;
 	int node, len;
@@ -176,12 +163,12 @@ static void __fdt_parse_ramdisk_mem(void)
 	if (node <= 0)
 		return;
 
-	data = fdt_getprop(dtb_address, node, "minos,initrd-start", &len);
+	data = fdt_getprop(dtb_address, node, "minos,ramdisk-start", &len);
 	if (!data || (len == 0))
 		return;
 	start = fdt32_to_cpu64(data[0], data[1]);
 
-	data = fdt_getprop(dtb_address, node, "minos,initrd-end", &len);
+	data = fdt_getprop(dtb_address, node, "minos,ramdisk-end", &len);
 	if (!data || (len == 0))
 		return;
 	end = fdt32_to_cpu64(data[0], data[1]);
@@ -191,9 +178,8 @@ static void __fdt_parse_ramdisk_mem(void)
 		return;
 	}
 
-	set_ramdisk_address((void *)ptov(start), (void *)ptov(end));
 	split_memory_region(start, PAGE_BALIGN(end - start),
-			MEMORY_REGION_F_RAMDISK);
+			MEMORY_REGION_TYPE_RAMDISK, 0);
 }
 
 int of_parse_memory_info(void)
@@ -214,11 +200,18 @@ int of_parse_memory_info(void)
 	 */
 	__fdt_parse_kernel_mem();
 	__fdt_parse_memreserve();
-	__fdt_parse_dtb_mem();
 	__fdt_parse_ramdisk_mem();
 
 #ifdef CONFIG_VIRT
 	__fdt_parse_vm_mem();
 #endif
+	return 0;
+}
+
+int of_mm_init(void)
+{
+	of_parse_memory_info();
+	dump_memory_info();
+
 	return 0;
 }

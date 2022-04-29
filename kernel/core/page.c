@@ -47,13 +47,14 @@ extern void *alloc_kpages(int pages);
 #define PAGE_F_HUGE		GFP_HUGE
 #define PAGE_F_HUGE_IO		GFP_HUGE_IO
 #define PAGE_F_HEAD		0x00000100
-#define PAGE_F_MASK		0x00000fff
+#define PAGE_F_MASK		0x0000ffff
 
 #define MAX_MEM_SECTIONS 32
 
 struct mem_section {
 	int block_section;
 
+	unsigned long phy_base;
 	unsigned long vir_base;
 	unsigned long vir_end;
 	size_t size;
@@ -104,6 +105,7 @@ void add_kernel_page_section(phy_addr_t base, size_t size, int type)
 	new_size = end - base;
 
 	spin_lock_init(&ms->lock);
+	ms->phy_base = base;
 	ms->vir_base = ptov(base);
 	ms->size = new_size;
 	ms->vir_end = ms->vir_base + ms->size;
@@ -135,6 +137,7 @@ int add_page_section(phy_addr_t base, size_t size, int type)
 	memset(ms, 0, sizeof(struct mem_section));
 	spin_lock_init(&ms->lock);
 
+	ms->phy_base = base;
 	ms->vir_base = ptov(base);
 	ms->size = size;
 	ms->vir_end = ms->vir_base + ms->size;
@@ -180,7 +183,7 @@ int add_page_section(phy_addr_t base, size_t size, int type)
 
 static void alloc_pages_in_block(struct page *page, struct mem_section *ms)
 {
-	unsigned long start = page_va(page);
+	unsigned long start = page_pa(page);
 	unsigned long base = ALIGN(start, BLOCK_SIZE);
 	unsigned long end = BALIGN(start + page->cnt * PAGE_SIZE, BLOCK_SIZE);
 	int size = ((end - base) >> PAGE_SHIFT) / PAGES_PER_BLOCK;
@@ -196,19 +199,22 @@ static void free_pages_in_block(struct page *page, struct mem_section *ms)
 	unsigned long *baddr;
 	int i, sum, bbit, pbit;
 	
-	tmp = page_va(page);
+	tmp = page_pa(page);
 	start = ALIGN(tmp, BLOCK_SIZE);
 	end = BALIGN(tmp + count * PAGE_SIZE, BLOCK_SIZE);
-	bbit = (start - ms->vir_base) >> BLOCK_SHIFT;
-	pbit = (start - ms->vir_base) >> PAGE_SHIFT;
+	bbit = (start - ms->phy_base) >> BLOCK_SHIFT;
+	pbit = (start - ms->phy_base) >> PAGE_SHIFT;
 
 	/*
 	 * clear the related bit in the block map if all
 	 * the pages in this block has been freed.
 	 */
 	for (i = 0; i < (end - start) >> BLOCK_SHIFT; i++) {
+		/*
+		 * get the start page bit postion in page bitmap.
+		 * the check whether all the bits are zero.
+		 */
 		baddr = ms->bitmap + BITS_TO_LONGS(pbit);
-
 		sum = 0;
 		sum += (baddr[0] != 0);
 		sum += (baddr[1] != 0);
@@ -220,7 +226,7 @@ static void free_pages_in_block(struct page *page, struct mem_section *ms)
 		sum += (baddr[7] != 0);
 
 		if (sum == 0) {
-			set_bit(bbit, ms->block_bitmap);
+			clear_bit(bbit, ms->block_bitmap);
 			ms->free_block++;
 		}
 
@@ -248,7 +254,6 @@ static struct page *__alloc_pages_from_section(struct mem_section *section,
 {
 	struct page *page;
 	int bit;
-	void *addr;
 
 	if (count == 1)
 		bit = find_next_zero_bit_loop(section->bitmap, section->total_cnt,
@@ -269,14 +274,14 @@ static struct page *__alloc_pages_from_section(struct mem_section *section,
 	}
 
 	page = section->pages + bit;
-	addr = (void *)PAGE_ADDR(section->vir_base, bit);
-	page->vir_base = (unsigned long)addr | flags | PAGE_F_HEAD;
 	page->cnt = count;
-	section->free_cnt -= count;
+	page->flags = (flags | PAGE_F_HEAD) & 0xffff;
+	page->pfn = PAGE_ADDR(section->phy_base, bit) >> PAGE_SHIFT;
 
 	/*
 	 * update the block bitmap information.
 	 */
+	section->free_cnt -= count;
 	if (section->block_section)
 		alloc_pages_in_block(page, section);
 
@@ -375,18 +380,16 @@ static int free_pages_in_section(struct page *page, struct mem_section *ms)
 	 * as slab or other, then it means its a slab memory
 	 * or can not release by now
 	 */
-	if (!(flags & PAGE_F_HEAD) || (flags & PAGE_F_SLAB)) {
-		panic("memory allocation fault in [0x%x 0x%x]\n",
-				ms->vir_base, ms->vir_end);
-	}
-
+	ASSERT((flags != 0) && (flags & PAGE_F_HEAD) &&
+			!(flags & PAGE_F_SLAB));
 	/*
 	 * clear all the pages in case the memory data leak.
 	 */
 	count = page_count(page);
-	pstart = page_va(page);
+	pstart = page_pa(page);
+	ASSERT((pstart != 0) && (count != 0));
 
-	start = (pstart - ms->vir_base) >> PAGE_SHIFT;
+	start = (pstart - ms->phy_base) >> PAGE_SHIFT;
 	bitmap_clear(ms->bitmap, start, count);
 	ms->free_cnt += count;
 
@@ -451,6 +454,7 @@ int free_pages(void *addr)
 	 */
 	page = get_page_in_section(section, (unsigned long)addr);
 	if (page_flags(page) & PAGE_F_SLAB) {
+		pr_warn("slab memory can not be freed by free_pages()\n");
 		spin_unlock(&section->lock);
 		return -EINVAL;
 	}
@@ -464,7 +468,8 @@ int free_pages(void *addr)
 static void *get_free_block_from_section(struct mem_section *ms, unsigned long flags)
 {
 	struct page *page;
-	int start;
+	unsigned long start;
+	unsigned long base;
 	unsigned long *bitmap_addr;
 
 	if (ms->free_block == 0)
@@ -475,20 +480,29 @@ static void *get_free_block_from_section(struct mem_section *ms, unsigned long f
 	if (start >= ms->total_block)
 		return NULL;
 
+	/*
+	 * mask the block bit in block bitmap.
+	 */
 	set_bit(start, ms->block_bitmap);
 
+	ms->free_block--;
 	ms->current_block = start + 1;
 	if (ms->current_block == ms->total_block)
 		ms->current_block = 0;
 
 	flags |= PAGE_F_HEAD;
 	page = ms->pages + (start * PAGES_PER_BLOCK);
-	page->vir_base = ms->vir_base + (start << BLOCK_SHIFT);
-	page->vir_base |= (flags & PAGE_MASK);
-	ms->free_block--;
+	page->flags = (uint16_t)flags & 0xffff;
+	page->cnt = PAGES_PER_BLOCK;
+	base = ms->phy_base + (start << BLOCK_SHIFT);
+	page->pfn = base >> PAGE_SHIFT;
 
 	/*
-	 * update page bitmap for this block.
+	 * update page bitmap for this block in page bitmap.
+	 * currently need make sure below limition:
+	 * 1 - 64BIT OS, sizeof(unsigned long) = 8
+	 * 2 - 2M huge page, 512 pages per block
+	 * 3 - need 8 * unsigned long to store bitmap.
 	 */
 	start = BITS_TO_LONGS(start * PAGES_PER_BLOCK);
 	bitmap_addr = ms->bitmap + start;
@@ -501,7 +515,7 @@ static void *get_free_block_from_section(struct mem_section *ms, unsigned long f
 	bitmap_addr[6] = (unsigned long)-1;
 	bitmap_addr[7] = (unsigned long)-1;
 
-	return (void *)(page->vir_base & ~PAGE_MASK);
+	return (void *)base;
 }
 
 void *get_free_block(unsigned long flags)
@@ -526,7 +540,7 @@ void *get_free_block(unsigned long flags)
 			break;
 	}
 
-	return base;
+	return (void *)ptov(base);
 }
 
 void free_block(void *addr)

@@ -24,30 +24,17 @@
 #define GFP_HUGE		(__GFP_USER | __GFP_HUGE)
 #define GFP_HUGE_IO		(__GFP_USER | __GFP_HUGE | __GFP_IO)
 
-/*
- * phy_base[0:11] is the count of the continous page
- * phy_base[12:64] is the physical address of the page
- *
- * slab_used recored the used memory when this page is used
- * as a slab memory, once it equal to cnt, it can be return
- * to the system.
- *
- * when get the physical address of the page, do
- * use page_to_addr(page) or addr_to_page() to convert
- * the address to page
- */
 struct page {
 	uint16_t cnt;
-	uint16_t padding0;
-	uint32_t padding1;
+	uint16_t flags;
+	uint32_t pfn;		// this need make sure the physical range need smaller than 44BITs
 	struct page *next;
-	unsigned long vir_base;
 } __packed;
 
 #define page_count(page)	(page)->cnt
-#define page_pa(page)		vtop((page)->vir_base & ~PAGE_MASK)
-#define page_va(page)		((page)->vir_base & ~PAGE_MASK)
-#define page_flags(page)	((page)->vir_base & PAGE_MASK)
+#define page_pa(page)		((page)->pfn << PAGE_SHIFT)
+#define page_va(page)		ptov(page_pa(page))
+#define page_flags(page)	(page)->flags
 
 int free_pages(void *addr);
 struct page *addr_to_page(unsigned long addr);

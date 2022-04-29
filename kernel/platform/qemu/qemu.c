@@ -66,12 +66,11 @@ static int qemu_platform_init(void)
 	return 0;
 }
 device_initcall(qemu_platform_init);
-
 #endif
 
 static struct platform platform_qemu = {
 	.name 		 = "linux,qemu-arm64",
-#ifdef CONFIG_VIRT
+#if 1
 	.cpu_on		 = psci_cpu_on,
 	.cpu_off	 = psci_cpu_off,
 	.system_reboot	 = psci_system_reboot,

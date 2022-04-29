@@ -10,7 +10,7 @@
 		minos,stdout = "pl011";
 		bootargs = "bootwait=3 tty=vm1 rootfs=virtio-blk.drv";
 		minos,ramdisk-start = <0x0 0x44000000>;
-		minos,ramdisk-end = <0x0 0x4645A000>;
+		minos,ramdisk-end = <0x0 0x464ae000>;
 	};
 
 	psci {

@@ -8,3 +8,13 @@ obj-y	+= kobject_copy.o
 obj-y	+= notify.o
 obj-y	+= port.o
 obj-y	+= iqueue.o
+obj-y	+= futex.o
+obj-y	+= handle.o
+obj-y	+= kobject.o
+obj-y	+= procinfo.o
+obj-y	+= root_service.o
+obj-y	+= syscall.o
+obj-y	+= thread.o
+obj-y	+= uaccess.o
+obj-y	+= vspace.o
+

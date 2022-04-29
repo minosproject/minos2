@@ -237,7 +237,7 @@ static int kobject_subsystem_init(void)
 			continue;
 		}
 
-		pr_notice("Register kobject type [%d] name [%s]\n",
+		pr_notice("Register kobject type [%2d] name [%s]\n",
 				desc->type, desc->name);
 		register_kobject_type(desc->ops, desc->type);
 	}

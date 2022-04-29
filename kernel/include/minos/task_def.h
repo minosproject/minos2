@@ -7,7 +7,6 @@
 #include <minos/atomic.h>
 #include <minos/timer.h>
 #include <asm/tcb.h>
-#include <minos/kobject.h>
 
 #ifdef CONFIG_TASK_STACK_SIZE
 #define TASK_STACK_SIZE	CONFIG_TASK_STACK_SIZE
@@ -76,11 +75,7 @@
 
 typedef int (*task_func_t)(void *data);
 
-struct process;
-
-#ifdef CONFIG_VIRT
-struct vcpu;
-#endif
+struct vspace;
 
 struct task {
 	struct task_info ti;
@@ -149,15 +144,10 @@ struct task {
 	void (*exit_from_user)(struct task *task, gp_regs *regs);
 	void (*return_to_user)(struct task *task, gp_regs *regs);
 
-	union {
-		void *pdata;			// the private data of this task, such as vcpu.
-		struct process *proc;
-#ifdef CONFIG_VIRT
-		struct vcpu *vcpu;
-#endif
-	};
+	struct vspace *vs;		// the virtual memory space of this task.
 
-	struct ktask_stat *kstat;
+	void *pdata;			// the private data of this task for vcpu or process.
+
 	struct cpu_context cpu_context;
 } __cache_line_align;
 

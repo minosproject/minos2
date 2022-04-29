@@ -15,9 +15,10 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/handle.h>
 #include <minos/mm.h>
+#include <uspace/kobject.h>
+#include <uspace/handle.h>
+#include <uspace/proc.h>
 
 #define KOBJ_PLACEHOLDER	(struct kobject *)(-1)
 

@@ -20,7 +20,6 @@
 #include <minos/minos.h>
 #include <minos/init.h>
 #include <minos/mm.h>
-#include <minos/vspace.h>
 #include <minos/page.h>
 #include <minos/slab.h>
 

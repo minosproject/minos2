@@ -15,16 +15,18 @@
  */
 
 #include <minos/minos.h>
-#include <minos/poll.h>
 #include <minos/task.h>
 #include <minos/string.h>
 #include <minos/sched.h>
 #include <minos/mm.h>
 #include <minos/event.h>
-#include <minos/kobject.h>
 #include <minos/task.h>
-#include <minos/vspace.h>
-#include <minos/uaccess.h>
+#include <uspace/vspace.h>
+#include <uspace/uaccess.h>
+#include <uspace/poll.h>
+#include <uspace/kobject.h>
+#include <uspace/proc.h>
+#include <uspace/handle.h>
 
 #define POLLHUB_RIGHT		(KOBJ_RIGHT_RO | KOBJ_RIGHT_CTL)
 #define POLLHUB_RIGHT_MASK	(0)

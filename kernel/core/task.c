@@ -19,7 +19,6 @@
 #include <minos/mm.h>
 #include <minos/atomic.h>
 #include <minos/task.h>
-#include <minos/procinfo.h>
 
 static DEFINE_SPIN_LOCK(tid_lock);
 static DECLARE_BITMAP(tid_map, OS_NR_TASKS);
@@ -62,7 +61,6 @@ static int request_tid(int tid)
 static void release_tid(int tid)
 {
 	ASSERT((tid < OS_NR_TASKS) && (tid > 0));
-	release_ktask_stat(tid);
 	os_task_table[tid] = NULL;
 	smp_wmb();
 	clear_bit(tid, tid_map);
@@ -198,6 +196,8 @@ void task_return_to_user(gp_regs *regs)
 
 void do_release_task(struct task *task)
 {
+	do_hooks(task, NULL, OS_HOOK_RELEASE_TASK);
+
 	arch_release_task(task);
 	free_pages(task->stack_bottom);
 	free(task);
@@ -249,12 +249,7 @@ struct task *__create_task(char *name,
 
 	task_create_hook(task, arg);
 
-	/*
-	 * vcpu task will have it own arch_init_task function which
-	 * is called arch_init_vcpu()
-	 */
-	if (!(task->flags & TASK_FLAGS_VCPU))
-		arch_init_task(task, (void *)func, usp, task->pdata);
+	arch_init_task(task, (void *)func, usp, task->pdata);
 
 	/*
 	 * start the task if need auto started.

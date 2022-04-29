@@ -20,6 +20,7 @@
 #include <minos/platform.h>
 #include <minos/irq.h>
 #include <asm/cache.h>
+#include <minos/time.h>
 
 #define SMP_CALL_LOCKED		(1 << 0)
 

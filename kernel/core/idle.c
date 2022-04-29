@@ -102,6 +102,18 @@ static int kworker_task(void *data)
 	return 0;
 }
 
+static int __init_task(void *main)
+{
+#ifdef CONFIG_VIRT
+	printf("\n\nStarting all VMs\n\n");
+	start_all_vm();
+#else
+	printf("\n\nHello Minos\n\n");
+#endif
+	return 0;
+}
+weak_alias(__init_task, init_task);
+
 static void start_system_task(void)
 {
 	extern int load_root_service(void);
@@ -117,7 +129,7 @@ static void start_system_task(void)
 
 	if (cpu == 0) {
 		pr_notice("Load Root Service ...\n");
-		load_root_service();
+		init_task(NULL);
 	}
 }
 

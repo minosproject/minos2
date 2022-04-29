@@ -15,8 +15,9 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/proc.h>
 
 struct kobject_rw_arg {
 	void __user *data;
@@ -61,8 +62,7 @@ ssize_t kobject_copy_ipc_data(struct task *tdst, struct task *tsrc, int check_si
 	if (copy == 0)
 		return 0;
 
-	return copy_user_to_user(&tdst->proc->vspace,
-			dst, &tsrc->proc->vspace, src, copy);
+	return copy_user_to_user(tdst->vs, dst, tsrc->vs, src, copy);
 }
 
 ssize_t kobject_copy_extra_data(struct task *tdst, struct task *tsrc, int check_size)
@@ -87,8 +87,7 @@ ssize_t kobject_copy_extra_data(struct task *tdst, struct task *tsrc, int check_
 	if (copy == 0)
 		return 0;
 
-	return copy_user_to_user(&tdst->proc->vspace,
-			dst, &tsrc->proc->vspace, src, copy);
+	return copy_user_to_user(tdst->vs, dst, tsrc->vs, src, copy);
 }
 
 ssize_t kobject_copy_ipc_payload(struct task *dtsk, struct task *ttsk,

@@ -2,7 +2,7 @@
 #define __MINOS_POLL_H__
 
 #include <minos/types.h>
-#include <minos/kobject.h>
+#include <uspace/kobject.h>
 
 #define POLLIN 0x001
 #define POLLOUT 0x002

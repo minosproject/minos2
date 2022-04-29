@@ -28,7 +28,6 @@
 #include <minos/console.h>
 #include <minos/ramdisk.h>
 #include <asm/tcb.h>
-#include <minos/vspace.h>
 #include <minos/mm.h>
 
 #ifdef CONFIG_VIRT
@@ -139,7 +138,7 @@ int arch_is_exit_to_user(struct task *task)
 
 static inline uint64_t task_ttbr_value(struct task *task)
 {
-	struct vspace *vs = &task->proc->vspace;
+	struct vspace *vs = task->vs;
 
 	return (uint64_t)vtop(vs->pgdp) | ((uint64_t)vs->asid << 48);
 }
@@ -211,7 +210,7 @@ void arch_init_task(struct task *task, void *entry, void *user_sp, void *arg)
 	} else {
 		regs->pstate = AARCH64_SPSR_EL0t;
 		task->cpu_context.tpidr_el0 = 0;
-		task->cpu_context.tpidrro_el0 = (uint64_t)task->proc->pid << 32 | (task->tid);
+		task->cpu_context.tpidrro_el0 = (uint64_t)task->pid << 32 | (task->tid);
 		task->cpu_context.ttbr_el0 = task_ttbr_value(task);
 	}
 }

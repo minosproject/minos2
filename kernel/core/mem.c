@@ -225,14 +225,18 @@ static inline int in_os_memory_range(unsigned long addr, size_t size)
 	return IN_RANGE_UNSIGNED(addr, size, minos_start, CONFIG_MINOS_RAM_SIZE);
 }
 
-void mem_init(void)
+void mm_init(void)
 {
 	extern void set_ramdisk_address(void *start, void *end);
 	extern void slab_init(void);
 	extern void kmem_init(void);
+	extern int kernel_vspace_init(void);
+
 	struct memory_region *re, *tmp;
 	struct memory_region *kre = NULL;
 	size_t kmem_size;
+
+	kernel_vspace_init();
 
 #ifdef CONFIG_DEVICE_TREE
 	of_parse_memory_info();

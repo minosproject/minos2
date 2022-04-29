@@ -31,11 +31,10 @@
 #include <minos/ramdisk.h>
 
 extern void cpu_idle(void);
-extern void mem_init(void);
+extern void mm_init(void);
 extern int allsymbols_init(void);
 extern void platform_init(void);
 extern int create_idle_task(void);
-extern int kernel_vspace_init(void);
 
 #ifdef CONFIG_VIRT
 #include <virt/virt.h>
@@ -50,8 +49,7 @@ void boot_main(void)
 
 	ASSERT(smp_processor_id() == 0);
 
-	kernel_vspace_init();
-	mem_init();
+	mm_init();
 
 #ifdef CONFIG_DEVICE_TREE
 	of_init_bootargs();

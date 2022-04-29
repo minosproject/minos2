@@ -15,13 +15,13 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
-#include <minos/vspace.h>
-#include <minos/proc.h>
 #include <minos/task.h>
 #include <minos/sched.h>
+#include <uspace/vspace.h>
+#include <uspace/proc.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
 
 void sys_exit(int errno)
 {
@@ -38,7 +38,7 @@ void sys_exitgroup(int errno)
 
 void release_thread(struct task *task)
 {
-	struct process *proc = task->proc;
+	struct process *proc = task_to_proc(task);
 	unsigned long flags;
 	int tflags = task->flags;
 
@@ -50,7 +50,7 @@ void release_thread(struct task *task)
 	do_release_task(task);
 
 	if (tflags & TASK_FLAGS_ROOT)
-		__release_handle(task->proc, 0);
+		__release_handle(proc, 0);
 	/*
 	 * the root task is put the refcnt of the handle 0.
 	 */

@@ -1,10 +1,11 @@
 #ifndef __MINOS_PROC_H__
 #define __MINOS_PROC_H__
 
-#include <minos/vspace.h>
-#include <minos/kobject.h>
-#include <minos/handle.h>
-#include <minos/iqueue.h>
+#include <minos/current.h>
+#include <uspace/vspace.h>
+#include <uspace/kobject.h>
+#include <uspace/handle.h>
+#include <uspace/iqueue.h>
 
 #define PROCESS_NAME_SIZE	32
 
@@ -37,8 +38,10 @@ struct process {
 
 	struct kobject kobj;
 	struct iqueue iqueue;
-	void *pdata;
 };
+
+#define current_proc		(struct process *)current->vs->pdata
+#define task_to_proc(task)	(struct process *)((task)->vs->pdata)
 
 static inline int proc_is_root(struct process *proc)
 {

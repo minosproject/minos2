@@ -23,6 +23,7 @@
 #include <minos/bootarg.h>
 #include <minos/mm.h>
 #include <minos/flag.h>
+#include <minos/time.h>
 
 #ifdef CONFIG_VIRT
 #include <virt/virt.h>

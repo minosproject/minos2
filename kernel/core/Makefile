@@ -30,4 +30,4 @@ obj-y += stdlib.o
 obj-y += string.o
 obj-y += task.o
 obj-y += timer.o
-obj-y += time.o
+obj-y += host_vspace.o

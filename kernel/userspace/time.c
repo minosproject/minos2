@@ -15,9 +15,9 @@
  */
 
 #include <minos/minos.h>
-#include <minos/syscall.h>
 #include <minos/time.h>
-#include <minos/uaccess.h>
+#include <uspace/uaccess.h>
+#include <uspace/syscall.h>
 
 int sys_clock_gettime(int id, struct timespec __user *ts)
 {

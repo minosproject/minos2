@@ -15,11 +15,11 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
-#include <minos/poll.h>
+#include <uspace/poll.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
 
 #define NOTIFY_RIGHT		(KOBJ_RIGHT_RW)
 #define NOTIFY_RIGHT_MASK	(KOBJ_RIGHT_READ)

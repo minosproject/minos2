@@ -1,9 +1,10 @@
 #ifndef __MINOS_VSPACE_H__
 #define __MINOS_VSPACE_H__
 
+#include <minos/mm.h>
 #include <minos/types.h>
 #include <minos/list.h>
-#include <minos/kobject.h>
+#include <uspace/kobject.h>
 
 #define HUGE_PAGE_SIZE		0x200000
 #define HUGE_PAGE_SHIFT		21
@@ -16,11 +17,6 @@
 #define va2sva(va)		(pa2sva(vtop(va)))
 #define va2pa(va)		vtop(va)
 #define pa2va(pa)		ptov(pa)
-
-#define UNMAP_RELEASE_NULL 0
-#define UNMAP_RELEASE_PAGE 1
-#define UNMAP_RELEASE_PAGE_TABLE 2
-#define UNMAP_RELEASE_ALL (UNMAP_RELEASE_PAGE | UNMAP_RELEASE_PAGE_TABLE)
 
 /*
  * 0    - (256G - 1) user space memory region
@@ -46,32 +42,6 @@
 #define ROOTSRV_USTACK_TOP	(PROCESS_TOP_HALF_BASE - PAGE_SIZE * 8)
 #define ROOTSRV_USTACK_BOTTOM	(ROOTSRV_USTACK_TOP - ROOTSRV_USTACK_PAGES * PAGE_SIZE)
 #define ROOTSRV_BOOTDATA_BASE	(PROCESS_TOP_HALF_BASE - PAGE_SIZE * 2)
-
-struct vspace {
-	pgd_t *pgdp;
-	spinlock_t lock;
-	uint16_t asid;
-
-	/*
-	 * indicate that the vspace is used in kernel, means
-	 * kernel is acess the userspace pagees, so do not release
-	 * the pages if unmap to avoid kernel hang or data breach.
-	 */
-	atomic_t inuse;
-	struct page *release_pages;
-};
-
-int create_host_mapping(unsigned long vir, unsigned long phy,
-		size_t size, unsigned long flags);
-
-int destroy_host_mapping(unsigned long vir, size_t size);
-
-int change_host_mapping(unsigned long vir, unsigned long phy,
-		unsigned long new_flags);
-
-void *io_remap(virt_addr_t vir, size_t size);
-
-int io_unmap(virt_addr_t vir, size_t size);
 
 int vspace_init(struct process *proc);
 

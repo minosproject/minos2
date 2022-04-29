@@ -17,18 +17,18 @@
 #include <minos/minos.h>
 #include <minos/ramdisk.h>
 #include <minos/bootarg.h>
-#include <minos/proc.h>
-#include <minos/elf.h>
 #include <minos/sched.h>
-#include <uapi/bootdata.h>
 #include <minos/memattr.h>
-#include <minos/page.h>
+#include <minos/mm.h>
 #include <asm/arch.h>
-#include <minos/vspace.h>
-#include <minos/kobject.h>
-#include <minos/handle.h>
-
 #include <asm/io.h>
+#include <uapi/bootdata.h>
+
+#include <uspace/vspace.h>
+#include <uspace/kobject.h>
+#include <uspace/handle.h>
+#include <uspace/elf.h>
+#include <uspace/proc.h>
 
 extern struct kobject *uproc_info_pma;
 extern struct kobject *ktask_stat_pma;
@@ -527,4 +527,9 @@ int load_root_service(void)
 out:
 	panic("load root service fail\n");
 	return -EFAULT;
+}
+
+int init_task(void *data)
+{
+	return load_root_service();
 }

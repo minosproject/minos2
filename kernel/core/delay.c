@@ -16,9 +16,9 @@
 
 #include <minos/types.h>
 #include <minos/arch.h>
-#include <minos/time.h>
 #include <minos/task.h>
 #include <minos/sched.h>
+#include <minos/time.h>
 
 void udelay(uint32_t us)
 {

@@ -17,9 +17,10 @@
 #include <minos/minos.h>
 #include <minos/sched.h>
 #include <minos/mm.h>
+#include <minos/time.h>
 #include <minos/atomic.h>
 #include <minos/task.h>
-#include <minos/kobject.h>
+#include <uspace/kobject.h>
 #include <uapi/procinfo_uapi.h>
 
 struct kobject *uproc_info_pma;
@@ -91,7 +92,7 @@ void release_ktask_stat(int tid)
 
 void init_ktask_stat(struct task *task)
 {
-	struct ktask_stat *kstat = task->kstat;
+	struct ktask_stat *kstat = (struct ktask_stat *)task->pdata;
 
 	kstat->valid = 1;
 	kstat->pid = task->pid;
@@ -106,13 +107,13 @@ void init_ktask_stat(struct task *task)
 
 void get_and_init_ktask_stat(struct task *task)
 {
-	task->kstat = get_ktask_stat(task->tid);
+	task->pdata = (void *)get_ktask_stat(task->tid);
 	init_ktask_stat(task);
 }
 
 void update_ktask_stat(struct task *task)
 {
-	struct ktask_stat *kstat = task->kstat;
+	struct ktask_stat *kstat = (struct ktask_stat *)task->pdata;
 
 	kstat->state = task->state;
 	kstat->cpu = task->cpu;

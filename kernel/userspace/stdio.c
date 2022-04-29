@@ -16,10 +16,10 @@
 
 #include <minos/minos.h>
 #include <minos/mm.h>
-#include <minos/kobject.h>
 #include <minos/mutex.h>
-#include <minos/uaccess.h>
 #include <minos/console.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
 
 #define STDIO_BUF_SIZE	2048
 

@@ -19,9 +19,7 @@
 #include <minos/spinlock.h>
 #include <minos/minos.h>
 #include <minos/init.h>
-#include <minos/page.h>
-#include <minos/slab.h>
-#include <minos/poll.h>
+#include <minos/mm.h>
 
 struct slab_header {
 	unsigned long size;
@@ -185,26 +183,6 @@ static void free_slab(void *addr)
 	st->head = header;
 
 	spin_unlock(&slab_lock);
-}
-
-void add_slab_mem(unsigned long base, size_t size)
-{
-	/*
-	 * all the free memory will cached for poll_event_kernel
-	 */
-	int pesize = get_slab_alloc_size(sizeof(struct poll_event_kernel));
-	struct slab_header *header;
-
-	while (size > (pesize + SLAB_HEADER_SIZE)) {
-		header = (struct slab_header *)base;
-		header->magic = SLAB_MAGIC;
-		header->size = pesize;
-
-		free_slab((void *)header);
-
-		base += (pesize + SLAB_HEADER_SIZE);
-		size -= (pesize + SLAB_HEADER_SIZE);
-	}
 }
 
 void free(void *addr)

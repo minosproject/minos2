@@ -5,7 +5,6 @@
 #include <minos/flag.h>
 #include <config/config.h>
 #include <minos/task_def.h>
-#include <minos/proc.h>
 
 #define to_task_info(task)	(&(task)->ti)
 
@@ -14,8 +13,6 @@
 #else
 #define TASK_RUN_TIME 50
 #endif
-
-struct process;
 
 static int inline task_is_idle(struct task *task)
 {

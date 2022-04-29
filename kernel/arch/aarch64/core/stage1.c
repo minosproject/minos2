@@ -16,7 +16,6 @@
 
 #include <minos/minos.h>
 #include <minos/mm.h>
-#include <minos/vspace.h>
 #include <asm/tlb.h>
 #include <asm/cache.h>
 #include "stage1.h"
@@ -292,8 +291,17 @@ static inline pte_t stage1_pte_attr(unsigned long phy, unsigned long flags)
 	return pte;
 }
 
+static void add_release_page(struct vspace *vs, unsigned long addr)
+{
+	struct page *page = addr_to_page(addr);
+
+	ASSERT(page != NULL);
+	page->next = vs->release_pages;
+	vs->release_pages = page;
+}
+
 static void stage1_unmap_pte_range(struct vspace *vs, pte_t *ptep,
-		unsigned long addr, unsigned long end, int release)
+		unsigned long addr, unsigned long end, int flags)
 {
 	pte_t *pte;
 
@@ -304,19 +312,15 @@ static void stage1_unmap_pte_range(struct vspace *vs, pte_t *ptep,
 			pte_t old_pte = *pte;
 			stage1_set_pte(pte, 0);
 
-			// if (!(old_pte & S1_DEVMAP))
-			//	flush_dcache_pte(addr);
-
 			/* pfnmap and shared page don not free the page */
-			if (!(old_pte & S1_PFNMAP) && !(old_pte & S1_SHARED) &&
-					(release & UNMAP_RELEASE_PAGE))
-				add_released_page_to_vspace(vs, ptov(stage1_phy_pte(old_pte)));
+			if (!(old_pte & S1_PFNMAP) && !(old_pte & S1_SHARED))
+				add_release_page(vs, ptov(stage1_phy_pte(old_pte)));
 		}
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 }
 
 static void stage1_unmap_pmd_range(struct vspace *vs, pmd_t *pmdp,
-		unsigned long addr, unsigned long end, int release)
+		unsigned long addr, unsigned long end, int flags)
 {
 	unsigned long next;
 	pmd_t *pmd;
@@ -329,27 +333,21 @@ static void stage1_unmap_pmd_range(struct vspace *vs, pmd_t *pmdp,
 		if (!stage1_pmd_none(*pmd)) {
 			if (stage1_pmd_huge(*pmd)) {
 				pmd_t old_pmd = *pmd;
-
 				stage1_pmd_clear(pmd);
-
-				// if (!(old_pmd & S1_DEVMAP))
-				//	flush_dcache_pmd(addr);
-
-				if (!(old_pmd & S1_PFNMAP) && !(old_pmd & S1_SHARED) &&
-						(release & UNMAP_RELEASE_PAGE))
-					add_released_page_to_vspace(vs, ptov(stage1_phy_pte(old_pmd)));
+				if (!(old_pmd & S1_PFNMAP) && !(old_pmd & S1_SHARED))
+					add_release_page(vs, ptov(stage1_phy_pte(old_pmd)));
 			} else {
 				ptep = (pte_t *)ptov(stage1_pte_table_addr(*pmd));
-				stage1_unmap_pte_range(vs, ptep, addr, next, release);
-				if ((release & UNMAP_RELEASE_PAGE_TABLE) && (next - addr == S1_PMD_SIZE))
-					add_released_page_to_vspace(vs, (unsigned long)ptep);
+				stage1_unmap_pte_range(vs, ptep, addr, next, flags);
+				if (next - addr == S1_PMD_SIZE)
+					add_release_page(vs, (unsigned long)ptep);
 			}
 		}
 	} while (pmd++, addr = next, addr != end);
 }
 
 static int stage1_unmap_pud_range(struct vspace *vs,
-		unsigned long addr, unsigned long end, int release)
+		unsigned long addr, unsigned long end, int flags)
 {
 	unsigned long next;
 	pud_t *pud;
@@ -360,13 +358,16 @@ static int stage1_unmap_pud_range(struct vspace *vs,
 		next = stage1_pud_addr_end(addr, end);
 		if (!stage1_pud_none(*pud)) {
 			pmdp = (pmd_t *)ptov(stage1_pmd_table_addr(*pud));
-			stage1_unmap_pmd_range(vs, pmdp, addr, next, release);
-			if ((release & UNMAP_RELEASE_PAGE_TABLE) && (next - addr == S1_PUD_SIZE))
-				add_released_page_to_vspace(vs, (unsigned long)pmdp);
+			stage1_unmap_pmd_range(vs, pmdp, addr, next, flags);
+			if (next - addr == S1_PUD_SIZE)
+				add_release_page(vs, (unsigned long)pmdp);
 		}
 	} while (pud++, addr = next, addr != end);
 
 	flush_tlb_asid_all(vs->asid);
+
+	if (vs->notifier_ops && vs->notifier_ops->unmap_range)
+		vs->notifier_ops->unmap_range(vs, addr, end, flags);
 
 	return 0;
 }

@@ -15,11 +15,12 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
-#include <minos/vspace.h>
+#include <uspace/vspace.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/proc.h>
 
 #define PMA_RIGHT	(KOBJ_RIGHT_CTL | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_RWX)
 #define PMA_RIGHT_MASK	(KOBJ_RIGHT_CTL | KOBJ_RIGHT_MMAP | KOBJ_RIGHT_RWX)

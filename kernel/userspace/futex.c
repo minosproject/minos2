@@ -15,11 +15,12 @@
  */
 
 #include <minos/minos.h>
-#include <minos/vspace.h>
 #include <minos/mm.h>
 #include <minos/time.h>
 #include <minos/task.h>
 #include <minos/sched.h>
+#include <uspace/vspace.h>
+#include <uspace/proc.h>
 
 #define FUTEX_WAIT              0
 #define FUTEX_WAKE              1
@@ -139,7 +140,7 @@ long sys_futex(uint32_t __user *uaddr, int op, uint32_t val,
 		struct timespec __user *utime,
 		uint32_t __user *uaddr2, uint32_t val3)
 {
-	struct vspace *vs = &current_proc->vspace;
+	struct vspace *vs = current->vs;
 	struct timespec *ktime = NULL;
 	struct futex_queue *ftq;
 	struct futex *ft = NULL, *tmp;

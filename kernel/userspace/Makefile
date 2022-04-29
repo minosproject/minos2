@@ -17,4 +17,4 @@ obj-y	+= syscall.o
 obj-y	+= thread.o
 obj-y	+= uaccess.o
 obj-y	+= vspace.o
-
+obj-y	+= time.o

@@ -15,11 +15,12 @@
  */
 
 #include <minos/minos.h>
-#include <minos/syscall.h>
-#include <minos/kobject.h>
 #include <minos/console.h>
 #include <minos/time.h>
-#include <minos/poll.h>
+
+#include <uspace/poll.h>
+#include <uspace/syscall.h>
+#include <uspace/kobject.h>
 
 struct aarch64_syscall_reg {
 	unsigned long regs[8];

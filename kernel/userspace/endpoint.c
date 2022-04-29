@@ -15,12 +15,14 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
-#include <minos/poll.h>
-#include <minos/iqueue.h>
+#include <uspace/poll.h>
+#include <uspace/iqueue.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/vspace.h>
+#include <uspace/proc.h>
 
 #define EP_RIGHT_MASK	(KOBJ_RIGHT_MMAP | KOBJ_RIGHT_CTL)
 #define EP_RIGHT	(KOBJ_RIGHT_RW | KOBJ_RIGHT_CTL)

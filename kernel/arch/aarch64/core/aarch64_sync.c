@@ -114,6 +114,22 @@ static inline int da_is_write_fault(uint32_t esr)
 	return !!(esr & ESR_ELx_WNR);
 }
 
+static int __handle_user_page_fault(uint64_t addr, int is_write, unsigned long status)
+{
+	panic("Unsupport User Page Fault\n");
+
+	return -EFAULT;
+}
+weak_alias(__handle_user_page_fault, handle_user_page_fault);
+
+static int __handle_user_ia_fault(void)
+{
+	panic("Unsupport User IA Fault\n");
+
+	return -EFAULT;
+}
+weak_alias(__handle_user_ia_fault, handle_user_ia_fault);
+
 static int user_da_fault(gp_regs *regs, int ec, uint32_t esr)
 {
 	unsigned long fault_status;
@@ -156,7 +172,7 @@ static int user_da_fault(gp_regs *regs, int ec, uint32_t esr)
 	far = read_sysreg(ARM64_FAR);
 	is_write = da_is_write_fault(esr);
 
-	return handle_page_fault(far, is_write, fault_status);
+	return handle_user_page_fault(far, is_write, fault_status);
 }
 
 int user_ia_fault(gp_regs *regs, int ec, uint32_t esr)
@@ -165,9 +181,8 @@ int user_ia_fault(gp_regs *regs, int ec, uint32_t esr)
 
 	pr_err("User instruction abort pid:%d tid:%d ESR:0x%x IP:0x%x\n",
 		task->pid, task->tid, esr, regs->pc);
-	process_die();
 
-	return 0;
+	return handle_user_ia_fault();
 }
 
 int user_svc64(gp_regs *regs, int ec, uint32_t esr)

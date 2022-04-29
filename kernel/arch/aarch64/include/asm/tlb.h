@@ -1,7 +1,7 @@
 #ifndef __MINOS_ASM_TLB_H__
 #define __MINOS_ASM_TLB_H__
 
-#include <minos/vspace.h>
+#include <minos/mm.h>
 
 static inline void flush_tlb_asid_all(uint16_t asid)
 {

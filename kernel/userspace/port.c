@@ -15,12 +15,12 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
-#include <minos/poll.h>
-#include <minos/iqueue.h>
+#include <uspace/poll.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/iqueue.h>
 
 #include "kobject_copy.h"
 

@@ -4,7 +4,9 @@
 /*
  * refer to linux kernel timer code
  */
-#include <minos/time.h>
+#include <minos/list.h>
+#include <minos/types.h>
+#include <minos/spinlock.h>
 
 typedef void (*timer_func_t)(unsigned long);
 

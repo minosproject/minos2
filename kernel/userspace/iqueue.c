@@ -15,11 +15,13 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
 #include <minos/sched.h>
-#include <minos/poll.h>
+#include <uspace/poll.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/iqueue.h>
+#include <uspace/proc.h>
 
 #include "kobject_copy.h"
 
@@ -176,7 +178,7 @@ int iqueue_reply(struct iqueue *iqueue, right_t right,
 
 	if (fd > 0) {
 		task = (struct task *)imsg->data;
-		errno = send_handle(current_proc, task->proc, fd, fd_right);
+		errno = send_handle(current_proc, task_to_proc(task), fd, fd_right);
 	}
 
 	imsg->retcode = errno;

@@ -13,7 +13,6 @@
 #include <minos/init.h>
 #include <minos/arch.h>
 #include <minos/calltrace.h>
-#include <minos/time.h>
 #include <minos/preempt.h>
 #include <minos/os.h>
 #include <minos/hook.h>

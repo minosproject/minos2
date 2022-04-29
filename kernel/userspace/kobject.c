@@ -15,9 +15,9 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
 #include <minos/task.h>
-#include <minos/poll.h>
+#include <uspace/poll.h>
+#include <uspace/kobject.h>
 
 static kobject_create_cb kobj_create_cbs[KOBJ_TYPE_MAX];
 

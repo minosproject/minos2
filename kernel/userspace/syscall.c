@@ -17,13 +17,13 @@
 #include <minos/minos.h>
 #include <minos/irq.h>
 #include <minos/sched.h>
-#include <minos/vspace.h>
-#include <minos/proc.h>
 #include <minos/arch.h>
 #include <minos/console.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
-#include <minos/poll.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/poll.h>
+#include <uspace/vspace.h>
+#include <uspace/proc.h>
 
 void sys_sched_yield(void)
 {

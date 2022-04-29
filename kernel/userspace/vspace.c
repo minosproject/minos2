@@ -15,20 +15,19 @@
  */
 
 #include <minos/minos.h>
-#include <minos/vspace.h>
 #include <minos/mm.h>
 #include <asm/cpu_feature.h>
-#include <minos/proc.h>
-#include <minos/vspace.h>
-#include <minos/poll.h>
-#include <minos/uaccess.h>
+#include <uspace/proc.h>
+#include <uspace/vspace.h>
+#include <uspace/poll.h>
+#include <uspace/uaccess.h>
+#include <uspace/vspace.h>
 
 #define MAX_ASID		4096
 #define FIXED_SHARED_ASID	0
 #define FIXED_KERNEL_ASID	1
 #define USER_ASID_BASE		2
 
-static struct vspace host_vspace;
 static DECLARE_BITMAP(asid_bitmap, MAX_ASID);
 static DEFINE_SPIN_LOCK(asid_lock);
 static int max_asid;
@@ -57,29 +56,6 @@ static void free_asid(int asid)
 	clear_bit(asid, asid_bitmap);
 }
 
-static void release_vspace_pages(struct vspace *vs)
-{
-	struct page *page = vs->release_pages;
-	struct page *tmp;
-
-	while (page) {
-		tmp = page->next;
-		__free_pages(page);
-		page = tmp;
-	}
-
-	vs->release_pages = NULL;
-}
-
-void add_released_page_to_vspace(struct vspace *vs, unsigned long addr)
-{
-	struct page *page = addr_to_page(addr);
-
-	ASSERT(page != NULL);
-	page->next = vs->release_pages;
-	vs->release_pages = page;
-}
-
 void inc_vspace_usage(struct vspace *vs)
 {
 	atomic_inc(&vs->inuse);
@@ -103,102 +79,14 @@ void dec_vspace_usage(struct vspace *vs)
 		spin_unlock(&vs->lock);
 		return;
 	}
-
 	release_vspace_pages(vs);
 	spin_unlock(&vs->lock);
-}
-
-int create_host_mapping(unsigned long vir, unsigned long phy,
-		size_t size, unsigned long flags)
-{
-	int ret;
-
-	if (!IS_PAGE_ALIGN(vir) || !IS_PAGE_ALIGN(phy) ||
-			!IS_PAGE_ALIGN(size))
-		return -EINVAL;
-
-	spin_lock(&host_vspace.lock);
-	ret = arch_host_map(&host_vspace, __va(vir), __va(vir + size),
-			phy, flags | VM_HOST | VM_HUGE);
-	spin_unlock(&host_vspace.lock);
-
-	return ret;
-}
-
-int destroy_host_mapping(unsigned long vir, size_t size)
-{
-	int ret;
-
-	if (!IS_PAGE_ALIGN(vir) || !IS_PAGE_ALIGN(size))
-		return -EINVAL;
-
-	spin_lock(&host_vspace.lock);
-	ret = arch_host_unmap(&host_vspace, __va(vir),
-			__va(vir + size), UNMAP_RELEASE_NULL);
-	spin_unlock(&host_vspace.lock);
-
-	return ret;
-}
-
-int change_host_mapping(unsigned long vir, unsigned long phy,
-		unsigned long new_flags)
-{
-	int ret;
-
-	spin_lock(&host_vspace.lock);
-	ret = arch_host_change_map(&host_vspace, __va(vir),
-		       phy, new_flags | VM_HOST);
-	spin_unlock(&host_vspace.lock);
-
-	return ret;
-}
-
-unsigned long translate_va_to_pa(struct vspace *vs, unsigned long va)
-{
-	unsigned long addr;
-
-	spin_lock(&vs->lock);
-	addr = (unsigned long)arch_translate_va_to_pa(vs, va);
-	spin_unlock(&vs->lock);
-
-	return addr;
 }
 
 void *uva_to_kva(struct vspace *vs, unsigned long va,
 		size_t size, unsigned long right)
 {
 	return (void *)pa2va(translate_va_to_pa(vs, va));
-}
-
-void *io_remap(virt_addr_t vir, size_t size)
-{
-	size_t new_size;
-	unsigned long start, end;
-
-	end = PAGE_BALIGN(vir + size);
-	start = PAGE_ALIGN(vir);
-	new_size = end - vir;
-
-	if (!create_host_mapping(start, vir, new_size, VM_IO | VM_RW))
-		return (void *)ptov(vir);
-
-	return NULL;
-}
-
-int io_unmap(virt_addr_t vir, size_t size)
-{
-	unsigned long start, end;
-	int ret;
-
-	vir = __va(vir);
-	start = PAGE_ALIGN(vir);
-	end = PAGE_BALIGN(vir + size);
-
-	spin_lock(&host_vspace.lock);
-	ret = arch_host_unmap(&host_vspace, start, end, UNMAP_RELEASE_NULL);
-	spin_unlock(&host_vspace.lock);
-
-	return ret;
 }
 
 static inline int __map_process_memory(struct vspace *vs, unsigned long vaddr,
@@ -209,11 +97,11 @@ static inline int __map_process_memory(struct vspace *vs, unsigned long vaddr,
 #if defined(CONFIG_VIRT) && !defined(CONFIG_ARM_VHE)
 	ret = arch_guest_map(vs, vaddr, end, phy, flags);
 	if (ret)
-		arch_guest_unmap(vs, vaddr, end, UNMAP_RELEASE_PAGE_TABLE);
+		arch_guest_unmap(vs, vaddr, end, 0);
 #else
 	ret = arch_host_map(vs, vaddr, end, phy, flags);
 	if (ret)
-		arch_host_unmap(vs, vaddr, end, UNMAP_RELEASE_PAGE_TABLE);
+		arch_host_unmap(vs, vaddr, end, 0);
 #endif
 	return ret;
 }
@@ -264,7 +152,7 @@ int unmap_process_memory(struct process *proc, unsigned long vaddr, size_t size)
 	 */
 	spin_lock(&vs->lock);
 	inuse = atomic_read(&vs->inuse);
-	ret = arch_host_unmap(&proc->vspace, vaddr, vaddr + size, UNMAP_RELEASE_ALL);
+	ret = arch_host_unmap(&proc->vspace, vaddr, vaddr + size, 0);
 	asm volatile("ic ialluis" : : );
 	if (inuse == 0)
 		release_vspace_pages(vs);
@@ -449,7 +337,7 @@ unsigned long sys_mtrans(unsigned long virt)
 	if (!proc_can_vmctl(current_proc))
 		return -EPERM;
 
-	addr = translate_va_to_pa(&current_proc->vspace, virt);
+	addr = translate_va_to_pa(current->vs, virt);
 
 	return (addr == 0 ? -1 : addr);
 }
@@ -461,7 +349,7 @@ static int handle_page_fault_ipc(struct process *proc, unsigned long virt, int w
 	return process_page_fault(proc, virt, info);
 }
 
-int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
+int handle_user_page_fault(unsigned long virt, int write, unsigned long fault_type)
 {
 	struct process *proc = current_proc;
 	gp_regs *regs= current_user_regs;
@@ -484,6 +372,23 @@ int handle_page_fault(unsigned long virt, int write, unsigned long fault_type)
 	return -EFAULT;
 }
 
+int handle_user_ia_fault(void)
+{
+	process_die();
+
+	return 0;
+}
+
+static void user_unmap_range(struct vspace *vspace, unsigned long start,
+		unsigned long end, int flags)
+{
+
+}
+
+static struct mm_notifier_ops user_mm_notifier_ops = {
+	.unmap_range = user_unmap_range,
+};
+
 int vspace_init(struct process *proc)
 {
 	struct vspace *vs = &proc->vspace;
@@ -494,6 +399,8 @@ int vspace_init(struct process *proc)
 		return -ENOMEM;
 
 	vs->asid = allocate_asid();
+	vs->pdata = proc;
+	vs->notifier_ops = &user_mm_notifier_ops;
 
 	return 0;
 }
@@ -510,18 +417,8 @@ void vspace_deinit(struct process *proc)
 		free_asid(vs->asid);
 }
 
-int kernel_vspace_init(void)
+static int umm_init(void)
 {
-	struct vspace *vs = &host_vspace;
-
-	/*
-	 * init the host memory struct, the host will
-	 * use va->pa mapping, but the mmio address will
-	 * allocated a virtual range dynamicly
-	 */
-	spin_lock_init(&vs->lock);
-	vs->pgdp = (pgd_t *)arch_kernel_pgd_base();
-
 	max_asid = arch_get_asid_size();
 	pr_info("max asid %d\n", max_asid);
 	max_asid = max_asid > MAX_ASID ? MAX_ASID : max_asid;
@@ -534,3 +431,4 @@ int kernel_vspace_init(void)
 
 	return 0;
 }
+subsys_initcall(umm_init);

@@ -15,15 +15,16 @@
  */
 
 #include <minos/minos.h>
-#include <minos/kobject.h>
-#include <minos/uaccess.h>
 #include <minos/mm.h>
-#include <minos/vspace.h>
-#include <minos/sched.h>
-#include <minos/poll.h>
 #include <minos/task.h>
-#include <minos/handle.h>
-#include <minos/procinfo.h>
+#include <minos/sched.h>
+#include <uspace/poll.h>
+#include <uspace/handle.h>
+#include <uspace/procinfo.h>
+#include <uspace/kobject.h>
+#include <uspace/uaccess.h>
+#include <uspace/vspace.h>
+#include <uspace/proc.h>
 
 #include "kobject_copy.h"
 
@@ -428,22 +429,38 @@ DEFINE_KOBJECT(process, KOBJ_TYPE_PROCESS, process_create);
 
 static int process_task_create_hook(void *item, void *context)
 {
+	struct process *proc = (struct process *)context;
 	struct task *task = (struct task *)item;
-	struct process *proc = task->proc;
 
 	if (task->flags & TASK_FLAGS_KERNEL)
 		return 0;
 
+	task->vs = &proc->vspace;
 	task->pid = proc->pid;
 	task->state = TASK_STATE_WAIT_EVENT;
+
+	/*
+	 * will overide the task->pdata with the task_stat.
+	 */
 	get_and_init_ktask_stat(task);
+
+	return 0;
+}
+
+static int process_task_release_hook(void *item, void *context)
+{
+	struct task *task = (struct task *)item;
+
+	release_ktask_stat(task->tid);
 
 	return 0;
 }
 
 static int process_subsys_init(void)
 {
-	return register_hook(process_task_create_hook,
-			OS_HOOK_CREATE_TASK);
+	register_hook(process_task_release_hook, OS_HOOK_RELEASE_TASK);
+	register_hook(process_task_create_hook, OS_HOOK_CREATE_TASK);
+
+	return 0;
 }
 subsys_initcall(process_subsys_init);

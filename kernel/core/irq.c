@@ -22,7 +22,6 @@
 #include <minos/sched.h>
 #include <minos/of.h>
 #include <minos/current.h>
-#include <minos/poll.h>
 
 unsigned long cpu_irq_stack[NR_CPUS];
 

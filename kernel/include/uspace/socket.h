@@ -1,7 +1,7 @@
 #ifndef __MINOS_SOCKET_H__
 #define __MINOS_SOCKET_H__
 
-#include <minos/kobject.h>
+#include <uspace/kobject.h>
 
 struct socket {
 	int flags;

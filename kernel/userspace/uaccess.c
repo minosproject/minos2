@@ -15,13 +15,14 @@
  */
 
 #include <minos/minos.h>
-#include <minos/vspace.h>
+#include <uspace/vspace.h>
+#include <uspace/proc.h>
 
 int copy_string_from_user(char *dst, char __user *src, int max)
 {
 	int offset = (unsigned long)src - PAGE_ALIGN(src);
 	int copy_size, left = max, copied = 0;
-	struct vspace *vs = &current->proc->vspace;
+	struct vspace *vs = current->vs;
 	char *ksrc;
 
 	inc_vspace_usage(vs);
@@ -30,8 +31,7 @@ int copy_string_from_user(char *dst, char __user *src, int max)
 		copy_size = PAGE_SIZE - offset;
 		copy_size = copy_size > left ? left : copy_size;
 
-		ksrc = (void *)arch_translate_va_to_pa(&current->proc->vspace,
-				(unsigned long)src);
+		ksrc = (void *)arch_translate_va_to_pa(current->vs, (unsigned long)src);
 		if ((phy_addr_t)ksrc == INVALID_ADDR) {
 			copied = -EFAULT;
 			goto out;
@@ -129,12 +129,12 @@ out:
 
 int copy_from_user(void *dst, void __user *src, size_t size)
 {
-	return __copy_from_user(dst, &current->proc->vspace, src, size);
+	return __copy_from_user(dst, current->vs, src, size);
 }
 
 int copy_to_user(void __user *dst, void *src, size_t size)
 {
-	return __copy_to_user(&current->proc->vspace, dst, src, size);
+	return __copy_to_user(current->vs, dst, src, size);
 }
 
 int copy_user_to_user(struct vspace *vdst, void __user *dst,

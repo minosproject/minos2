@@ -76,6 +76,7 @@ void __wait_event(void *ev, int mode, uint32_t to)
 	task->state = TASK_STATE_WAIT_EVENT;
 	task->pend_state = TASK_STATE_PEND_OK;
 	task->wait_type = mode;
+	task->wait_event = ev;
 	task->delay = (to == -1 ? 0 : to);
 }
 

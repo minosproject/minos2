@@ -71,10 +71,11 @@ long iqueue_recv(struct iqueue *iqueue, void __user *data,
 	ret = kobject_copy_ipc_payload(current, imsg->data,
 			actual_data, actual_extra, 1, 0);
 	if (ret < 0) {
-		imsg->submit = 1;
+		imsg->retcode = ret;
 		smp_wmb();
+		imsg->submit = 1;
 
-		wake(&imsg->ievent, ret);
+		wake(&imsg->ievent, 0);
 		return -EAGAIN;
 	}
 

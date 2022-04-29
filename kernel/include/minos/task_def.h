@@ -72,12 +72,7 @@
 #define KWORKER_FLAG_MASK	0xffff
 #define KWORKER_TASK_RECYCLE	BIT(0)
 
-#define TASK_TIMEOUT_CLEAR	0x0
-#define TASK_TIMEOUT_REQUESTED	0x1
-#define TASK_TIMEOUT_TRIGGER	0x2
-
-#define TASK_REQ_FLUSH_TLB	(1 << 0)
-#define TASK_REQ_STOP		(1 << 1)
+#define TASK_WAIT_FOREVER	(0xfffffffe)
 
 typedef int (*task_func_t)(void *data);
 

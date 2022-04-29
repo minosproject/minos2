@@ -200,9 +200,10 @@ void task_sleep(uint32_t delay)
 	 */
 	local_irq_save(flags);
 	do_not_preempt();
-	task->delay = delay;
+	task->delay = (delay == (uint32_t)-1 ? TASK_WAIT_FOREVER : delay);
 	task->state = TASK_STATE_WAIT_EVENT;
 	task->wait_type = OS_EVENT_TYPE_TIMER;
+	task->wait_event = NULL;
 	local_irq_restore(flags);
 
 	sched();

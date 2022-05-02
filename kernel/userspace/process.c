@@ -34,7 +34,6 @@
 struct process *create_process(int pid, task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt)
 {
-	struct uproc_info *ui = get_uproc_info(pid);
 	struct process *proc = NULL;
 	struct task *task;
 	int ret;
@@ -58,7 +57,7 @@ struct process *create_process(int pid, task_func_t func,
 	/*
 	 * create a root task for this process
 	 */
-	task = create_task(ui->cmd, func, TASK_STACK_SIZE, usp, prio, aff,
+	task = create_task(NULL, func, TASK_STACK_SIZE, usp, prio, aff,
 			opt | TASK_FLAGS_NO_AUTO_START | TASK_FLAGS_ROOT, proc);
 	if (!task)
 		goto task_create_fail;
@@ -215,6 +214,13 @@ static int process_reply(struct kobject *kobj, right_t right, long token,
 	return iqueue_reply(&proc->iqueue, right, token, errno, fd, fd_right);
 }
 
+static int set_process_name(struct process *proc, char __user *str)
+{
+	struct task_stat *ts = get_task_stat(proc->root_task->tid);
+
+	return copy_string_from_user_safe(ts->cmd, str, PROC_NAME_SIZE);
+}
+
 static long do_process_ctl(struct process *proc, int req, unsigned long data)
 {
 	switch (req) {
@@ -228,6 +234,8 @@ static long do_process_ctl(struct process *proc, int req, unsigned long data)
 	case KOBJ_PROCESS_KILL:
 		kill_process(proc, (int)data);
 		return 0;
+	case KOBJ_PROCESS_SET_NAME:
+		return set_process_name(proc, (char __user *)data);
 	case KOBJ_PROCESS_SETUP_REG0:
 		arch_set_task_reg0(proc->root_task, data);
 		return 0;
@@ -369,21 +377,14 @@ struct process *create_root_process(task_func_t func, void *usp,
 		int prio, int aff, unsigned long opt)
 {
 	struct process *proc;
-	struct uproc_info *ui;
+	struct task_stat *ts;
 
-	/*
-	 * the pid of the root service will fix to 0, kernel
-	 * will only init the uproc_info of process 0.
-	 */
-	ui = get_uproc_info(0);
-	ui->valid = 1;
-	ui->pid = 0;
-	strcpy(ui->cmd, "pangu.srv");
-
-	proc = create_process(0, func, usp, prio, aff, opt);
+	proc = create_process(1, func, usp, prio, aff, opt);
 	if (!proc)
 		return NULL;
 
+	ts = get_task_stat(proc->root_task->tid);
+	strcpy(ts->cmd, "pangu.srv");
 	iqueue_init(&proc->iqueue, 0, &proc->kobj);
 	kobject_init(&proc->kobj, KOBJ_TYPE_PROCESS,
 			PROC_RIGHT_MASK, (unsigned long)proc);
@@ -432,17 +433,13 @@ static int process_task_create_hook(void *item, void *context)
 	struct process *proc = (struct process *)context;
 	struct task *task = (struct task *)item;
 
-	if (task->flags & TASK_FLAGS_KERNEL)
-		return 0;
+	if (!(task->flags & TASK_FLAGS_KERNEL)) {
+		task->vs = &proc->vspace;
+		task->pid = proc->pid;
+		task->state = TASK_STATE_WAIT_EVENT;
+	}
 
-	task->vs = &proc->vspace;
-	task->pid = proc->pid;
-	task->state = TASK_STATE_WAIT_EVENT;
-
-	/*
-	 * will overide the task->pdata with the task_stat.
-	 */
-	get_and_init_ktask_stat(task);
+	init_task_stat(task);
 
 	return 0;
 }
@@ -451,7 +448,7 @@ static int process_task_release_hook(void *item, void *context)
 {
 	struct task *task = (struct task *)item;
 
-	release_ktask_stat(task->tid);
+	release_task_stat(task->tid);
 
 	return 0;
 }

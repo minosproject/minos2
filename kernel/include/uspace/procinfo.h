@@ -6,11 +6,9 @@
 
 struct task;
 
-struct ktask_stat *get_ktask_stat(int tid);
-void release_ktask_stat(int tid);
-struct uproc_info *get_uproc_info(int pid);
-void init_ktask_stat(struct task *task);
-void update_ktask_stat(struct task *task);
-void get_and_init_ktask_stat(struct task *task);
+void init_task_stat(struct task *task);
+void release_task_stat(int tid);
+void update_task_stat(struct task *task);
+struct task_stat *get_task_stat(int tid);
 
 #endif

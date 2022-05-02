@@ -76,18 +76,19 @@ static struct process *create_new_process(char *name,
 		size_t elf_size, int flags)
 {
 	struct process *proc;
+	int pid;
+
+	pid = alloc_pid();
+	if (pid < 0)
+		return NULL;
 
 	proc = kzalloc(sizeof(struct process));
 	if (!proc)
 		return NULL;
 
-	proc->pinfo = alloc_procinfo(name, flags);
-	if (!proc->pinfo) {
-		kfree(proc);
-		return NULL;
-	}
-
-	proc->proc_handle = sys_create_process(proc->pinfo->pid,
+	proc->pid = pid;
+	proc->flags = flags;
+	proc->proc_handle = sys_create_process(proc->pid,
 			entry, PROCESS_STACK_BASE, -1, -1, flags);
 	if (proc->proc_handle <= 0) {
 		kfree(proc);
@@ -97,6 +98,9 @@ static struct process *create_new_process(char *name,
 	if (process_mm_init(proc, elf_pma, elf_base, elf_size))
 		goto err_out;
 
+	if (name)
+		kobject_ctl(proc->proc_handle, KOBJ_PROCESS_SET_NAME,
+				(unsigned long)name);
 	/*
 	 * add the process to the process tree.
 	 */
@@ -300,7 +304,7 @@ static int setup_process(struct process *proc, char *path,
 		pr_debug("argv address is %p\n", new_argv[i]);
 	}
 
-	stack = setup_auxv(proc, stack, proc->pinfo->flags);
+	stack = setup_auxv(proc, stack, proc->flags);
 	stack = setup_envp(stack);
 	stack = setup_argv(stack, argc, new_argv);
 
@@ -336,8 +340,7 @@ static int setup_process_handles(struct process *proc, char *buf,
 		htarget[i] = grant(proc->proc_handle,
 				hdesc[i].handle, hdesc[i].right);
 		if (htarget[i] <= 0) {
-			pr_err("grant %d to process %s failed\n",
-					hdesc[i].handle, proc->pinfo->cmd);
+			pr_err("grant %d to process failed\n", hdesc[i].handle);
 		}
 	}
 
@@ -353,7 +356,6 @@ static int setup_process_handles(struct process *proc, char *buf,
 	}
 
 	*tmp = 0;
-	pr_info("handle send to %s [%s]\n", proc->pinfo->cmd, buf);
 	kfree(htarget);
 
 	return 1;
@@ -402,7 +404,7 @@ struct process *load_ramdisk_process(char *path,
 		goto out_err;
 	}
 
-	ret = setup_process(proc, path, ret, argv, proc->pinfo->flags);
+	ret = setup_process(proc, path, ret, argv, proc->flags);
 	if (ret) {
 		pr_err("set up process failed\n");
 		goto out_err;
@@ -436,9 +438,8 @@ void self_init(int proc_handle, unsigned long vma_base, unsigned long vma_end)
 	 */
 	struct vma *vma;
 
-	self->pinfo = alloc_procinfo("pangu.srv", TASK_FLAGS_SRV);
-	assert(self->pinfo != NULL);
-	assert(self->pinfo->pid == 0);
+	self->pid = alloc_pid();
+	assert(self->pid == 1);
 
 	init_list(&self->vma_free);
 	init_list(&self->vma_used);
@@ -483,10 +484,10 @@ static void finish_wait(struct process * proc, long data0)
 	 */
 	list_for_each_entry_safe(entry, tmp, &parent->wait_head, list) {
 		if ((entry->type == PROC_WAIT_ANY) ||
-				(entry->pid == proc->pinfo->pid)) {
+				(entry->pid == proc->pid)) {
 			list_del(&entry->list);
 			kobject_reply_errcode(parent->proc_handle,
-					entry->token, proc->pinfo->pid);
+					entry->token, proc->pid);
 			kfree(entry);
 		}
 	}
@@ -522,7 +523,7 @@ static void __release_process(struct process *proc)
 	proc_handle = proc->proc_handle;
 	unregister_request_entry(proc_handle, proc);
 	proc_mm_deinit(proc);
-	release_procinfo(proc->pinfo);
+	release_pid(proc->pid);
 	kfree(proc);
 
 	/*
@@ -781,7 +782,7 @@ static int __do_execv(struct proto *proto, struct execv_request *er)
 	wakeup_process(new);
 	kfree(argv);
 
-	return new->pinfo->pid;
+	return new->pid;
 }
 
 static int do_execv(struct proto *proto, struct execv_request *er)
@@ -809,7 +810,7 @@ static long pangu_elf_info(struct process *proc, struct proto *proto, void *data
 	 * reply nvwa service.
 	 */
 	if (proc != nvwa_proc) {
-		pr_err("not nvwa proc %s\n", proc->pinfo->cmd);
+		pr_err("not nvwa proc\n");
 		return kobject_reply_errcode(proc->proc_handle, proto->token, -EPERM);
 	} else {
 		kobject_reply_errcode(proc->proc_handle, proto->token, 0);
@@ -853,7 +854,7 @@ static long pangu_waitpid(struct process *proc, struct proto *proto, void *data)
 
 	if (pid > 0) {
 		list_for_each_entry(child, &proc->children, clist) {
-			if (child->pinfo->pid == pid) {
+			if (child->pid == pid) {
 				found = 1;
 				break;
 			}
@@ -890,7 +891,6 @@ static syscall_hdl proc_syscall_handles[] = {
 	[PROTO_BRK_ID]		= pangu_brk,
 	[PROTO_PROCCNT_ID]	= pangu_proccnt,
 	[PROTO_TASKSTAT_ID]	= pangu_taskstat,
-	[PROTO_PROCINFO_ID]	= pangu_procinfo,
 	[PROTO_MPROTECT_ID]	= pangu_mprotect,
 	[PROTO_WAITPID_ID]	= pangu_waitpid,
 };

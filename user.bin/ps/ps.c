@@ -17,45 +17,45 @@
 #include <minos/proto.h>
 #include <minos/kobject.h>
 
+static char *get_task_name(struct task_stat *kts, int i)
+{
+	if (kts[i].cmd[0] != 0)
+		return kts[i].cmd;
+	return kts[kts[i].root_tid].cmd;
+}
+
 static void print_process_info(int argc, char **argv, int proccnt,
-		struct uproc_info *upi, struct ktask_stat *kts)
+		struct task_stat *kts)
 {
 	int i;
 
 	/*
 	 * TBD
 	 */
-	printf(" PID CMD \n");
+	printf(" TID  PID CMD \n");
 	for (i = 0; i < proccnt; i++) {
-		if (!upi[i].valid)
+		if (kts[i].tid == 0)
 			continue;
 
-		printf("%4d %s\n", upi[i].pid, upi[i].cmd);
+		printf("%4d %4d %s\n", kts[i].tid, kts[i].pid, get_task_name(kts, i));
 	}
 }
 
 int main(int argc, char **argv)
 {
 	int32_t proccnt = sys_proccnt();
-	int proc_handle, task_handle;
-	struct uproc_info *procinfo_addr;
-	struct ktask_stat *taskstat_addr;
+	int task_handle;
+	struct task_stat *taskstat_addr;
 
 	if (proccnt <= 0) {
 		printf("get procnt failed %d\n", proccnt);
 		return -ENOENT;
 	}
 
-	proc_handle = sys_procinfo_handle();
 	task_handle = sys_taskstat_handle();
-	if (proc_handle <= 0 || task_handle <= 0) {
-		printf("can not get handles %d %d\n", proc_handle, task_handle);
+	if (task_handle <= 0) {
+		printf("can not get handles %d\n", task_handle);
 		return -ENOENT;
-	}
-
-	if (kobject_mmap(proc_handle, &procinfo_addr, NULL)) {
-		printf("mmap procinfo mem failed\n");
-		return -EFAULT;
 	}
 
 	if (kobject_mmap(task_handle, &taskstat_addr, NULL)) {
@@ -66,7 +66,7 @@ int main(int argc, char **argv)
 	/*
 	 * print the process information and the task stat
 	 */
-	print_process_info(argc, argv, proccnt, procinfo_addr, taskstat_addr);
+	print_process_info(argc, argv, proccnt, taskstat_addr);
 
 	return 0;
 }

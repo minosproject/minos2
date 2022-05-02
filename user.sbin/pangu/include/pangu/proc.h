@@ -24,8 +24,6 @@
 #define PROC_WAIT_PID		1
 #define PROC_WAIT_ANY		2
 
-struct uproc_info;
-
 struct handle_desc {
 	int handle;
 	int right;
@@ -40,6 +38,8 @@ struct wait_entry {
 
 struct process {
 	int proc_handle;		// used to control the process.
+	int pid;
+	int flags;
 
 	struct list_head children;
 	struct list_head clist;
@@ -69,13 +69,10 @@ struct process {
 	 * is a children of init process.
 	 */
 	struct list_head list;
-
-	struct uproc_info *pinfo;
 };
 
-#define proc_pid(proc) ((proc)->pinfo->pid)
-#define proc_flags(proc) ((proc)->pinfo->flags)
-#define proc_name(proc) ((proc)->pinfo->cmd)
+#define proc_pid(proc) ((proc)->pid)
+#define proc_flags(proc) ((proc)->flags)
 
 typedef long (*syscall_hdl)(struct process *proc, struct proto *proto, void *data);
 
@@ -115,7 +112,7 @@ struct process *load_ramdisk_process(char *path,
 int register_request_entry(int handle, struct process *proc);
 int unregister_request_entry(int handle, struct process *proc);
 
-struct uproc_info *alloc_procinfo(char *path, int flags);
-void release_procinfo(struct uproc_info *pinfo);
+int alloc_pid(void);
+void release_pid(int pid);
 
 #endif

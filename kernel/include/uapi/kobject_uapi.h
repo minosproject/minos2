@@ -45,6 +45,7 @@ enum {
 	KOBJ_PROCESS_WAKEUP,
 	KOBJ_PROCESS_KILL,
 	KOBJ_PROCESS_GRANT_RIGHT,
+	KOBJ_PROCESS_SET_NAME,
 };
 
 struct process_create_arg {

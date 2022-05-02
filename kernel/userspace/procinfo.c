@@ -21,56 +21,51 @@
 #include <minos/atomic.h>
 #include <minos/task.h>
 #include <uspace/kobject.h>
+#include <uspace/proc.h>
 #include <uapi/procinfo_uapi.h>
 
-struct kobject *uproc_info_pma;
-struct kobject *ktask_stat_pma;
+struct kobject *task_stat_pma;
+static struct task_stat *task_stat_addr;
 
-static struct uproc_info *uproc_info_addr;
-static struct ktask_stat *ktask_stat_addr;
-
-struct uproc_info *get_uproc_info(int pid)
-{
-	ASSERT((pid >= 0) && (pid < OS_NR_TASKS));
-	return &uproc_info_addr[pid];
-}
-
-struct ktask_stat *get_ktask_stat(int tid)
+struct task_stat *get_task_stat(int tid)
 {
 	ASSERT((tid >= 0) && (tid < OS_NR_TASKS));
-	return &ktask_stat_addr[tid]; 
+	return &task_stat_addr[tid]; 
 }
 
-void release_ktask_stat(int tid)
+void release_task_stat(int tid)
 {
 	ASSERT((tid >= 0) && (tid < OS_NR_TASKS));
-	memset(&ktask_stat_addr[tid], 0, sizeof(struct ktask_stat));
+	memset(&task_stat_addr[tid], 0, sizeof(struct task_stat));
 }
 
-void init_ktask_stat(struct task *task)
+void init_task_stat(struct task *task)
 {
-	struct ktask_stat *kstat = (struct ktask_stat *)task->pdata;
+	struct task_stat *kstat;
+	struct process *proc;
 
-	kstat->valid = 1;
-	kstat->pid = task->pid;
+	if (task_stat_addr == NULL)
+		return;
+
+	kstat = get_task_stat(task->tid);
 	kstat->tid = task->tid;
-	kstat->start_ns = NOW();
-
+	kstat->pid = task->pid;
+	kstat->start_ns = task->start_ns;
 	kstat->state = task->state;
 	kstat->cpu = task->cpu;
 	kstat->prio = task->prio;
 	kstat->cpu_usage = 0x0;
+
+	if (!(task->flags & TASK_FLAGS_KERNEL)) {
+		proc = task_to_proc(task);
+		if (proc->root_task)
+			kstat->root_tid = proc->root_task->tid;
+	}
 }
 
-void get_and_init_ktask_stat(struct task *task)
+void update_task_stat(struct task *task)
 {
-	task->pdata = (void *)get_ktask_stat(task->tid);
-	init_ktask_stat(task);
-}
-
-void update_ktask_stat(struct task *task)
-{
-	struct ktask_stat *kstat = (struct ktask_stat *)task->pdata;
+	struct task_stat *kstat = get_task_stat(task->tid);
 
 	kstat->state = task->state;
 	kstat->cpu = task->cpu;
@@ -80,13 +75,25 @@ void update_ktask_stat(struct task *task)
 
 static int procinfo_switch_hook(void *item, void *data)
 {
-	update_ktask_stat((struct task *)item);
-	update_ktask_stat((struct task *)data);
+	update_task_stat((struct task *)item);
+	update_task_stat((struct task *)data);
 
 	return 0;
 }
 
-static int procinfo_init(void)
+static void init_kernel_task_stat(struct task *task)
+{
+	struct task_stat *ts;
+
+	if (!(task->flags & TASK_FLAGS_KERNEL))
+		return;
+
+	ts = get_task_stat(task->tid);
+	strcpy(ts->cmd, task->name);
+	init_task_stat(task);
+}
+
+int procinfo_init(void)
 {
 	struct pma_create_arg args;
 	uint32_t memsz;
@@ -97,36 +104,26 @@ static int procinfo_init(void)
 	 * allocate pma kobject for process and task info which
 	 * can shared to each process in these system.
 	 */
-	memsz = sizeof(struct ktask_stat) * OS_NR_TASKS;
+	memsz = sizeof(struct task_stat) * OS_NR_TASKS;
 	memsz = PAGE_BALIGN(memsz);
-	ktask_stat_addr = get_free_pages(memsz >> PAGE_SHIFT, GFP_USER);
-	ASSERT(ktask_stat_addr != NULL);
+	task_stat_addr = get_free_pages(memsz >> PAGE_SHIFT, GFP_USER);
+	ASSERT(task_stat_addr != NULL);
 	args.type = PMA_TYPE_PMEM;
 	args.right = KOBJ_RIGHT_RW;
 	args.consequent = 1;
-	args.start = vtop(ktask_stat_addr);
+	args.start = vtop(task_stat_addr);
 	args.size = memsz;
-	ret = create_new_pma(&ktask_stat_pma, &right, &args);
+	ret = create_new_pma(&task_stat_pma, &right, &args);
 	ASSERT(ret == 0);
-	memset(ktask_stat_addr, 0, memsz);
-	pr_info("ktask stat memory size 0x%x\n", memsz);
-
-	memsz = sizeof(struct uproc_info) * OS_NR_TASKS;
-	memsz = PAGE_BALIGN(memsz);
-	uproc_info_addr = get_free_pages(memsz >> PAGE_SHIFT, GFP_USER);
-	ASSERT(uproc_info_addr != NULL);
-	args.type = PMA_TYPE_PMEM;
-	args.right = KOBJ_RIGHT_RW;
-	args.consequent = 1;
-	args.start = vtop(uproc_info_addr);
-	args.size = memsz;
-	ret = create_new_pma(&uproc_info_pma, &right, &args);
-	ASSERT(ret == 0);
-	memset(uproc_info_addr, 0, memsz);
-	pr_info("uproc info memory size 0x%x\n", memsz);
+	memset(task_stat_addr, 0, memsz);
+	pr_info("task stat memory size 0x%x\n", memsz);
 
 	register_hook(procinfo_switch_hook, OS_HOOK_TASK_SWITCH);
 
+	/*
+	 * init the kernel task's task stat.
+	 */
+	os_for_all_task(init_kernel_task_stat);
+
 	return 0;
 }
-module_initcall(procinfo_init);

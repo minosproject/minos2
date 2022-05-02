@@ -386,22 +386,21 @@ long handle_user_page_fault(struct process *proc, uint64_t virt_addr,
 
 	ret = get_fault_addr(proc, start, &perm);
 	if (ret) {
-		pr_err("can not get fault address 0x%lx for %s\n",
-				virt_addr, proc_name(proc));
+		pr_err("can not get fault address 0x%lx for %d\n",
+				virt_addr, proc_pid(proc));
 		goto out;
 	}
 
 	if ((right & perm) != right) {
 		ret = -EPERM;
-		pr_err("%s page fault 0x%lx %ld\n", proc_name(proc),
-				virt_addr, info);
+		pr_err("P%d page fault 0x%lx %ld\n", proc_pid(proc), virt_addr, info);
 		goto out;
 	}
 
 	ret = sys_map(proc->proc_handle, -1, start, PAGE_SIZE, perm);
 	if (ret) {
-		pr_err("map memory for process %s at 0x%lxfailed\n",
-				proc_name(proc), virt_addr);
+		pr_err("map memory for process %d at 0x%lxfailed\n",
+				proc_pid(proc), virt_addr);
 	}
 
 out:

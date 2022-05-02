@@ -43,7 +43,7 @@ extern void ramdisk_init(unsigned long base, unsigned long end);
 extern void of_init(unsigned long base, unsigned long end);
 extern void pangu_main(void);
 extern void procfs_init(void);
-extern void procinfo_init(int max_proc, int u, int t);
+extern void procinfo_init(int max_proc, int t);
 
 static struct bootdata *bootdata;
 static char *rootfs_default = "rootfs.drv";
@@ -137,16 +137,15 @@ static void dump_boot_info(void)
                        bootdata->heap_start, bootdata->heap_end);
 
 	pr_info("sys max proc %d\n", bootdata->max_proc);
-	pr_info("uproc_info %d\n", bootdata->uproc_info_handle);
-	pr_info("ktask_stat %d\n", bootdata->ktask_stat_handle);
+	pr_info("task_stat %d\n", bootdata->task_stat_handle);
 }
 
-static int start_and_wait_process(struct process *proc)
+static int start_and_wait_process(const char *name, struct process *proc)
 {
 	struct proto proto;
 	int ret;
 
-	pr_info("Start %s and waitting ...\n", proc->pinfo->cmd);
+	pr_info("Start %s and waitting ...\n", name);
 	kobject_ctl(proc->proc_handle, KOBJ_PROCESS_WAKEUP, 0);
 
 	for (;;) {
@@ -160,12 +159,11 @@ static int start_and_wait_process(struct process *proc)
 	}
 
 	if (ret < 0) {
-		pr_info("Get response from %s fail %d\n", proc->pinfo->cmd, ret);
+		pr_info("Get response from %s fail %d\n", name, ret);
 		return ret;
 	}
 
-	pr_info("Get response from %s service %d\n",
-			proc->pinfo->cmd, proto.proto_id);
+	pr_info("Get response from %s service %d\n", name, proto.proto_id);
 	if (proto.proto_id != PROTO_IAMOK)
 		return -EPROTO;
 
@@ -190,7 +188,7 @@ static int load_nvwa_service(void)
 
 	kobject_ctl(nvwa_proc->proc_handle, KOBJ_PROCESS_GRANT_RIGHT, PROC_FLAGS_VMCTL);
 
-	return start_and_wait_process(nvwa_proc);
+	return start_and_wait_process("nvwa.srv", nvwa_proc);
 }
 
 static int load_chiyou_service(void)
@@ -262,7 +260,7 @@ static int load_fuxi_service(void)
 
 	fuxi_handle = handle;
 
-	return start_and_wait_process(fuxi_proc);
+	return start_and_wait_process("fuxi.srv", fuxi_proc);
 }
 
 static int load_rootfs_driver(void)
@@ -307,8 +305,7 @@ int main(int argc, char **argv)
 
 	ramdisk_init(bootdata->ramdisk_start, bootdata->ramdisk_end);
 	of_init(bootdata->dtb_start, bootdata->dtb_end);
-	procinfo_init(bootdata->max_proc, bootdata->uproc_info_handle,
-			bootdata->ktask_stat_handle);
+	procinfo_init(bootdata->max_proc, bootdata->task_stat_handle);
 	self_init(0, bootdata->vmap_start, bootdata->vmap_end);
 
 	/*

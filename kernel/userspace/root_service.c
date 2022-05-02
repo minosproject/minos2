@@ -30,8 +30,7 @@
 #include <uspace/elf.h>
 #include <uspace/proc.h>
 
-extern struct kobject *uproc_info_pma;
-extern struct kobject *ktask_stat_pma;
+extern struct kobject *task_stat_pma;
 extern struct process *create_root_process( task_func_t func,
 		void *usp, int prio, int aff, unsigned long opt);
 
@@ -336,16 +335,12 @@ static int setup_root_service_env(struct process *proc)
 		return ret;
 
 	/*
-	 * pass the uproc_info and ktask_stat pma handle to the
-	 * root service.
+	 * pass the task_stat pma handle to the root service.
 	 */
 	env->max_proc = OS_NR_TASKS;
-	env->uproc_info_handle = __alloc_handle(proc, uproc_info_pma,
-			KOBJ_RIGHT_RW | KOBJ_RIGHT_MMAP);
-	env->ktask_stat_handle = __alloc_handle(proc, ktask_stat_pma,
+	env->task_stat_handle = __alloc_handle(proc, task_stat_pma,
 			KOBJ_RIGHT_READ | KOBJ_RIGHT_MMAP);
-	ASSERT(env->uproc_info_handle > 0);
-	ASSERT(env->ktask_stat_handle > 0);
+	ASSERT(env->task_stat_handle > 0);
 
 	/*
 	 * map env page to a fix memory address
@@ -531,5 +526,9 @@ out:
 
 int init_task(void *data)
 {
+	extern int procinfo_init(void);
+
+	procinfo_init();
+
 	return load_root_service();
 }

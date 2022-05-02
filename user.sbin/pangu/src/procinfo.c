@@ -28,10 +28,8 @@
 
 static uint32_t proc_cnt;
 static unsigned char *bitmap;
-static struct uproc_info *g_pinfo;
 static int proc_bytes;
 
-static int uproc_info_handle;
 static int ktask_stat_handle;
 
 int8_t const ffs_one_table[256] = { 
@@ -53,29 +51,7 @@ int8_t const ffs_one_table[256] = {
         4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0  /* 0xF0 to 0xFF */
 };
 
-static struct uproc_info *pid_to_procinfo(int pid)
-{
-	return &g_pinfo[pid];
-}
-
-void procinfo_init(int max_proc, int uproc_handle, int ktask_handle)
-{
-	size_t memsize;
-
-	proc_cnt = max_proc;
-	uproc_info_handle = uproc_handle;
-	ktask_stat_handle = ktask_handle;
-	proc_bytes = proc_cnt / 8;
-
-	if (kobject_mmap(uproc_info_handle, &g_pinfo, &memsize))
-		exit(-EFAULT);
-
-	bitmap = kmalloc(proc_bytes);
-	assert(bitmap != NULL);
-	memset(bitmap, 0xff, proc_bytes);
-}
-
-static int alloc_pid(void)
+int alloc_pid(void)
 {
 	int i, j;
 
@@ -92,7 +68,23 @@ static int alloc_pid(void)
 	return -1;
 }
 
-static void release_pid(int pid)
+void procinfo_init(int max_proc, int ktask_handle)
+{
+	proc_cnt = max_proc;
+	ktask_stat_handle = ktask_handle;
+	proc_bytes = proc_cnt / 8;
+
+	bitmap = kmalloc(proc_bytes);
+	assert(bitmap != NULL);
+	memset(bitmap, 0xff, proc_bytes);
+
+	/*
+	 * PID 0 is for kernel.
+	 */
+	assert(alloc_pid() == 0);
+}
+
+void release_pid(int pid)
 {
 	int i = pid / 8;
 	int j = pid % 8;
@@ -100,45 +92,10 @@ static void release_pid(int pid)
 	bitmap[i] |= (1 << j);
 }
 
-void release_procinfo(struct uproc_info *pinfo)
-{
-	int pid = pinfo->pid;
-
-	memset(pinfo, 0, sizeof(struct uproc_info));
-	release_pid(pid);
-}
-
-struct uproc_info *alloc_procinfo(char *path, int flags)
-{
-	int pid = alloc_pid();
-	struct uproc_info *pinfo;
-
-	if (pid < 0)
-		return NULL;
-
-	pinfo = pid_to_procinfo(pid);
-	pinfo->valid = 1;
-	pinfo->pid = pid;
-	pinfo->flags = flags;
-	strncpy(pinfo->cmd, path, FILENAME_MAX - 1);
-	pinfo->valid = 1;
-
-	return pinfo;
-}
-
-long pangu_procinfo(struct process *proc, struct proto *proto, void *data)
-{
-	/*
-	 * TBD, read the kernel process info if need. Just send the handle
-	 * to the process, then it can read the information of each process
-	 * the information in the memory is read only to the target process.
-	 */
-	return kobject_reply_handle(proc->proc_handle, proto->token, uproc_info_handle, KR_RM);
-}
-
 long pangu_taskstat(struct process *proc, struct proto *proto, void *data)
 {
-	return kobject_reply_handle(proc->proc_handle, proto->token, ktask_stat_handle, KR_RM);
+	return kobject_reply_handle(proc->proc_handle,
+			proto->token, ktask_stat_handle, KR_RM);
 }
 
 long pangu_proccnt(struct process *proc, struct proto *proto, void *data)

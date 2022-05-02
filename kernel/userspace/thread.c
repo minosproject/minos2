@@ -22,6 +22,7 @@
 #include <uspace/proc.h>
 #include <uspace/kobject.h>
 #include <uspace/uaccess.h>
+#include <uspace/procinfo.h>
 
 void sys_exit(int errno)
 {
@@ -103,7 +104,6 @@ int sys_clone(int flags, void *stack, int *ptid, void *tls, int *ctid)
 		return ret;
 	}
 
-	task->pid = proc->pid;
 	arch_set_tls(task, (unsigned long)tls);
 	task_ready(task, 0);
 

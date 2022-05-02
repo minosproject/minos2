@@ -8,6 +8,7 @@ typedef int (*hook_func_t)(void *item, void *contex);
 enum hook_type {
 	OS_HOOK_CREATE_TASK = 0,
 	OS_HOOK_RELEASE_TASK,
+	OS_HOOK_TASK_SWITCH,
 	OS_HOOK_TASK_SWITCH_OUT,
 	OS_HOOK_TASK_SWITCH_TO,
 	OS_HOOK_ENTER_IRQ,

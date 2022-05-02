@@ -279,12 +279,9 @@ static struct task *pick_next_task(struct pcpu *pcpu)
 static void switch_to_task(struct task *cur, struct task *next)
 {
 	struct pcpu *pcpu = get_pcpu();
-	unsigned long now;
 
 	arch_task_sched_out(cur);
-	do_hooks((void *)cur, NULL, OS_HOOK_TASK_SWITCH_OUT);
-
-	now = NOW();
+	do_hooks(cur, NULL, OS_HOOK_TASK_SWITCH_OUT);
 
 	/* 
 	 * check the current task's state and do some action
@@ -321,13 +318,13 @@ static void switch_to_task(struct task *cur, struct task *next)
 	set_current_task(next);
 	pcpu->running_task = next;
 
-	arch_task_sched_in(next);
-	do_hooks((void *)next, NULL, OS_HOOK_TASK_SWITCH_TO);
-
 	next->ctx_sw_cnt++;
 	next->wait_event = 0;
-	next->start_ns = now;
+	next->start_ns = NOW();
 	smp_wmb();
+
+	do_hooks(next, NULL, OS_HOOK_TASK_SWITCH_TO);
+	arch_task_sched_in(next);
 }
 
 static void sched_tick_handler(unsigned long data)
@@ -404,6 +401,7 @@ static inline int __exception_return_handler(void)
 		goto task_run_again;
 
 	switch_to_task(task, next);
+	do_hooks(task, next, OS_HOOK_TASK_SWITCH);
 
 	return 0;
 

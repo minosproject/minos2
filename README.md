@@ -133,7 +133,7 @@ virtio-sd.img 链接: https://pan.baidu.com/s/1hMaQT20s7n8HNEZ-BqG7XQ 提取码:
        
    After qemu boot, use below command to boot minos2
    
-   # fatload virtio 0:1 0x40000000 kernel.bin;fatload virtio 0:1 0x43c00000 ramdisk.bin;fatload virtio 0:1 0x43e00000 qemu-arm64.dtb;booti 0x40000000 - 0x43e00000
+   # fatload virtio 0:1 0x40000000 kernel.bin;fatload virtio 0:1 0x44000000 ramdisk.bin;fatload virtio 0:1 0x43e00000 qemu-arm64.dtb;booti 0x40000000 - 0x43e00000
    ```
 
 Below is the boot log for Qemu
@@ -155,7 +155,7 @@ Out:   pl011@9000000
 Err:   pl011@9000000
 Net:   No ethernet found.
 Hit any key to stop autoboot:  0 
-=> fatload virtio 0:1 0x40000000 kernel.bin;fatload virtio 0:1 0x43c00000 ramdisk.bin;fatload virtio 0:1 0x43e00000 qemu-arm64.dtb;booti 0x40000000 - 0x43e00000
+=> fatload virtio 0:1 0x40000000 kernel.bin;fatload virtio 0:1 0x44000000 ramdisk.bin;fatload virtio 0:1 0x43e00000 qemu-arm64.dtb;booti 0x40000000 - 0x43e00000
 257656 bytes read in 4 ms (61.4 MiB/s)
 695304 bytes read in 1 ms (663.1 MiB/s)
 4143 bytes read in 1 ms (4 MiB/s)

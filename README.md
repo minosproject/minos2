@@ -122,14 +122,13 @@ virtio-sd.img 链接: https://pan.baidu.com/s/1hMaQT20s7n8HNEZ-BqG7XQ 提取码:
 
    ```
    # mkdir bin  (create a directory named bin first)
-   # cp out/rootfs/bin/ps.app out/rootfs/shell.app to $(virtio_ext_partition)/bin
+   # cp out/rootfs/bin/ps.app out/rootfs/bin/shell.app to $(virtio_ext_partition)/bin
    ```
 
 5. Run minos2 on Qemu
 
    ```bash
-   # qemu-system-aarch64 -nographic -machine virt -bios u-boot.bin -cpu cortex-a57 -smp 4 -m 2G \
-       -drive if=none,file=virtio-sd.img,format=raw,id=hd0 -device virtio-blk-device,drive=hd0
+   # qemu-system-aarch64 -nographic -bios u-boot.bin qemu-system-aarch64 -nographic -bios u-boot.bin -cpu cortex-a53 -machine type=virt -smp 4 -m 2G -machine virtualization=true -drive if=none,file=sd.img,format=raw,id=hd0 -device virtio-blk-device,drive=hd0 -device virtio-net-device,netdev=net0 -netdev user,id=net0,hostfwd=tcp:127.0.0.1:5555-:22
        
    After qemu boot, use below command to boot minos2
    

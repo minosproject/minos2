@@ -1,10 +1,10 @@
 # Minos2
 
-**Minos2 is a micro-kernel OS for ARMv8-a.**
+**Minos2 is a micro-kernel OS.**
 
 - [x] Multi-process
 - [x] SMP
-- [ ] Multi-thread
+- [x] Multi-thread
 - [x] Virtual memory management
 - [x] Libc (based on musl-libc)
 - [x] IPC
